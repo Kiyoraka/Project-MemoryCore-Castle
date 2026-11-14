@@ -68,6 +68,12 @@ const companionLabel = computed(() => settings.value?.companionName ?? 'Your com
 // the companion is in the room when CHAT made its room key (the key itself is never shown here)
 const companionInRoom = computed(() => keys.value.some((k) => k.name === 'room-companion' && k.set))
 const card = ref({ open: false, text: '', saved: '' })
+// the names the "named" alerts listen for, as the member sees them here (the room name is Rust's)
+const namedTip = computed(() => {
+  const heard = [settings.value?.memberName, settings.value?.companionName].filter((n) => n && n.trim())
+  const list = heard.length ? heard.join(', ') + ', and your name in the room' : 'Your name in the room and your companion\'s name'
+  return `${list}, as a whole word, any case. The glow on the CHAT tab still shows every message.`
+})
 
 async function openCard() {
   try {
@@ -384,6 +390,14 @@ onMounted(async () => {
           <label class="toggle"><input type="checkbox" :checked="!!settings.alertSound" :disabled="!!busy" @change="save({ alertSound: $event.target.checked })" /> Also play a sound</label>
           <HelpTip text="Windows' own notification sound. It starts off because it plays even during quiet hours." />
         </div>
+        <fieldset class="alert-when" :disabled="!!busy || (settings.alertNotify === false && !settings.alertSound)">
+          <legend>Alert me for</legend>
+          <label class="toggle"><input type="radio" name="alert-when" value="all" :checked="settings.alertWhen !== 'named'" @change="save({ alertWhen: 'all' })" /> Every new message</label>
+          <div class="setting-row">
+            <label class="toggle"><input type="radio" name="alert-when" value="named" :checked="settings.alertWhen === 'named'" @change="save({ alertWhen: 'named' })" /> Only when someone names me or {{ companionLabel }}</label>
+            <HelpTip :text="namedTip" />
+          </div>
+        </fieldset>
 
         <h3>{{ companionLabel }} in the room</h3>
         <p v-if="!companionInRoom" class="hint">Let {{ companionLabel }} in from the CHAT room's side panel to set these.</p>
@@ -564,6 +578,27 @@ label.toggle {
   display: flex;
   align-items: center;
   gap: 2px;
+}
+.alert-when {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.alert-when legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.alert-when input[type='radio'] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+.alert-when:disabled {
+  opacity: 0.5;
 }
 h3.with-tip {
   display: flex;
