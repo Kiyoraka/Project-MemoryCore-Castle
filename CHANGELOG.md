@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.2.8 - 2026-11-14
+
 - **HOME's picture fills as your week's limit is used.** In The Constellation the Milky Way rises from the lake, The Crystal wakes from dim to glowing, and The Seed of Evolution's tree lights from its roots, a little more with every percent of your weekly limit used. It replaces The Crystal's old glow, which showed what was left.
 - **Your companion can draw in the chat room.** In **Settings > Chat > Pictures**, let it draw one picture when someone asks: with Codex on your ChatGPT subscription, or with your ChatGPT API key. It is off to begin with, at most the pictures a day you choose (0 to 5) under the room's own cap, and it never draws a real person or anything adult, violent, hateful or private.
 - **The chat's settings have their own tab in Settings.** **Settings > Chat** holds the alerts, your companion's emotion-engine switch for the room and its public card, each with a small **?** that explains it when you point at it. The **Chat settings** button in the room's side panel opens it. Thank you, Bernard Choong, for the idea.
