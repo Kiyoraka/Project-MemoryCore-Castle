@@ -202,6 +202,15 @@ async function setMode(next) {
   }
 }
 
+// Her emotion engine colours how she talks here: only her traits' one-line manner, by audience.
+async function setRoomVoice(on) {
+  try {
+    settings.value = (await saveSettings({ ...settings.value, emotionRoomVoice: on })).settings
+  } catch (reason) {
+    refused.value = { kind: 'other', message: String(reason) }
+  }
+}
+
 // ---------- The door: a guide that opens by itself ----------
 
 const STEP = { done: '✓', wait: '…', todo: '' }
@@ -487,6 +496,8 @@ watch(() => props.visible, (on) => {
         </select>
         <p class="hint">{{ !haveCompanionKey ? `Switch on to let ${companion} enter, then choose a rule.` : mode === 'off' ? `${companion} listens without posting replies.` : mode === 'named' ? `${companion} replies when someone mentions its name.` : `${companion} may join the conversation on your usage, without sharing anything private.` }}</p>
         <p v-if="doorProblem" class="problem">{{ doorProblem }}</p>
+        <label v-if="haveCompanionKey" class="mode"><input type="checkbox" :checked="settings?.emotionRoomVoice !== false" @change="setRoomVoice($event.target.checked)" /> Let {{ companion }}'s emotion engine colour how it talks here</label>
+        <p v-if="haveCompanionKey" class="hint">Only how it sounds, never what it knows: its traits' one-line manner, and the ones meant for you only when it answers you.</p>
         <button v-if="haveCompanionKey" @click="card.open ? (card.open = false) : openCard()">{{ card.open ? 'Close the public card' : `${companion}'s public card` }}</button>
         <div v-if="card.open" class="card-edit">
           <p class="hint">All {{ companion }} may say about itself in the room. Nothing from your memory goes there.</p>

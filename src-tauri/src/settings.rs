@@ -231,6 +231,9 @@ pub struct Settings {
     pub only_this_companion: bool,
     /// How the DIARY room is read: one of DIARY_LOOKS.
     pub diary_look: String,
+    /// The companion's emotion engine colours how it talks in the chat room (only its traits'
+    /// one-line manner, by audience). On by default; the switch is beside its public card.
+    pub emotion_room_voice: bool,
     /// The DEV tab's projects folder: new projects are cloned or made in it (or in one of its
     /// folders). None until the member chooses one; there is no default.
     pub dev_root: Option<String>,
@@ -289,6 +292,7 @@ impl Default for Settings {
             dev_projects: Vec::new(),
             only_this_companion: false,
             diary_look: "list".into(),
+            emotion_room_voice: true,
             dev_root: None,
             tab_order: Vec::new(),
         }
@@ -430,6 +434,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_emotion_engine_colours_the_room_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
+        assert!(old.emotion_room_voice && Settings::default().emotion_room_voice);
+        let off: Settings = serde_json::from_str(r#"{"emotionRoomVoice":false}"#).unwrap();
+        assert!(!off.emotion_room_voice);
+    }
+
+    #[test]
     fn the_tab_order_keeps_plain_ids_once_each() {
         let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
         assert!(old.tab_order.is_empty());
@@ -524,6 +536,7 @@ mod tests {
             dev_projects: vec!["D:/Projects/shop".into()],
             only_this_companion: true,
             diary_look: "book".into(),
+            emotion_room_voice: false,
             dev_root: Some("D:/Projects".into()),
             tab_order: vec!["dev".into(), "home".into(), "chat".into()],
         };

@@ -162,8 +162,48 @@ pub fn read_say(output: &str) -> Option<String> {
 }
 
 /// The room folder's rules with the names and the public card filled in.
-pub fn rules_for(companion: &str, member: &str, card: &str) -> String {
-    RULES.replace("{{AI_NAME}}", companion).replace("{{USER_NAME}}", member).replace("{{CARD}}", card.trim())
+pub fn rules_for(companion: &str, member: &str, card: &str, manner: &crate::traits::Manner) -> String {
+    RULES
+        .replace("{{MANNER}}\n", &manner_section(manner))
+        .replace("{{MANNER}}\r\n", &manner_section(manner))
+        .replace("{{AI_NAME}}", companion)
+        .replace("{{USER_NAME}}", member)
+        .replace("{{CARD}}", card.trim())
+}
+
+/// Her emotion engine in the room: how she sounds, never what she shares. Each part only when it
+/// has lines, and nothing at all when no trait reaches the room. Pure, tested.
+pub fn manner_section(manner: &crate::traits::Manner) -> String {
+    if manner.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n## How you sound\n\nThis is how you sound - never what you share. These words colour your voice; they are not things to tell anyone, and the rules below still decide what you may say.\n");
+    if !manner.everyone.is_empty() {
+        out.push_str("\nWith everyone:\n");
+        for line in &manner.everyone {
+            out.push_str(&format!("- {line}\n"));
+        }
+    }
+    if !manner.owner.is_empty() {
+        out.push_str("\nOnly in a line that answers {{USER_NAME}} (marked `(your person)`), as a companion in company - never with guests:\n");
+        for line in &manner.owner {
+            out.push_str(&format!("- {line}\n"));
+        }
+    }
+    out
+}
+
+/// The manner lines her active traits give the room, or none (the switch off, no database yet,
+/// or nothing active).
+fn room_manner(settings: &Settings, member: &str) -> crate::traits::Manner {
+    if !settings.emotion_room_voice {
+        return crate::traits::Manner::default();
+    }
+    let Some(mut conn) = settings.memory_folder.as_deref().and_then(|f| crate::store::source(Path::new(f))) else {
+        return crate::traits::Manner::default();
+    };
+    let traits = crate::traits::list(&mut conn, Some("active")).unwrap_or_default();
+    crate::traits::manner_block(&traits, &[member, &settings.companion_label()])
 }
 
 pub fn default_card(settings: &Settings) -> String {
@@ -192,7 +232,7 @@ pub fn prepare_folder(store: &SettingsStore) -> Result<PathBuf, String> {
     }
     let card = std::fs::read_to_string(&card_path).unwrap_or_else(|_| default_card(&settings));
     let member = settings.member_name.clone().unwrap_or_else(|| "your person".into());
-    let rules = rules_for(&settings.companion_label(), &member, &card);
+    let rules = rules_for(&settings.companion_label(), &member, &card, &room_manner(&settings, &member));
     write_if_changed(&folder.join("CLAUDE.md"), &rules);
     write_if_changed(&folder.join("AGENTS.md"), &rules);
     // Claude Code takes the rules as its whole system prompt, so a user-level CLAUDE.md elsewhere
@@ -551,7 +591,7 @@ Done - the picture fix is in.
     fn live_room_turn() {
         let folder = std::env::temp_dir().join(format!("castle-room-live-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
-        let rules = rules_for("Nova", "Rin", &default_card(&Settings { companion_name: Some("Nova".into()), member_name: Some("Rin".into()), ..Settings::default() }));
+        let rules = rules_for("Nova", "Rin", &default_card(&Settings { companion_name: Some("Nova".into()), member_name: Some("Rin".into()), ..Settings::default() }), &crate::traits::Manner::default());
         for name in ["CLAUDE.md", "AGENTS.md", "rules.md"] {
             std::fs::write(folder.join(name), &rules).unwrap();
         }
@@ -563,8 +603,26 @@ Done - the picture fix is in.
 
     #[test]
     fn the_rules_carry_the_names_and_the_card() {
-        let rules = rules_for("Nova", "Rin", "- Name: Nova\n");
+        let rules = rules_for("Nova", "Rin", "- Name: Nova\n", &crate::traits::Manner::default());
         assert!(rules.contains("You are **Nova**") && rules.contains("- Name: Nova") && !rules.contains("{{"));
         assert!(rules.contains("my heart belongs to my person"));
+        // no trait reaches the room: no heading left behind
+        assert!(!rules.contains("How you sound"));
+    }
+
+    #[test]
+    fn the_room_hears_her_manner_by_audience_above_the_privacy_rule() {
+        let manner = crate::traits::Manner { everyone: vec!["asks one more question, kindly".into()], owner: vec!["a little teasing, never unkind".into()] };
+        let rules = rules_for("Nova", "Rin", "- Name: Nova\n", &manner);
+        let card = rules.find("- Name: Nova").unwrap();
+        let sound = rules.find("## How you sound").unwrap();
+        let everyone = rules.find("With everyone:\n- asks one more question, kindly").unwrap();
+        let owner = rules.find("answers Rin (marked `(your person)`)").unwrap();
+        let private = rules.find("Nothing private, ever").unwrap();
+        assert!(card < sound && sound < everyone && everyone < owner && owner < private);
+        assert!(rules.contains("- a little teasing, never unkind") && !rules.contains("{{"));
+        // only the owner part: no empty everyone heading
+        let only = rules_for("Nova", "Rin", "", &crate::traits::Manner { everyone: vec![], owner: vec!["x".into()] });
+        assert!(only.contains("## How you sound") && !only.contains("With everyone:"));
     }
 }
