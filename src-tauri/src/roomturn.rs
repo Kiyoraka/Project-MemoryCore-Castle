@@ -641,6 +641,9 @@ Done - the picture fix is in.
         assert!(rules.contains("my heart belongs to my person"));
         // no trait reaches the room: no heading left behind
         assert!(!rules.contains("How you sound"));
+        // a flirty side for everyone is the member's choice, and its limits never move
+        assert!(rules.contains("Unless your person gave you a flirty side for everyone"));
+        assert!(rules.contains("never explicit, never sexual, never pushing, never with anyone who seems young"));
     }
 
     #[test]

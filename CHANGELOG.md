@@ -4,6 +4,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- **A flirty side, if you give it one.** Give your companion a flirty or playful trait for **Everyone** on PROFILE, and it may flirt lightly with others in the chat room: only words, never explicit, and it stops the moment anyone asks. Set the trait to **Only you** and it flirts with you alone.
 ## 0.2.6 - 2026-11-14
 
 - **Your companion never answers itself in the chat room.** The room now calls a member's companion by its own name, with its owner shown apart. Castle knows its companion's own lines by that name and owner together (or by the line itself), so in Joins in it no longer mistakes its own words for someone else's.
