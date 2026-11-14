@@ -4,7 +4,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
-- **CHAT's SETTINGS tab, tidier.** Each setting has a small **?** that explains it when you point at it, instead of a long paragraph. Your companion's emotion-engine switch and its public card moved there from the side panel.
+- **The chat's settings have their own tab in Settings.** **Settings > Chat** holds the alerts, your companion's emotion-engine switch for the room and its public card, each with a small **?** that explains it when you point at it. The **Chat settings** button in the room's side panel opens it. Thank you, Bernard Choong, for the idea.
 
 ## 0.2.7 - 2026-11-14
 

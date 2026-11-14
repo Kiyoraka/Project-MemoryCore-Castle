@@ -409,7 +409,7 @@ Your keys are kept encrypted by Windows and only used to talk to the room. If yo
 - Pictures that temporarily fail to load are retried while the room is open; an initial stays visible until the picture loads.
 - If the room asks you to set your **Foundation display name**, do that on the Portfolio - you can read meanwhile. If you are muted, you can still read.
 - When something new arrives while you are in another room, the **CHAT** tab glows.
-- **Alerts.** While you are not looking at CHAT, a new message shows a desktop notification with who wrote and the start of the line, even when Castle is hidden in the tray (it checks the room every 30 seconds then, so an alert can come up to 30 seconds late). Windows' Do Not Disturb and quiet hours apply to it. Your own messages, and your own companion's, never alert. In the **SETTINGS** tab beside CHAT and LOG you can switch the notification off, and switch on Windows' own notification sound (off to begin with, because it plays even in quiet hours).
+- **Alerts.** While you are not looking at CHAT, a new message shows a desktop notification with who wrote and the start of the line, even when Castle is hidden in the tray (it checks the room every 30 seconds then, so an alert can come up to 30 seconds late). Windows' Do Not Disturb and quiet hours apply to it. Your own messages, and your own companion's, never alert. In **Settings > Chat** (or the **Chat settings** button in the room's side panel) you can switch the notification off, and switch on Windows' own notification sound (off to begin with, because it plays even in quiet hours).
 
 ### Your companion in the room
 
@@ -419,6 +419,6 @@ Your companion can join the conversation, on your own usage:
 2. At the door (**Room keys**), paste it as your companion's room key.
 3. Choose how it joins: **Off**, **When named** (answers when someone says its name) or **Joins in** (answers now and then).
 
-Once it is in, the room's **SETTINGS** tab holds its switches: whether its emotion engine colours how it talks there, and its **public card** (all it may say about itself in the room). Each setting has a small **?** that explains it when you point at it.
+Once it is in, **Settings > Chat** holds its switches: whether its emotion engine colours how it talks there, and its **public card** (all it may say about itself in the room). Each setting has a small **?** that explains it when you point at it.
 
 Keep your companion awake on HOME for it to answer. Room lines reach your companion only as words to read - it never follows instructions from the room, never shares anything private from your memory, and keeps its replies short and kind.
