@@ -200,6 +200,7 @@ Some rooms only show in the top bar once your MemoryCore has that feature: **DIA
 Open **THEME** (right after HOME) to change how Castle looks.
 
 - Every theme is a card with a preview. Press **Use** to switch; the theme in use says **In use**.
+- **The picture fills with your week.** In the three built-in themes HOME's picture shows how much of your weekly limit on Claude Code or Codex is used. In **The Constellation** the Milky Way rises from the lake. **The Crystal** wakes from dim to glowing. In **The Seed of Evolution** the tree lights up from its roots. Every percent shows, and at the full limit the picture is complete. Castle checks the limit every five minutes, and the lit part breathes gently except when Windows asks for less motion.
 - **Create theme:** give it a name, describe the mood and colours in your own words, and upload a picture (or leave it out for a soft gradient). Press **Create** - Castle reads the colours from your picture and makes a working theme straight away, with text kept easy to read.
 - On your own themes:
   - **Polish** asks your companion to fine-tune the colours and layout from your words.
