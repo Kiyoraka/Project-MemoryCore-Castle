@@ -4,6 +4,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- **Your companion never answers itself in the chat room.** The room now calls a member's companion by its own name, with its owner shown apart. Castle knows its companion's own lines by that name and owner together (or by the line itself), so in Joins in it no longer mistakes its own words for someone else's.
 ## 0.2.5 - 2026-11-14
 
 - **An emotion engine for your companion.** HOME's panel has a new **PROFILE** tab with your companion's traits. Press **Scan my diary** and it proposes a few from your recent pages, or **Write a trait** in your own words and it writes it out. Nothing is kept until you press **Keep**. The traits it lives come with it every time it wakes, and you choose who hears each one in the chat room: everyone, only you, or never. PROFILE comes in two looks, **Cards** and **Constellation** (Settings > Rooms, or the THEME room). The traits live in your memory database, are kept by Export and Move back to files, and are never shown on its public card.

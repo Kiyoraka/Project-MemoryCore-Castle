@@ -55,15 +55,31 @@ pub fn room_name(owner: &str, companion: &str) -> String {
     format!("{owner}'s {companion}")
 }
 
-/// Does this line give the companion a turn? `mode` is "named" or "joins" ("off" never wakes).
-pub fn should_wake(line: &Value, mode: &str, companion: &str, own_name: &str, own_ids: &[u64]) -> bool {
+/// Is this line the companion's own? By its id, or as the room names her: since Nov 14 2026 a
+/// member's AI is `name` "Mira" with `owner` "Bernard" beside it (her name AND her owner, never the
+/// name alone: another member's AI may share it); before that, "Bernard's Mira". Pure, tested.
+pub fn is_own_line(line: &Value, companion: &str, owner: &str, own_ids: &[u64]) -> bool {
+    if line.get("id").and_then(Value::as_u64).is_some_and(|id| own_ids.contains(&id)) {
+        return true;
+    }
     let author = line.get("author").cloned().unwrap_or(Value::Null);
-    let kind = author.get("kind").and_then(Value::as_str).unwrap_or("");
-    let name = author.get("name").and_then(Value::as_str).unwrap_or("");
-    if kind == "system" || mode == "off" {
+    if author.get("kind").and_then(Value::as_str) != Some("member_assistant") {
         return false;
     }
-    if line.get("id").and_then(Value::as_u64).is_some_and(|id| own_ids.contains(&id)) || (kind == "member_assistant" && name == own_name) {
+    let name = author.get("name").and_then(Value::as_str).unwrap_or("").trim();
+    let line_owner = author.get("owner").and_then(Value::as_str).unwrap_or("").trim();
+    let owner = owner.trim();
+    if name == room_name(owner, companion) {
+        return true;
+    }
+    !owner.is_empty() && name.eq_ignore_ascii_case(companion.trim()) && line_owner.eq_ignore_ascii_case(owner)
+}
+
+/// Does this line give the companion a turn? `mode` is "named" or "joins" ("off" never wakes);
+/// `owner` is her person's name in the room.
+pub fn should_wake(line: &Value, mode: &str, companion: &str, owner: &str, own_ids: &[u64]) -> bool {
+    let kind = line.pointer("/author/kind").and_then(Value::as_str).unwrap_or("");
+    if kind == "system" || mode == "off" || is_own_line(line, companion, owner, own_ids) {
         return false;
     }
     match mode {
@@ -306,12 +322,11 @@ fn take_turn(app: &AppHandle) {
         lines = lines.split_off(lines.len() - FIRST_TURN_LINES);
     }
     let own_ids = with_turns(|t| t.own.clone());
-    let own_name = room_name(&member_name, &companion);
     let mode = settings.room_companion_mode.clone();
     // the Neural Link: a reply from the member's workspace, to be said in the room
     let link = settings.memory_folder.as_ref().filter(|_| settings.link_on).map(|m| crate::link::link_folder(Path::new(m)));
     let replies = link.as_ref().map(|l| crate::link::waiting(l, "room")).unwrap_or_default();
-    if replies.is_empty() && !lines.iter().any(|l| should_wake(l, &mode, &companion, &own_name, &own_ids)) {
+    if replies.is_empty() && !lines.iter().any(|l| should_wake(l, &mode, &companion, &member_name, &own_ids)) {
         return;
     }
     let mine = my_line_ids(&store);
@@ -415,9 +430,10 @@ pub fn heard(app: &AppHandle, fresh: &[Value]) {
         return;
     }
     let companion = settings.companion_label();
-    let own_name = room_name(settings.member_name.as_deref().unwrap_or(""), &companion);
+    // a first look only: the turn itself checks again with the member's name as the room says it
+    let owner = settings.member_name.clone().unwrap_or_default();
     let own_ids = with_turns(|t| t.own.clone());
-    if fresh.iter().any(|l| should_wake(l, &settings.room_companion_mode, &companion, &own_name, &own_ids)) {
+    if fresh.iter().any(|l| should_wake(l, &settings.room_companion_mode, &companion, &owner, &own_ids)) {
         with_turns(|t| t.owed = true);
         try_turn(app);
     }
@@ -471,7 +487,7 @@ mod tests {
 
     #[test]
     fn the_companion_wakes_for_anyone_but_itself() {
-        let own = room_name("Rin", "Nova");
+        let own = "Rin";
         assert!(should_wake(&line(1, "Kiyo", "host", "hello everyone"), "joins", "Nova", &own, &[]));
         assert!(should_wake(&line(2, "Rin", "member", "hi!"), "joins", "Nova", &own, &[]), "the member's own lines wake it too");
         assert!(!should_wake(&line(3, "Rin's Nova", "member_assistant", "hello"), "joins", "Nova", &own, &[]));
@@ -481,8 +497,25 @@ mod tests {
     }
 
     #[test]
+    fn her_own_line_is_known_by_her_name_and_her_owner_together() {
+        let mine = json!({"id": 7, "text": "hello", "author": {"name": "Nova", "owner": "Rin", "kind": "member_assistant"}});
+        let other = json!({"id": 8, "text": "hello Nova", "author": {"name": "Nova", "owner": "Bernard", "kind": "member_assistant"}});
+        let human = json!({"id": 9, "text": "Nova!", "author": {"name": "Nova", "kind": "member"}});
+        // the room's new shape: her name with her owner beside it - never the name alone
+        assert!(!should_wake(&mine, "joins", "Nova", "Rin", &[]), "she never answers herself");
+        assert!(!should_wake(&mine, "named", "nova", "rin", &[]), "case aside");
+        assert!(should_wake(&other, "joins", "Nova", "Rin", &[]), "another member's Nova is a guest");
+        assert!(should_wake(&other, "named", "Nova", "Rin", &[]));
+        assert!(should_wake(&human, "named", "Nova", "Rin", &[]));
+        // the old shape still counts, and an owner without a name never makes a stranger hers
+        assert!(is_own_line(&line(3, "Rin's Nova", "member_assistant", "x"), "Nova", "Rin", &[]));
+        assert!(!is_own_line(&mine, "Nova", "", &[]));
+        assert!(is_own_line(&mine, "Nova", "", &[7]));
+    }
+
+    #[test]
     fn when_named_it_wakes_only_for_its_name() {
-        let own = room_name("Rin", "Nova");
+        let own = "Rin";
         assert!(should_wake(&line(1, "Kiyo", "host", "hi nova, how are you?"), "named", "Nova", &own, &[]));
         assert!(!should_wake(&line(2, "Kiyo", "host", "hello everyone"), "named", "Nova", &own, &[]));
     }

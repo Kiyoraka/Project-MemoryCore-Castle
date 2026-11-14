@@ -26,3 +26,14 @@ describe('room presence is explicit and respects companion admission', () => {
     for (const status of ['online', 'here', 'active']) expect(roomPresenceState({ status }, { fresh: true })).toBe(status)
   })
 })
+
+describe('the room says a member AI by her own name, owner apart (Nov 14 2026)', () => {
+  it('knows the own companion by owner and shows the owner on hover', async () => {
+    const { roomPresenceState: state, speakerPresentation } = await import('./roomchat.js')
+    const me = { name: 'Bernard', kind: 'member' }
+    const mira = { name: 'Mira', owner: 'Bernard', kind: 'member_assistant', status: 'online' }
+    expect(state(mira, { me, fresh: true, enabled: false })).toBe('disabled')
+    expect(state({ ...mira, owner: 'Rin' }, { me, fresh: true })).toBe('online')
+    expect(speakerPresentation(mira)).toEqual({ name: 'Mira', owner: 'Bernard', title: 'Master: Bernard' })
+  })
+})

@@ -7,7 +7,7 @@ export const isAi = (author) => AI_KINDS.includes(author?.kind)
 // Presence is not proof that this Castle still admits its companion: revoked keys can
 // leave rows behind. Never interpret an unknown/stale status as online.
 export function roomPresenceState(row, { me = null, companion = null, enabled = false, verified = false, fresh = false } = {}) {
-  const owner = String(row.ownerName || String(row.name ?? '').match(/^(.+)['\u2019]s\s+(.+)$/)?.[1] || '').trim()
+  const owner = String(row.owner || row.ownerName || String(row.name ?? '').match(/^(.+)['\u2019]s\s+(.+)$/)?.[1] || '').trim()
   const own = isAi(row) && ((companion?.name && row.name === companion.name && row.kind === companion.kind) || (me?.name && owner === me.name))
   if (own && !enabled) return 'disabled'
   if (own && !verified) return 'unknown'
@@ -38,7 +38,7 @@ export function speakerPresentation(author, hostName = '') {
   if (!isAi(author)) return { name: raw, owner: '', title: '' }
   const pair = raw.match(/^(.+)['’]s\s+(.+)$/)
   const name = String(author?.assistantName || pair?.[2] || raw).trim()
-  const owner = String(author?.ownerName || pair?.[1] || (author?.kind === 'assistant' ? hostName : '')).trim()
+  const owner = String(author?.owner || author?.ownerName || pair?.[1] || (author?.kind === 'assistant' ? hostName : '')).trim()
   return { name, owner, title: owner ? `Master: ${owner}` : 'Companion' }
 }
 
