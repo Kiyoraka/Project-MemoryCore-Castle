@@ -28,7 +28,7 @@ const lines = ref([])
 const seen = ref([]) // who has read how far (the ticks)
 const myIds = ref([]) // the lines Castle posted for the member
 const faces = ref({}) // avatar token -> picture
-const tab = ref('chat') // CHAT | LOG
+const tab = ref('chat') // CHAT | LOG | SETTINGS
 const readProblem = ref('')
 const faceLine = ref('')
 const displayName = ref('')
@@ -203,6 +203,15 @@ async function setMode(next) {
 }
 
 // Her emotion engine colours how she talks here: only her traits' one-line manner, by audience.
+// CHAT > SETTINGS: the chat alerts (alertNotify on by default, alertSound off)
+async function setAlert(name, on) {
+  try {
+    settings.value = (await saveSettings({ ...settings.value, [name]: on })).settings
+  } catch (reason) {
+    refused.value = { kind: 'other', message: String(reason) }
+  }
+}
+
 async function setRoomVoice(on) {
   try {
     settings.value = (await saveSettings({ ...settings.value, emotionRoomVoice: on })).settings
@@ -437,6 +446,7 @@ watch(() => props.visible, (on) => {
         <div class="tabs">
           <button :class="{ on: tab === 'chat' }" @click="tab = 'chat'">CHAT</button>
           <button :class="{ on: tab === 'log' }" @click="tab = 'log'">LOG</button>
+          <button :class="{ on: tab === 'settings' }" @click="tab = 'settings'">SETTINGS</button>
         </div>
         <p v-if="readProblem" class="problem">{{ readProblem }}</p>
         <div v-show="tab === 'chat'" ref="scroller" class="lines">
@@ -467,7 +477,13 @@ watch(() => props.visible, (on) => {
           <pre v-if="turnLog" class="turns">{{ turnLog }}</pre>
           <p v-else class="hint">No turns yet.</p>
         </div>
-        <form class="say" @submit.prevent="send">
+        <div v-show="tab === 'settings'" class="lines chat-settings">
+          <h4>Alerts</h4>
+          <label class="mode"><input type="checkbox" :checked="settings?.alertNotify !== false" :disabled="!settings" @change="setAlert('alertNotify', $event.target.checked)" /> Show a desktop notification when a new message arrives</label>
+          <label class="mode"><input type="checkbox" :checked="!!settings?.alertSound" :disabled="!settings" @change="setAlert('alertSound', $event.target.checked)" /> Also play a sound</label>
+          <p class="hint">Only while you are not looking at CHAT. The notification names who wrote and shows the start of the line (worth knowing during a screen share), and Windows' Do Not Disturb and quiet hours apply to it. The sound is Windows' own notification sound and starts switched off, because it plays even in quiet hours. Your own messages, and {{ companion }}'s, never alert. Castle checks the room every 30 seconds while it is hidden in the tray, so an alert can come up to 30 seconds late. Switch both off to keep only the glow on the CHAT tab.</p>
+        </div>
+        <form v-show="tab !== 'settings'" class="say" @submit.prevent="send">
           <input v-model="draft" maxlength="1000" placeholder="Write to the room..." :disabled="me?.needsName || me?.muted" />
           <button class="primary" :disabled="!draft.trim()">Send</button>
         </form>
@@ -751,6 +767,17 @@ label.mode {
   flex-direction: row;
   align-items: center;
   gap: 8px;
+}
+.chat-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-settings h4 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
 }
 input:not([type='radio']) {
   padding: 8px 10px;
