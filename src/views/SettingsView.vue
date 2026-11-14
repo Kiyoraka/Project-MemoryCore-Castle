@@ -291,9 +291,10 @@ onMounted(async () => {
           <button @click="clearAvatar">Use the drawn look / crystal</button>
         </div>
         <h3>Usage card</h3>
-        <label class="toggle"><input type="checkbox" :checked="settings.showClaudeUsage !== false" @change="save({ showClaudeUsage: $event.target.checked })" /> Show Claude Code usage on HOME</label>
-        <label class="toggle"><input type="checkbox" :checked="settings.showCodexUsage !== false" @change="save({ showCodexUsage: $event.target.checked })" /> Show Codex usage on HOME</label>
-        <p class="hint">The USAGE card on HOME shows how much of the five-hour and weekly limits is used. One you switch off is not asked at all. Switch both off and the card says so.</p>
+        <label class="toggle"><input type="checkbox" :checked="settings.showUsageCard !== false" @change="save({ showUsageCard: $event.target.checked })" /> Show the USAGE card on HOME</label>
+        <label class="toggle"><input type="checkbox" :checked="settings.showClaudeUsage !== false" :disabled="settings.showUsageCard === false" @change="save({ showClaudeUsage: $event.target.checked })" /> Show Claude Code usage on HOME</label>
+        <label class="toggle"><input type="checkbox" :checked="settings.showCodexUsage !== false" :disabled="settings.showUsageCard === false" @change="save({ showCodexUsage: $event.target.checked })" /> Show Codex usage on HOME</label>
+        <p class="hint">The USAGE card on HOME shows how much of the five-hour and weekly limits is used. Switch the card off and HOME has no USAGE card and Castle asks neither CLI. With the card on, choose Claude Code, Codex or both: one you switch off is not shown and not asked at all. Switch both off and the card says so.</p>
         <h3>Local voice (optional)</h3>
         <label class="toggle"><input type="checkbox" :checked="!!settings.voicestudioOn" :disabled="!!busy" @change="toggleVoice($event.target.checked)" /> Use VoiceStudio for the Voice card in STUDIO</label>
         <p v-if="settings.voicestudioOn" class="hint">VoiceStudio is {{ voiceUp === null ? 'being checked…' : voiceUp ? 'running on this computer.' : 'not running. Open it and wait for it to finish starting, then check again.' }} <button v-if="voiceUp === false" @click="checkVoice">Check again</button></p>

@@ -92,6 +92,7 @@ const memoryStamp = ref(0)
 // rooms the member switched off in Settings are not available (never removed)
 const rooms = ref({})
 const barClock = ref({ enabled: false, format: '24h' })
+const usageCard = ref(true)
 // the member's own tab order (dragged in the top bar); empty = Castle's order
 const tabOrder = ref([])
 const tabs = computed(() =>
@@ -159,6 +160,7 @@ async function loadSettingsAndTheme() {
     memberName.value = view.settings.memberName ?? ''
     rooms.value = view.settings.rooms ?? {}
     barClock.value = { enabled: !!view.settings.displayClock, format: view.settings.clockFormat ?? '24h' }
+    usageCard.value = view.settings.showUsageCard !== false
     tabOrder.value = view.settings.tabOrder ?? []
     if (!view.settings.setupDone) {
       setupOpen.value = true
@@ -383,7 +385,7 @@ watch(settingsStamp, () => {
         </TerminalPanel>
         <div class="widget-slot" :style="placeStyle(widgets.clock)"><ClockWidget :size="widgets.clock?.size ?? 'm'" /></div>
         <div class="widget-slot" :style="placeStyle(widgets.gauges)"><GaugeWidget /></div>
-        <div v-if="widgets.usage" class="widget-slot" :style="placeStyle(widgets.usage)"><UsageWidget :stamp="settingsStamp" /></div>
+        <div v-if="widgets.usage && usageCard" class="widget-slot" :style="placeStyle(widgets.usage)"><UsageWidget :stamp="settingsStamp" /></div>
         <div v-for="kind in ['today', 'projects', 'diary', 'growth', 'backup', 'database']" :key="kind" class="widget-slot" :style="placeStyle(widgets[kind])">
           <HomeCards v-if="widgets[kind]" :kind="kind" :data="home" :backup="backup" :database="database" @open="openMemoryFile" @backup="onBackupCard" @database="onDatabaseCard" />
         </div>
