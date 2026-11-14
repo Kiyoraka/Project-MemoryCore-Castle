@@ -1,7 +1,7 @@
 <script setup>
 // Settings: everything setup asked, changeable any time - the memory folder and companion, the
 // keys (masked, Show, Test, Remove), quick actions, the room, backup, startup and updates.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import ModalSheet from '../components/ModalSheet.vue'
 import BackupPanel from '../components/BackupPanel.vue'
 import DatabasePanel from '../components/DatabasePanel.vue'
@@ -28,6 +28,7 @@ import {
   releasesPage,
   roomCard,
   roomCardSave,
+  roomPicturesStatus,
   saveSettings,
   setupApply,
   setupCheckCli,
@@ -73,6 +74,30 @@ const namedTip = computed(() => {
   const heard = [settings.value?.memberName, settings.value?.companionName].filter((n) => n && n.trim())
   const list = heard.length ? heard.join(', ') + ', and your name in the room' : 'Your name in the room and your companion\'s name'
   return `${list}, as a whole word, any case. The glow on the CHAT tab still shows every message.`
+})
+
+// Pictures in the room: how the companion can draw, and today's numbers
+const pictures = ref(null)
+async function loadPictures() {
+  try {
+    pictures.value = await roomPicturesStatus()
+  } catch {
+    pictures.value = null
+  }
+}
+async function savePictures(patch) {
+  await save(patch)
+  await loadPictures()
+}
+const drawsWith = computed(() => {
+  const way = pictures.value?.way
+  if (way === 'codex') return 'Draws with Codex, on your ChatGPT subscription.'
+  if (way === 'openai') return 'Draws with your ChatGPT API key, which is billed per picture.'
+  if (way === 'none') return `To draw, add a ChatGPT key in Keys, or let ${companionLabel.value} think with Codex.`
+  return ''
+})
+watch(tab, (now) => {
+  if (now === 'chat') loadPictures()
 })
 
 async function openCard() {
@@ -279,6 +304,7 @@ onMounted(async () => {
     avatar.value = await avatarGet()
     await readLink()
     await checkVoice()
+    if (tab.value === 'chat') loadPictures()
   } catch (reason) {
     problem.value = String(reason)
   }
@@ -416,6 +442,28 @@ onMounted(async () => {
             <div class="row"><button class="primary" @click="saveCard">Save the card</button></div>
             <p v-if="card.saved" class="hint">{{ card.saved }}</p>
           </div>
+
+          <h3 class="with-tip">Pictures <HelpTip :text="`${companionLabel} draws only when someone in the room asks for a picture, and never a real person, anything adult, violent or hateful, words in the picture, or anything private. Kiyo's daily cap for the room still applies on top of yours.`" /></h3>
+          <div class="setting-row">
+            <label class="toggle"><input type="checkbox" :checked="!!settings.roomPicturesOn" :disabled="!!busy || pictures?.way === 'none'" @change="savePictures({ roomPicturesOn: $event.target.checked })" /> Let {{ companionLabel }} draw pictures in the room</label>
+          </div>
+          <p class="hint">{{ drawsWith }}</p>
+          <template v-if="settings.roomPicturesOn && pictures?.way !== 'none'">
+            <div class="setting-row">
+              <label class="toggle">Pictures a day
+                <select class="per-day" :value="settings.roomPicturesPerDay ?? 1" :disabled="!!busy" @change="savePictures({ roomPicturesPerDay: Number($event.target.value) })">
+                  <option v-for="n in 6" :key="n - 1" :value="n - 1">{{ n - 1 }}</option>
+                </select>
+              </label>
+              <HelpTip text="Your own limit, 0 to 5 a day. The room keeps its own count too and refuses past Kiyo's cap, whichever comes first." />
+            </div>
+            <fieldset v-if="pictures?.way === 'openai'" class="alert-when" :disabled="!!busy">
+              <legend>Quality <HelpTip text="Each picture spends your ChatGPT key: about $0.02 at Low and $0.04 at Medium. Codex draws with your subscription instead." /></legend>
+              <label class="toggle"><input type="radio" name="picture-quality" value="low" :checked="settings.roomPictureQuality !== 'medium'" @change="savePictures({ roomPictureQuality: 'low' })" /> Low</label>
+              <label class="toggle"><input type="radio" name="picture-quality" value="medium" :checked="settings.roomPictureQuality === 'medium'" @change="savePictures({ roomPictureQuality: 'medium' })" /> Medium</label>
+            </fieldset>
+            <p v-if="pictures" class="hint">Today: {{ pictures.usedToday }} of {{ pictures.limit }} used.<template v-if="pictures.roomCap != null"> The room allows {{ pictures.roomCap }} ({{ pictures.roomToday ?? 0 }} used).</template></p>
+          </template>
         </template>
       </section>
 
@@ -597,6 +645,17 @@ label.toggle {
 .alert-when input[type='radio'] {
   padding: 0;
   accent-color: var(--accent);
+}
+select.per-day {
+  width: auto;
+  min-height: 30px;
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-background);
+  color: var(--text);
+  font: inherit;
 }
 .alert-when:disabled {
   opacity: 0.5;
