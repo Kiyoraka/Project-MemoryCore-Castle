@@ -4,12 +4,15 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.2.5 - 2026-11-14
+
 - **An emotion engine for your companion.** HOME's panel has a new **PROFILE** tab with your companion's traits. Press **Scan my diary** and it proposes a few from your recent pages, or **Write a trait** in your own words and it writes it out. Nothing is kept until you press **Keep**. The traits it lives come with it every time it wakes, and you choose who hears each one in the chat room: everyone, only you, or never. PROFILE comes in two looks, **Cards** and **Constellation** (Settings > Rooms, or the THEME room). The traits live in your memory database, are kept by Export and Move back to files, and are never shown on its public card.
 - **Your companion's manner in the chat room.** Its traits colour how it talks there (only how it sounds, never what it knows), with a switch beside its public card.
 - **Choose designs right in the chat.** When your companion shows two to four designs, tick the ones you like and press Choose. Tick several and it offers them as looks you can switch in Settings.
 - **The version beside the name** in the top bar.
 - **The DIARY shows the one look you chose** (List, Calendar or Book, picked in the THEME room or Settings > Rooms), without the three buttons at its top.
-- **Optional local voice.** For people who run [VoiceStudio](https://github.com/debpalash/voicestudio) on their own PC: Settings > Companion has a new **Local voice** switch (off by default). Turned on, and with VoiceStudio running, STUDIO's Voice card can speak a line with it and saves the clip with your other voice lines. Everything stays on your computer; with the switch off Castle never contacts it.
+- **Optional local voice.** For people who run [VoiceStudio](https://github.com/debpalash/voicestudio) on their own PC: Settings > Companion has a new **Local voice** switch (off by default). Turned on, and with VoiceStudio running, STUDIO's Voice card can speak a line with it and saves the clip with your other voice lines. Everything stays on your computer; with the switch off Castle never contacts it. Thank you, Bernard Choong.
+
 ## 0.2.4 - 2026-11-14
 
 - **Pictures and voice lines now show in CHAT.** The room names each one by a number, and Castle only took text, so they were refused before they were fetched and the chat showed nothing.
