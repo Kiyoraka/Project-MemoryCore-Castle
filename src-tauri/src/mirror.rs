@@ -335,34 +335,34 @@ pub fn clear_section(conn: &mut impl Queryable, heading: &str) -> Result<bool, S
 
 // ---------- boot ----------
 
-/// Everything the companion reads at the start of a session, in order, as one text.
-pub fn boot(conn: &mut impl Queryable) -> Result<String, String> {
-    let files: Vec<(String, String)> = conn
-        .query("SELECT path, body FROM memory_files WHERE boot_order IS NOT NULL ORDER BY boot_order, path")
-        .map_err(sql("Reading the memory"))?;
-    let session = session_text(conn)?;
-    if files.is_empty() && session.is_empty() {
-        return Ok("MEMORY BOOT: this memory has not been moved into the database yet. Read `master-memory.md` and follow it.".into());
-    }
-    let mut out = String::from(
-        "MEMORY BOOT - everything below is your memory, printed whole and in reading order.\n\
-         The files it names are not on disk any more: never look for them or recreate them. To read one again use\n\
-         `castle-memory memory show --path <name>`; to change one, `castle-memory memory save --path <name> --file <text file>`.\n\
-         The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.\n",
-    );
+/// The body both boots share, in reading order: the memory files, then her emotion engine (her
+/// active traits), then the session memory. Pure, tested.
+pub fn compose_body(files: &[(String, String)], engine: &str, session_file: &str, session: &str) -> String {
+    let mut out = String::new();
     for (path, body) in files {
-        out.push_str(&format!("\n===== {path} =====\n{}\n", body.trim_end()));
+        out.push_str(&format!("
+===== {path} =====
+{}
+", body.trim_end()));
+    }
+    if !engine.trim().is_empty() {
+        out.push_str(&format!("
+===== emotion engine (your traits) =====
+{}
+", engine.trim_end()));
     }
     if !session.is_empty() {
-        let file = session_file(conn)?.unwrap_or_default();
-        out.push_str(&format!("\n===== {file} (session memory) =====\n{}\n", session.trim_end()));
+        out.push_str(&format!("
+===== {session_file} (session memory) =====
+{}
+", session.trim_end()));
     }
-    Ok(out)
+    out
 }
 
-/// The memory as Castle hands it to the companion when it wakes her: the same files in the same
-/// order as `boot`, with a header written for a system prompt. None when nothing has moved in.
-pub fn boot_prompt(conn: &mut impl Queryable) -> Result<Option<String>, String> {
+/// The memory body from the database, or None when nothing has moved in. The traits are read so
+/// that their own failure (a wake before the traits table exists) never costs the rest.
+fn memory_body(conn: &mut impl Queryable) -> Result<Option<String>, String> {
     let files: Vec<(String, String)> = conn
         .query("SELECT path, body FROM memory_files WHERE boot_order IS NOT NULL ORDER BY boot_order, path")
         .map_err(sql("Reading the memory"))?;
@@ -370,22 +370,39 @@ pub fn boot_prompt(conn: &mut impl Queryable) -> Result<Option<String>, String> 
     if files.is_empty() && session.is_empty() {
         return Ok(None);
     }
-    let mut out = String::from(
-        "# Your memory\n\n\
-         This is your memory. MemoryCore Castle read it from the memory database when it woke you, so it is already complete and already loaded:\n\
-         do not run `castle-memory boot`, and never look for the files named below on disk or recreate them - they live in the database.\n\
-         It is a picture of the moment you woke. What you save during this session is kept at once and is here again the next time you wake.\n\
-         To read a file again: `castle-memory memory show --path <name>`. To change one: `castle-memory memory save --path <name> --file <text file>`.\n\
-         The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.\n",
-    );
-    for (path, body) in files {
-        out.push_str(&format!("\n===== {path} =====\n{}\n", body.trim_end()));
-    }
-    if !session.is_empty() {
-        let file = session_file(conn)?.unwrap_or_default();
-        out.push_str(&format!("\n===== {file} (session memory) =====\n{}\n", session.trim_end()));
-    }
-    Ok(Some(out))
+    let file = if session.is_empty() { String::new() } else { session_file(conn)?.unwrap_or_default() };
+    let engine = crate::traits::engine_for_wake(conn);
+    Ok(Some(compose_body(&files, &engine, &file, &session)))
+}
+
+/// Everything the companion reads at the start of a session, in order, as one text.
+pub fn boot(conn: &mut impl Queryable) -> Result<String, String> {
+    let Some(body) = memory_body(conn)? else {
+        return Ok("MEMORY BOOT: this memory has not been moved into the database yet. Read `master-memory.md` and follow it.".into());
+    };
+    Ok(format!(
+        "MEMORY BOOT - everything below is your memory, printed whole and in reading order.
+         The files it names are not on disk any more: never look for them or recreate them. To read one again use
+         `castle-memory memory show --path <name>`; to change one, `castle-memory memory save --path <name> --file <text file>`.
+         The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.
+{body}"
+    ))
+}
+
+/// The memory as Castle hands it to the companion when it wakes her: the same body in the same
+/// order as `boot`, with a header written for a system prompt. None when nothing has moved in.
+pub fn boot_prompt(conn: &mut impl Queryable) -> Result<Option<String>, String> {
+    let Some(body) = memory_body(conn)? else { return Ok(None) };
+    Ok(Some(format!(
+        "# Your memory
+
+         This is your memory. MemoryCore Castle read it from the memory database when it woke you, so it is already complete and already loaded:
+         do not run `castle-memory boot`, and never look for the files named below on disk or recreate them - they live in the database.
+         It is a picture of the moment you woke. What you save during this session is kept at once and is here again the next time you wake.
+         To read a file again: `castle-memory memory show --path <name>`. To change one: `castle-memory memory save --path <name> --file <text file>`.
+         The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.
+{body}"
+    )))
 }
 
 // ---------- skills: database = truth, disk = mirror ----------
@@ -590,6 +607,19 @@ pub fn remove_skill(conn: &mut impl Queryable, folder: &Path, plugin: &str, name
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_emotion_engine_sits_between_the_files_and_the_session() {
+        let files = vec![("master-memory.md".to_string(), "Master.\n".to_string()), ("main/main-memory.md".to_string(), "Main.".to_string())];
+        let body = compose_body(&files, "- Trait 1 - Curious: asks\n", "main/current-session.md", "## Today\nTea.");
+        let (master, engine, session) = (body.find("===== master-memory.md").unwrap(), body.find("===== emotion engine").unwrap(), body.find("===== main/current-session.md (session memory)").unwrap());
+        assert!(master < engine && engine < session);
+        assert!(body.contains("- Trait 1 - Curious: asks\n"));
+        // no traits (none active, or no table yet): no engine heading, the rest whole
+        let plain = compose_body(&files, "", "main/current-session.md", "## Today\nTea.");
+        assert!(!plain.contains("emotion engine") && plain.contains("Master.") && plain.contains("Tea."));
+        assert!(!compose_body(&files, "  ", "", "").contains("session memory"));
+    }
 
     #[test]
     fn the_boot_reads_master_then_main_then_the_rest() {
