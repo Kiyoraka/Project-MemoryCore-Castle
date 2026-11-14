@@ -16,6 +16,7 @@ mod dev_new;
 mod dev_tabs;
 mod door;
 mod door_plan;
+mod door_trait;
 mod env;
 mod files;
 mod git;

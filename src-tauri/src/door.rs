@@ -20,6 +20,9 @@
 //!  castle-memory plan copy [--plan <file.md>] [--folder <dir>]   an approved plan into the project's rows
 //!  castle-memory plan status | plan next | plan show [--id N]    the project folder's open plans
 //!  castle-memory plan mark [--next | --item N] [--state done|carried|flagged] [--note ".."] [--id N]
+//!  castle-memory trait list [--status active] | trait show --number 3   her emotion engine
+//!  castle-memory trait propose --name ".." --line ".." [--audience everyone|owner|never] [--why ".."] [--file ..]
+//!  castle-memory trait set --number 3 [--name ..] [--line ..] [--audience ..] [--file ..] | trait retire --number 3
 //!  castle-memory export --to <folder>        the memory back out as markdown
 //!  castle-memory dump --to backup/memory.sql | restore --from backup/memory.sql
 //! ```
@@ -36,6 +39,7 @@
 use crate::memdb;
 use crate::mirror;
 use crate::door_plan::{next_line, plan_copy, plan_mark, plan_show, plan_status, project_folder};
+use crate::door_trait::{trait_list, trait_propose, trait_retire, trait_set, trait_show};
 use mysql::prelude::Queryable;
 use mysql::{Conn, Row, Value};
 use std::collections::BTreeMap;
@@ -87,7 +91,7 @@ impl Ask {
         self.flags.get(name).map(String::as_str)
     }
     /// The long text of a verb: `--file <path>` (read as UTF-8) or `--body "..."`.
-    fn text(&self) -> Result<Option<String>, String> {
+    pub(crate) fn text(&self) -> Result<Option<String>, String> {
         if let Some(file) = self.get("file") {
             let text = std::fs::read_to_string(file).map_err(|_| format!("The file {file} could not be read."))?;
             return Ok(Some(text.trim_start_matches('\u{feff}').to_string()));
@@ -184,10 +188,15 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
         ["plan", "next"] => next_line(conn, &project_folder(ask)?),
         ["plan", "mark"] => plan_mark(conn, ask),
         ["plan", "show"] => plan_show(conn, ask),
+        ["trait", "list"] => trait_list(conn, ask),
+        ["trait", "show"] => trait_show(conn, ask),
+        ["trait", "propose"] => trait_propose(conn, ask),
+        ["trait", "set"] => trait_set(conn, ask),
+        ["trait", "retire"] => trait_retire(conn, ask),
         ["export"] => export(conn, Path::new(ask.need("to")?)),
         ["dump"] => dump(conn, Path::new(ask.need("to")?)),
         ["restore"] => restore(conn, Path::new(ask.need("from")?)),
-        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, export, dump, restore.", words.join(" "))),
+        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, export, dump, restore.", words.join(" "))),
     }
 }
 
@@ -696,7 +705,7 @@ pub fn main(args: &[String]) -> i32 {
     let result = (|| {
         let ask = parse(args)?;
         if ask.words.is_empty() {
-            return Err("castle-memory needs a verb: diary, reminder, project, link, plan, export, dump, restore.".to_string());
+            return Err("castle-memory needs a verb: diary, reminder, project, link, plan, trait, export, dump, restore.".to_string());
         }
         let memory = find_memory(&ask, &std::env::current_dir().map_err(|_| "This folder could not be read.".to_string())?)?;
         let mut conn = memdb::open_for(&memory)?;
@@ -885,14 +894,23 @@ mod tests {
         assert_eq!(crate::memory::reminders(&out)[0].title, "Water plants");
         assert_eq!(crate::memory::projects(&out)[0].name, "Portfolio site");
 
+        // the emotion engine: she may propose, never activate
+        assert_eq!(go(&["trait", "list"]).unwrap(), "TRAITS none yet");
+        assert!(go(&["trait", "propose", "--name", "Shy When Praised", "--line", "flustered, then glad", "--why", "the thank-you"]).unwrap().starts_with("TRAIT 1 proposed: Shy When Praised"));
+        assert_eq!(go(&["trait", "list", "--status", "proposed"]).unwrap(), "TRAIT 1 [proposed, everyone] Shy When Praised - flustered, then glad");
+        assert!(go(&["trait", "set", "--number", "1", "--audience", "owner"]).unwrap().contains("[proposed, owner]"));
+        assert!(go(&["trait", "show", "--number", "1"]).unwrap().contains("Why (private): the thank-you"));
+        assert!(go(&["trait", "list", "--status", "lived"]).is_err());
+        assert!(go(&["trait", "show", "--number", "9"]).is_err());
+
         let file = folder.join("backup").join("memory.sql");
-        assert!(go(&["dump", "--to", file.to_str().unwrap()]).unwrap().starts_with("DUMP 17 table(s), "));
+        assert!(go(&["dump", "--to", file.to_str().unwrap()]).unwrap().starts_with("DUMP 19 table(s), "));
         let before = go(&["diary", "show", "--date", "2026-11-10"]).unwrap();
         drop(go);
         // the record of the note: sent once, read once
         let recorded: Option<(u64, u64)> = conn.query_first("SELECT COUNT(*), COUNT(read_at) FROM link_notes").unwrap();
         assert_eq!(recorded, Some((1, 1)));
-        conn.query_drop("DROP TABLE diary_entries, reminders, projects, link_notes, link_terminals, imported_files, memory_files, memory_file_history, session_sections, session_section_history, skills, skill_files, skill_file_history, diary_entry_history, project_plan_items, project_plans, schema_migrations").unwrap();
+        conn.query_drop("DROP TABLE diary_entries, reminders, projects, link_notes, link_terminals, imported_files, memory_files, memory_file_history, session_sections, session_section_history, skills, skill_files, skill_file_history, diary_entry_history, project_plan_items, project_plans, companion_trait_history, companion_traits, schema_migrations").unwrap();
         let mut go =|line: &[&str]| run(&mut conn, &parse(&args(line)).unwrap(), &folder);
         assert!(go(&["diary", "list"]).is_err());
         assert!(go(&["restore", "--from", file.to_str().unwrap()]).unwrap().starts_with("RESTORE "));
