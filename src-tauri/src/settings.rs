@@ -186,6 +186,9 @@ pub struct Settings {
     /// Use VoiceStudio, a text-to-speech app the member runs on this same computer, as STUDIO's Voice
     /// power. Off until the member turns it on: Castle then never talks to it.
     pub voicestudio_on: bool,
+    /// Whether HOME shows the USAGE card at all. On by default; off hides the whole card and Castle
+    /// asks neither CLI.
+    pub show_usage_card: bool,
     /// Whether HOME's USAGE card shows Claude Code's limits, and Codex's. On by default; a CLI that
     /// is off is not asked at all.
     pub show_claude_usage: bool,
@@ -282,6 +285,7 @@ impl Default for Settings {
             display_clock: false,
             clock_format: "24h".into(),
             voicestudio_on: false,
+            show_usage_card: true,
             show_claude_usage: true,
             show_codex_usage: true,
             room_companion_key_id: None,
@@ -547,6 +551,7 @@ mod tests {
             display_clock: true,
             clock_format: "12h".into(),
             voicestudio_on: true,
+            show_usage_card: false,
             show_claude_usage: false,
             show_codex_usage: true,
             room_companion_key_id: Some("17".into()),
@@ -614,6 +619,7 @@ mod tests {
         assert!(settings.start_session_on_launch);
         assert!(!settings.minimize_to_taskbar, "a settings file from before this option keeps the tray behaviour");
         assert!(settings.show_claude_usage && settings.show_codex_usage, "a settings file from before the toggles shows both");
+        assert!(settings.show_usage_card, "a settings file from before the card switch shows the card");
         assert_eq!(settings.world, WorldSettings::default());
     }
 

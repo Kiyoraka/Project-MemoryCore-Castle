@@ -347,7 +347,8 @@ static CODEX_GLOW: Mutex<Option<(Instant, Option<Quota>)>> = Mutex::new(None);
 #[tauri::command]
 pub async fn cli_usage(store: State<'_, SettingsStore>) -> Result<Vec<CliUsage>, String> {
     let settings = store.get();
-    let wanted = shown_clis(settings.show_claude_usage, settings.show_codex_usage);
+    // the card switched off asks neither CLI
+    let wanted = if settings.show_usage_card { shown_clis(settings.show_claude_usage, settings.show_codex_usage) } else { Vec::new() };
     tauri::async_runtime::spawn_blocking(move || {
         wanted.into_iter().map(|cli| if cli == Cli::Claude { claude_usage() } else { cached(&CODEX_CARD, codex_usage) }).collect::<Vec<_>>()
     })
