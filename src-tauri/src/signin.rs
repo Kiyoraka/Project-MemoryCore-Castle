@@ -247,6 +247,7 @@ pub fn member_status_now() -> MemberStatus {
 pub async fn member_sign_in() -> Result<MemberStatus, String> {
     tauri::async_runtime::spawn_blocking(|| {
         sign_in()?;
+        crate::roomalert::forget_name();
         Ok(member_status_now())
     })
     .await
@@ -260,6 +261,7 @@ pub async fn member_status() -> MemberStatus {
 
 #[tauri::command]
 pub fn member_sign_out() -> Result<(), String> {
+    crate::roomalert::forget_name();
     key::forget("member")
 }
 

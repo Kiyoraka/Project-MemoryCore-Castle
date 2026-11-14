@@ -515,7 +515,10 @@ pub async fn room_name_set(name: String, store: State<'_, SettingsStore>) -> Res
     crate::rooms::need(&store, "chat").map_err(|e| refusal("other", e))?;
     let token = key::load("member").ok_or_else(|| refusal("locked", "Sign in to the room first."))?;
     let base = crate::signin::portfolio();
-    blocking(move || change_display_name(&base, &token, &name)).await
+    blocking(move || change_display_name(&base, &token, &name)).await?;
+    // the chat alerts listen for the member's room name: the kept one is out of date now
+    crate::roomalert::forget_name();
+    Ok(())
 }
 
 /// A face by its avatar token, cached for good (a new picture comes with a new token).
