@@ -8,8 +8,8 @@ import MarkdownText from '../components/MarkdownText.vue'
 import DiaryBook from '../components/DiaryBook.vue'
 import DiaryCalendar from '../components/DiaryCalendar.vue'
 import DiaryPage from '../components/DiaryPage.vue'
-import { bookPages, DIARY_LOOKS, lookOf, PAGE_DESIGNS } from '../components/diaryviews.js'
-import { chatMediaOpen, getSettings, memoryRead, memoryShelves, saveSettings } from '../api/castle.js'
+import { bookPages, lookOf, PAGE_DESIGNS } from '../components/diaryviews.js'
+import { chatMediaOpen, getSettings, memoryRead, memoryShelves } from '../api/castle.js'
 
 const props = defineProps({
   room: { type: String, required: true }, // diary | projects | library
@@ -39,15 +39,7 @@ const look = computed(() => (props.room === 'diary' ? diaryLook.value : 'list'))
 const companion = ref('')
 const diaryPages = computed(() => (props.room === 'diary' ? bookPages(shelves.value) : []))
 
-async function chooseLook(id) {
-  diaryLook.value = lookOf(id)
-  try {
-    const { settings } = await getSettings()
-    if (settings.diaryLook !== diaryLook.value) await saveSettings({ ...settings, diaryLook: diaryLook.value })
-  } catch {
-    // outside Castle's window: the choice lasts while the room is open
-  }
-}
+// The diary shows the one look chosen in the THEME room or Settings > Rooms (no switcher here).
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -112,16 +104,12 @@ watch(() => [props.room, props.stamp, props.openFile], load)
   <div v-if="look === 'book'" class="memory-room book-room">
     <div class="looks top">
       <h2>{{ TITLES[room] }}</h2>
-      <button v-for="l in DIARY_LOOKS" :key="l.id" :class="{ on: look === l.id }" :title="l.line" @click="chooseLook(l.id)">{{ l.label }}</button>
     </div>
     <DiaryBook :shelves="shelves" :open-file="openFile" :companion="companion" @open="open" />
   </div>
   <div v-else class="memory-room">
     <aside class="list widget">
       <h2>{{ TITLES[room] }}</h2>
-      <div v-if="room === 'diary'" class="looks">
-        <button v-for="l in DIARY_LOOKS" :key="l.id" :class="{ on: look === l.id }" :title="l.line" @click="chooseLook(l.id)">{{ l.label }}</button>
-      </div>
       <DiaryCalendar v-if="look === 'calendar'" :shelves="shelves" :current="current" @open="open" />
       <template v-else>
       <input v-model="query" type="search" placeholder="Search" aria-label="Search" />
