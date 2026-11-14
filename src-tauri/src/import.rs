@@ -65,6 +65,8 @@ pub struct Bundle {
     pub session: Option<String>,
     /// files left in place because they are not readable text
     pub skipped: Vec<String>,
+    /// the emotion engine's file (emotion/traits.md), by path
+    pub traits: Option<String>,
 }
 
 /// What the member is shown before and after moving in.
@@ -333,6 +335,10 @@ pub fn collect(folder: &Path) -> Bundle {
     collect_memory(folder, &mut bundle);
     collect_reminders(folder, &mut bundle);
     collect_projects(folder, &mut bundle);
+    let traits = folder.join(crate::traits::MARKDOWN_FILE);
+    if traits.is_file() && bundle.take(folder, &traits) {
+        bundle.traits = Some(crate::traits::MARKDOWN_FILE.to_string());
+    }
     bundle
 }
 
@@ -412,6 +418,10 @@ pub fn load(conn: &mut Conn, bundle: &Bundle) -> Result<(), String> {
         if kept.as_deref() != bundle.body_of(&row.source_file) {
             return Err(format!("The diary page {} did not read back the same, so nothing was changed.", row.source_file));
         }
+    }
+    if let Some(path) = &bundle.traits {
+        let traits = crate::traits::from_markdown(bundle.body_of(path).unwrap_or_default());
+        crate::traits::load_all(&mut tx, &traits).map_err(|_| "The traits could not be kept, so nothing was changed.".to_string())?;
     }
     let diary_there: Option<u64> = tx.query_first("SELECT COUNT(*) FROM diary_entries WHERE source_file IS NOT NULL").map_err(sql("Counting the diary"))?;
     if (diary_there.unwrap_or(0) as usize) < bundle.diary.len() {
@@ -764,6 +774,13 @@ mod tests {
         assert_eq!(memory::projects(&out).iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["Portfolio site", "Study notes"]);
         assert!(std::fs::read_to_string(out.join("projects/project-list.md")).unwrap().contains("[Old blog](./archived/old-blog.md)"));
 
+        // her emotion engine travels with the memory: out as emotion/traits.md, and back in with its numbers
+        let draft = crate::traits::TraitDraft { name: Some("Gentle Curiosity".into()), line: Some("asks one more question".into()), why: Some("the stars".into()), ..Default::default() };
+        crate::traits::add(&mut conn, &draft, "written", "active").unwrap();
+        let shy = crate::traits::TraitDraft { name: Some("Shy".into()), line: Some("flustered, then glad".into()), audience: Some("owner".into()), ..Default::default() };
+        crate::traits::add(&mut conn, &shy, "companion", "proposed").unwrap();
+        let traits_before = crate::traits::list(&mut conn, None).unwrap();
+
         // the way back: the memory is files again, the database is empty, and it can move in again
         crate::memdb::write_env(&root, &access).unwrap();
         crate::mirror::sync_skills(&mut conn, &root).unwrap();
@@ -776,6 +793,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(root.join("daily-diary/current/2026-11-10/diary-1.md")).unwrap(), "# Diary\r\n\r\n## Morning - The clinic moved\r\nRows now.\r\n");
         assert_eq!(std::fs::read_to_string(root.join("main/relationship-memory.md")).unwrap(), "# Rin\nlikes coffee now\n");
         assert!(crate::setup::inspect(&root).is_memorycore && crate::setup::inspect(&root).entry_file.is_some());
+        assert!(std::fs::read_to_string(root.join(crate::traits::MARKDOWN_FILE)).unwrap().contains("## Trait 1 - Gentle Curiosity"));
         let left: Vec<String> = conn.query("SHOW TABLES").unwrap();
         assert!(left.is_empty());
         assert!(crate::store::source(&root).is_none());
@@ -784,6 +802,10 @@ mod tests {
         let again = move_in(&mut conn, &root, || Ok(())).unwrap();
         assert_eq!(again.diary, 6);
         assert!(!root.join("master-memory.md").exists());
+        let traits_again = crate::traits::list(&mut conn, None).unwrap();
+        let strip = |v: Vec<crate::traits::Trait>| v.into_iter().map(|t| crate::traits::Trait { updated_at: String::new(), ..t }).collect::<Vec<_>>();
+        assert_eq!(strip(traits_again), strip(traits_before));
+        assert!(!root.join(crate::traits::MARKDOWN_FILE).exists(), "the traits file is in the database now");
 
         std::fs::remove_dir_all(&root).unwrap();
         let mut root_conn = mysql::Conn::new(mysql::Opts::from(

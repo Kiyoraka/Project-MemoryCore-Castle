@@ -592,6 +592,11 @@ fn export(conn: &mut Conn, to: &Path) -> Result<String, String> {
     if let Some(file) = mirror::session_file(conn)? {
         write(&to.join(file), &mirror::session_text(conn)?)?;
     }
+    // her emotion engine as it is now (over any older copy kept from moving in)
+    let traits = crate::traits::list(conn, None).unwrap_or_default();
+    if !traits.is_empty() {
+        write(&to.join(crate::traits::MARKDOWN_FILE), &crate::traits::to_markdown(&traits))?;
+    }
 
     // 2. diary entries written since then: appended to their day's file, MemoryCore's own shape
     let rows: Vec<(Option<String>, u32, String, String)> = conn

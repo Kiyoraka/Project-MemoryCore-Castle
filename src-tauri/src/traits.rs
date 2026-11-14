@@ -155,6 +155,67 @@ pub fn engine_text(traits: &[Trait]) -> String {
     )
 }
 
+// ---------- markdown (Export, Move back to files, and moving in again) ----------
+
+/// Where the traits live when the memory is markdown: outside `main/`, which boots every file whole.
+pub const MARKDOWN_FILE: &str = "emotion/traits.md";
+
+/// The traits as `emotion/traits.md`. Pure, tested (it reads back through `from_markdown`).
+pub fn to_markdown(traits: &[Trait]) -> String {
+    let mut out = String::from("# Emotion engine\n\nThe companion's traits. Castle reads this file back into the memory database when the memory moves in.\n");
+    for t in traits {
+        out.push_str(&format!("\n## Trait {} - {}\n- Line: {}\n- Audience: {}\n- Status: {}\n- Origin: {}\n", t.number, t.name, t.line, t.audience, t.status, t.origin));
+        if let Some(why) = t.why.as_deref().filter(|w| !w.trim().is_empty()) {
+            out.push_str(&format!("- Why: {}\n", why.split_whitespace().collect::<Vec<_>>().join(" ")));
+        }
+        if !t.body.trim().is_empty() {
+            out.push_str(&format!("\n{}\n", t.body.trim()));
+        }
+    }
+    out
+}
+
+/// The traits read from `emotion/traits.md`; a section without a number, a name or a line is left out.
+pub fn from_markdown(text: &str) -> Vec<Trait> {
+    let text = text.replace("\r\n", "\n");
+    let mut out = Vec::new();
+    for section in text.split("\n## Trait ").skip(1) {
+        let (head, rest) = section.split_once('\n').unwrap_or((section, ""));
+        let Some((number, name)) = head.split_once(" - ") else { continue };
+        let Ok(number) = number.trim().parse::<u32>() else { continue };
+        let mut t = Trait {
+            number,
+            name: clean_name(name),
+            line: String::new(),
+            body: String::new(),
+            audience: "everyone".into(),
+            origin: "written".into(),
+            why: None,
+            status: "active".into(),
+            updated_at: String::new(),
+        };
+        let mut lines = rest.lines().peekable();
+        while let Some(line) = lines.peek() {
+            let Some(field) = line.strip_prefix("- ") else { break };
+            let (key, value) = field.split_once(": ").unwrap_or((field, ""));
+            match key {
+                "Line" => t.line = clean_line(value),
+                "Audience" => t.audience = audience_of(value).unwrap_or("everyone").into(),
+                "Status" if STATUSES.contains(&value.trim()) => t.status = value.trim().into(),
+                "Origin" if ORIGINS.contains(&value.trim()) => t.origin = value.trim().into(),
+                "Why" => t.why = Some(clean_text(value, WHY_MAX)).filter(|w| !w.is_empty()),
+                _ => {}
+            }
+            lines.next();
+        }
+        t.body = clean_text(&lines.collect::<Vec<_>>().join("\n"), BODY_MAX);
+        if !t.name.is_empty() && !t.line.is_empty() {
+            out.push(t);
+        }
+    }
+    out
+}
+
 // ---------- the database ----------
 
 fn sql(what: &'static str) -> impl Fn(mysql::Error) -> String {
@@ -302,6 +363,19 @@ pub fn dismiss(conn: &mut impl Queryable, number: u32) -> Result<(), String> {
     conn.exec_drop("DELETE FROM companion_traits WHERE number = ? AND status = 'proposed'", (number,)).map_err(sql("Letting the proposal go"))
 }
 
+/// Traits read from markdown, kept with their own numbers (moving the memory in again).
+pub fn load_all(conn: &mut impl Queryable, traits: &[Trait]) -> Result<usize, String> {
+    for t in traits {
+        conn.exec_drop(
+            "INSERT INTO companion_traits (number, name, line, body, audience, origin, why, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             ON DUPLICATE KEY UPDATE name = VALUES(name), line = VALUES(line), body = VALUES(body), audience = VALUES(audience), origin = VALUES(origin), why = VALUES(why), status = VALUES(status)",
+            (t.number, &t.name, &t.line, &t.body, &t.audience, &t.origin, &t.why, &t.status),
+        )
+        .map_err(sql("Keeping the traits"))?;
+    }
+    Ok(traits.len())
+}
+
 /// The active traits for a wake, never an error: no table yet (a wake before the migration) or a
 /// failed read is simply no engine, so the rest of her memory still loads.
 pub fn engine_for_wake(conn: &mut impl Queryable) -> String {
@@ -376,6 +450,20 @@ mod tests {
         assert!(text.contains("never name them, number them or recite them"));
         one.body = "She wonders aloud and asks.".into();
         assert!(engine_text(&[one]).starts_with("- Trait 2 - Curious: She wonders aloud and asks."));
+    }
+
+    #[test]
+    fn the_markdown_reads_back_the_same_traits() {
+        let mut one = t(1, "Gentle Curiosity", "asks one more question", "everyone", "active");
+        one.body = "She wonders aloud.\n\nAnd asks.".into();
+        one.why = Some("the night\nof the stars".into());
+        let mut two = t(4, "Playful Teasing", "a little teasing", "owner", "proposed");
+        two.origin = "companion".into();
+        let back = from_markdown(&to_markdown(&[one.clone(), two.clone()]).replace('\n', "\r\n"));
+        one.why = Some("the night of the stars".into());
+        assert_eq!(back, vec![one, two]);
+        assert!(from_markdown("# Emotion engine\n\n## Trait x - Bad\n- Line: l\n\n## Trait 2 - \n- Line: l\n\n## Trait 3 - No line\n").is_empty());
+        assert!(from_markdown("").is_empty());
     }
 
     #[test]
