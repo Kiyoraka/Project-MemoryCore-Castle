@@ -164,6 +164,31 @@ fn draw_now(app: &AppHandle, folder: &Path, text: &str) -> String {
     }
 }
 
+/// What Settings > Chat shows about pictures.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PicturesStatus {
+    /// "codex", "openai" or "none"
+    way: &'static str,
+    used_today: u32,
+    limit: u32,
+    /// the room's own cap and count for this companion; None while it is not in the room or the
+    /// room does not answer
+    room_cap: Option<u64>,
+    room_today: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn room_pictures_status(store: tauri::State<'_, SettingsStore>) -> Result<PicturesStatus, String> {
+    let settings = store.get();
+    let used_today = used_today(&store);
+    let way = way(&settings, has_openai_key());
+    let room = tauri::async_runtime::spawn_blocking(|| crate::key::load("room-companion").and_then(|key| Room::new(&crate::signin::portfolio(), &key).picture_day()))
+        .await
+        .unwrap_or(None);
+    Ok(PicturesStatus { way, used_today, limit: settings.room_pictures_per_day, room_cap: room.map(|r| r.0), room_today: room.map(|r| r.1) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -338,6 +338,7 @@ pub fn run() {
             roomread::room_backlog,
             roomread::room_reset,
             roomturn::room_log,
+            roomdraw::room_pictures_status,
             roomturn::room_card,
             roomturn::room_card_save,
             worlds::worlds_mine,

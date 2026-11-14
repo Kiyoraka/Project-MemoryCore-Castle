@@ -189,6 +189,7 @@ export const roomVisible = (on) => invoke('room_visible', { on })
 export const roomReset = () => invoke('room_reset')
 // the companion's room turns and its public card
 export const roomLog = () => invoke('room_log')
+export const roomPicturesStatus = () => invoke('room_pictures_status')
 export const roomCard = () => invoke('room_card')
 export const roomCardSave = (text) => invoke('room_card_save', { text })
 
