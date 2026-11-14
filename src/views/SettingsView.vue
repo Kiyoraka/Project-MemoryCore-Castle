@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import ModalSheet from '../components/ModalSheet.vue'
 import BackupPanel from '../components/BackupPanel.vue'
 import DatabasePanel from '../components/DatabasePanel.vue'
+import HelpTip from '../components/HelpTip.vue'
 import { DIARY_LOOKS, lookOf } from '../components/diaryviews.js'
 import { PROFILE_LOOKS, profileLookOf } from './profile/profile.js'
 import {
@@ -25,6 +26,8 @@ import {
   keyTest,
   openUrl,
   releasesPage,
+  roomCard,
+  roomCardSave,
   saveSettings,
   setupApply,
   setupCheckCli,
@@ -45,6 +48,7 @@ const SECTIONS = [
   { id: 'keys', label: 'Keys' },
   { id: 'quick', label: 'Quick actions' },
   { id: 'rooms', label: 'Rooms' },
+  { id: 'chat', label: 'Chat' },
   { id: 'database', label: 'Database' },
   { id: 'backup', label: 'Backup' },
   { id: 'startup', label: 'Start-up' },
@@ -58,6 +62,29 @@ const keys = ref([])
 const drafts = ref({})
 const shown = ref({})
 const tests = ref({})
+
+// ---------- Chat: the room's alerts and the companion in the room ----------
+const companionLabel = computed(() => settings.value?.companionName ?? 'Your companion')
+// the companion is in the room when CHAT made its room key (the key itself is never shown here)
+const companionInRoom = computed(() => keys.value.some((k) => k.name === 'room-companion' && k.set))
+const card = ref({ open: false, text: '', saved: '' })
+
+async function openCard() {
+  try {
+    card.value = { open: true, text: await roomCard(), saved: '' }
+  } catch (reason) {
+    card.value = { open: false, text: '', saved: String(reason?.message ?? reason) }
+  }
+}
+
+async function saveCard() {
+  try {
+    await roomCardSave(card.value.text)
+    card.value = { ...card.value, saved: `Saved - this is all ${companionLabel.value} may say about itself in the room.` }
+  } catch (reason) {
+    card.value = { ...card.value, saved: String(reason?.message ?? reason) }
+  }
+}
 const avatar = ref(null)
 const cliCheck = ref(null)
 const busy = ref('')
@@ -346,6 +373,37 @@ onMounted(async () => {
         <BackupPanel :companion="settings.companionName ?? 'your companion'" />
       </section>
 
+      <section v-else-if="tab === 'chat'" class="pane">
+        <p v-if="settings.rooms?.chat === false" class="hint">The CHAT room is switched off in Rooms. These wait for it.</p>
+        <h3 class="with-tip">Alerts <HelpTip :text="`Your own messages, and ${companionLabel}'s, never alert. Switch both off to keep only the glow on the CHAT tab.`" /></h3>
+        <div class="setting-row">
+          <label class="toggle"><input type="checkbox" :checked="settings.alertNotify !== false" :disabled="!!busy" @change="save({ alertNotify: $event.target.checked })" /> Show a desktop notification when a new message arrives</label>
+          <HelpTip text="Only while you're not looking at CHAT. It shows who wrote and the start of the line (careful when screen sharing). Windows' Do Not Disturb and quiet hours apply. While Castle is in the tray it can come up to 30 seconds late." />
+        </div>
+        <div class="setting-row">
+          <label class="toggle"><input type="checkbox" :checked="!!settings.alertSound" :disabled="!!busy" @change="save({ alertSound: $event.target.checked })" /> Also play a sound</label>
+          <HelpTip text="Windows' own notification sound. It starts off because it plays even during quiet hours." />
+        </div>
+
+        <h3>{{ companionLabel }} in the room</h3>
+        <p v-if="!companionInRoom" class="hint">Let {{ companionLabel }} in from the CHAT room's side panel to set these.</p>
+        <template v-else>
+          <div class="setting-row">
+            <label class="toggle"><input type="checkbox" :checked="settings.emotionRoomVoice !== false" :disabled="!!busy" @change="save({ emotionRoomVoice: $event.target.checked })" /> Let {{ companionLabel }}'s emotion engine colour how it talks there</label>
+            <HelpTip text="Only how it sounds, never what it knows: its traits' one-line manner, and the ones meant for you only when it answers you." />
+          </div>
+          <div class="setting-row">
+            <button @click="card.open ? (card.open = false) : openCard()">{{ card.open ? 'Close the public card' : `${companionLabel}'s public card` }}</button>
+            <HelpTip :text="`All ${companionLabel} may say about itself in the room. Nothing from your memory goes there.`" />
+          </div>
+          <div v-if="card.open" class="card-edit">
+            <textarea v-model="card.text" rows="6" maxlength="2000"></textarea>
+            <div class="row"><button class="primary" @click="saveCard">Save the card</button></div>
+            <p v-if="card.saved" class="hint">{{ card.saved }}</p>
+          </div>
+        </template>
+      </section>
+
       <section v-else-if="tab === 'rooms'" class="pane">
         <p class="hint">Turn off a room you don't use: its tab goes and nothing runs for it. Nothing is removed - turn it back on and everything is there as it was. HOME always stays.</p>
         <div class="rooms">
@@ -356,8 +414,6 @@ onMounted(async () => {
         <p class="hint">Turning STORY off ends the story session; turning WORLD off closes the world screens; CHAT stops reading the room. Their files stay.</p>
         <p class="hint">Arrange the tabs your way: drag a tab in the top bar onto another, or press Alt+Left / Alt+Right on a tab. Castle remembers the order.</p>
         <button v-if="settings.tabOrder?.length" :disabled="!!busy" @click="save({ tabOrder: [] }, 'The tabs are back in their first order.')">Put the tabs back in their first order</button>
-
-        <p class="hint">The chat room's own switches (its alerts) are in CHAT > SETTINGS.</p>
 
         <h3>Diary</h3>
         <p class="hint">How the DIARY room is read. The pages are the same; only the design changes. The THEME room shows each one with the page it wears.</p>
@@ -503,6 +559,31 @@ label.toggle {
   align-items: center;
   gap: 8px;
   font-size: 14px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+h3.with-tip {
+  display: flex;
+  align-items: center;
+}
+.card-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+.card-edit textarea {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
 }
 input:not([type='checkbox']) {
   padding: 7px 10px;
