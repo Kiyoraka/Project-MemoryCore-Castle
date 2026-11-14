@@ -515,9 +515,6 @@ input {
   flex-direction: column;
   min-height: 0;
   gap: 8px;
-  text-align: center;  flex-direction: column;
-  min-height: 0;
-  gap: 8px;
   text-align: center;
 }
 .case.focus { --s: 1; }
