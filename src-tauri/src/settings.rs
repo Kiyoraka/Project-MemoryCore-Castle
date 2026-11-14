@@ -176,6 +176,9 @@ pub struct Settings {
     /// (it plays through Windows' quiet hours); each has its own switch in Settings > Rooms.
     pub alert_sound: bool,
     pub alert_notify: bool,
+    /// "all" (every new line, the default) or "named" (only a line that names the member or
+    /// their companion, as a whole word): which lines the chat alerts tell about.
+    pub alert_when: String,
     /// Optional local-time clock immediately before the top bar's music controls.
     pub display_clock: bool,
     /// "12h" or "24h".
@@ -275,6 +278,7 @@ impl Default for Settings {
             minimize_to_taskbar: false,
             alert_sound: false,
             alert_notify: true,
+            alert_when: "all".into(),
             display_clock: false,
             clock_format: "24h".into(),
             voicestudio_on: false,
@@ -314,6 +318,7 @@ impl Settings {
     /// Trims every text field; an empty one means unset. The room address loses its trailing slash.
     pub fn normalized(mut self) -> Self {
         if !["12h", "24h"].contains(&self.clock_format.as_str()) { self.clock_format = "24h".into(); }
+        if !["all", "named"].contains(&self.alert_when.as_str()) { self.alert_when = "all".into(); }
         fn clean(value: Option<String>) -> Option<String> {
             value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
         }
@@ -503,6 +508,11 @@ mod tests {
         assert!(old.alert_notify && !old.alert_sound);
         let chosen: Settings = serde_json::from_str(r#"{"alertSound":true,"alertNotify":false}"#).unwrap();
         assert!(chosen.alert_sound && !chosen.alert_notify);
+        assert_eq!(old.alert_when, "all", "an older file alerts for every line, as before");
+        let named: Settings = serde_json::from_str::<Settings>(r#"{"alertWhen":"named"}"#).unwrap().normalized();
+        assert_eq!(named.alert_when, "named");
+        let odd: Settings = serde_json::from_str::<Settings>(r#"{"alertWhen":"loud"}"#).unwrap().normalized();
+        assert_eq!(odd.alert_when, "all");
     }
 
     #[test]
@@ -533,6 +543,7 @@ mod tests {
             minimize_to_taskbar: true,
             alert_sound: true,
             alert_notify: false,
+            alert_when: "named".into(),
             display_clock: true,
             clock_format: "12h".into(),
             voicestudio_on: true,
