@@ -38,9 +38,10 @@ export function storyTheme(look) {
 }
 
 // "You are wearing: The Constellation · List, Handwritten notebook · Classic VN"
-export function wearingLine(themeName, diaryLook, storyLook) {
+export function wearingLine(themeName, diaryLook, storyLook, profileName = '') {
   const diary = diaryTheme(diaryLook)
-  return `You are wearing: ${themeName || 'your theme'} · ${diary.label}, ${PAGE_NAMES[diary.page]} · ${storyTheme(storyLook).name}`
+  const line = `You are wearing: ${themeName || 'your theme'} · ${diary.label}, ${PAGE_NAMES[diary.page]} · ${storyTheme(storyLook).name}`
+  return profileName ? `${line} · ${profileName}` : line
 }
 
 // A sample entry for the diary case, so the page is shown as it really looks.

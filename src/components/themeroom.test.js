@@ -37,6 +37,7 @@ describe('the showroom', () => {
   it('says the whole outfit in one line', () => {
     expect(wearingLine('The Constellation', 'list', 'classic')).toBe('You are wearing: The Constellation · List, Handwritten notebook · Classic VN')
     expect(wearingLine('Sakura Night', 'book', 'jrpg')).toBe('You are wearing: Sakura Night · Book, Letter under starlight · JRPG window')
+    expect(wearingLine('The Constellation', 'list', 'classic', 'Cards')).toBe('You are wearing: The Constellation · List, Handwritten notebook · Classic VN · Cards')
     expect(wearingLine('', undefined, 'nope')).toBe('You are wearing: your theme · List, Handwritten notebook · Classic VN')
   })
 })

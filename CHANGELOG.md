@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- **THEME is a carousel.** The four cases (MAIN, DIARY, STORY, PROFILE) now stand in a row with one in focus in the middle and its two neighbours blurred either side. Turn it with the arrows at the screen edges, a click on a neighbour, a swipe or the keyboard; it loops. The "You are wearing" line now includes the PROFILE look too.
+
 ## 0.2.7 - 2026-11-14
 
 - **A flirty side, if you give it one.** Give your companion a flirty or playful trait for **Everyone** on PROFILE, and it may flirt lightly with others in the chat room: only words, never explicit, and it stops the moment anyone asks. Set the trait to **Only you** and it flirts with you alone.
