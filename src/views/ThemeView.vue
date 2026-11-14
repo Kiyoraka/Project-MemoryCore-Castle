@@ -4,7 +4,7 @@
 // shows the look that is worn; its arrows walk through the others. Create theme makes a main
 // theme: Castle drafts a working one from a picture at once, then the companion may polish it
 // or paint a wallpaper for it. Castle's loader checks every theme before it is used.
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import {
   choosePicture,
   getSettings,
@@ -51,6 +51,54 @@ const SAMPLE_TRAITS = [
 const SAMPLE_WAITING = [{ key: 'new-0', source: 'new', index: 0, name: 'Shy When Praised', line: 'flustered, then glad', audience: 'everyone' }]
 const profileAt = computed(() => Math.max(0, PROFILE_LOOKS.findIndex((l) => l.id === profileLook.value)))
 const profile = computed(() => PROFILE_LOOKS[profileAt.value])
+// the four cases stand in a row like a carousel: the one in focus is in the middle and in full
+// sight, its two neighbours sit either side a little smaller and blurred, and the fourth waits
+// out of sight. It loops. The arrows at the edges, a click on a neighbour, a swipe or the keyboard
+// turn it.
+// each case has a place on the row: -1 left, 0 focus, 1 right, and +-2 for the one waiting out of
+// sight. A turn first moves the waiting case, unseen, to the side the next one comes from, then
+// every case steps one place, so it always enters from the side it should and leaves the other way.
+const spot = ref([0, 1, 2, -1])
+const jumping = ref(-1)
+let drag = null
+let moving = false
+const place = (i) => spot.value[i]
+const caseClass = (i) => [Math.abs(place(i)) === 2 ? 'away' : place(i) === 0 ? 'focus' : 'side', jumping.value === i ? 'jump' : '']
+const caseStyle = (i) => ({ '--d': place(i) })
+async function slide(by) {
+  if (moving) return
+  moving = true
+  const a = spot.value.findIndex((p) => Math.abs(p) === 2)
+  const entry = by > 0 ? 2 : -2
+  if (spot.value[a] !== entry) {
+    jumping.value = a
+    spot.value[a] = entry
+    await nextTick()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    jumping.value = -1
+  }
+  spot.value = spot.value.map((p) => p - by)
+  setTimeout(() => (moving = false), 470)
+}
+async function showMain() {
+  for (let n = 0; n < 3 && place(0) !== 0; n++) {
+    slide(place(0) > 0 ? 1 : -1)
+    await new Promise((r) => setTimeout(r, 500))
+  }
+}
+function pick(i) {
+  if (Math.abs(place(i)) === 1) slide(place(i))
+}
+function dragStart(e) {
+  if (e.button !== 0 || e.target.closest('button, input, textarea, a')) return
+  drag = { x: e.clientX }
+}
+function dragEnd(e) {
+  if (!drag) return
+  const dx = e.clientX - drag.x
+  drag = null
+  if (Math.abs(dx) > 50) slide(dx < 0 ? 1 : -1)
+}
 const busy = ref('')
 const problem = ref('')
 const done = ref('')
@@ -65,7 +113,7 @@ const diaryAt = computed(() => indexOf(DIARY_THEMES, diaryLook.value))
 const storyAt = computed(() => indexOf(STORY_THEMES, storyLook.value))
 const diary = computed(() => DIARY_THEMES[diaryAt.value])
 const story = computed(() => STORY_THEMES[storyAt.value])
-const wearing = computed(() => wearingLine(worn.value?.name, diaryLook.value, storyLook.value))
+const wearing = computed(() => wearingLine(worn.value?.name, diaryLook.value, storyLook.value, profile.value.label))
 
 async function load() {
   try {
@@ -162,6 +210,7 @@ async function create() {
   const made = themes.value.find((t) => t.id === id)
   if (made) await use(made)
   shownAt.value = indexOf(themes.value, id)
+  showMain() // the new theme stands in the MAIN case, so bring that one to the middle
   done.value = `${made?.name ?? 'Your theme'} is ready.`
   form.value = { open: false, name: '', mood: '', picture: '' }
 }
@@ -223,9 +272,19 @@ onMounted(load)
       <p class="hint">Castle takes the colours from your picture so the theme works right away. Then you can ask {{ companion }} to polish it.</p>
     </section>
 
-    <div class="showroom">
+    <div class="showroom-wrap">
+      <button class="edge prev" aria-label="Earlier cases" @click="slide(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+      <div
+        class="showroom"
+        tabindex="0"
+        @pointerdown="dragStart"
+        @pointerup="dragEnd"
+        @pointercancel="drag = null"
+        @keydown.left.prevent="slide(-1)"
+        @keydown.right.prevent="slide(1)"
+      >
       <!-- the main theme: the whole Castle -->
-      <section class="case">
+      <section class="case" :class="caseClass(0)" :style="caseStyle(0)" :inert="place(0) !== 0" @click="pick(0)">
         <h3>MAIN THEME</h3>
         <div class="glass">
           <span class="lamp" aria-hidden="true" />
@@ -244,7 +303,9 @@ onMounted(load)
           <strong>{{ shown?.name ?? '' }}</strong>
           <button class="arrow" aria-label="Later theme" :disabled="themes.length < 2" @click="shownAt = step(shownAt, 1, themes.length)">›</button>
         </div>
-        <p class="dots" aria-hidden="true"><i v-for="(t, i) in themes" :key="t.id" :class="{ on: i === shownAt, worn: t.id === currentId }" /></p>
+        <!-- a dot for each theme; once there are many of yours, a count keeps the card the same height -->
+        <p v-if="themes.length <= 12" class="dots" aria-hidden="true"><i v-for="(t, i) in themes" :key="t.id" :class="{ on: i === shownAt, worn: t.id === currentId }" /></p>
+        <p v-else class="dots count">{{ shownAt + 1 }} / {{ themes.length }}</p>
         <p class="line" :title="shown?.description">{{ shown?.description }}</p>
         <div v-if="shown" class="row centre">
           <button v-if="shown.id !== currentId" class="primary" @click="use(shown)">Use</button>
@@ -257,7 +318,7 @@ onMounted(load)
       </section>
 
       <!-- the diary theme: how the DIARY is browsed, and the page it wears -->
-      <section class="case">
+      <section class="case" :class="caseClass(1)" :style="caseStyle(1)" :inert="place(1) !== 0" @click="pick(1)">
         <h3>DIARY THEME</h3>
         <div class="glass">
           <span class="lamp" aria-hidden="true" />
@@ -275,7 +336,7 @@ onMounted(load)
       </section>
 
       <!-- the story theme: the STORY stage -->
-      <section class="case">
+      <section class="case" :class="caseClass(2)" :style="caseStyle(2)" :inert="place(2) !== 0" @click="pick(2)">
         <h3>STORY THEME</h3>
         <div class="glass">
           <span class="lamp" aria-hidden="true" />
@@ -292,7 +353,7 @@ onMounted(load)
       </section>
 
       <!-- the profile theme: how HOME's PROFILE tab draws the emotion engine, with sample traits -->
-      <section class="case">
+      <section class="case" :class="caseClass(3)" :style="caseStyle(3)" :inert="place(3) !== 0" @click="pick(3)">
         <h3>PROFILE THEME</h3>
         <div class="glass">
           <span class="lamp" aria-hidden="true" />
@@ -309,6 +370,8 @@ onMounted(load)
         <p class="dots" aria-hidden="true"><i v-for="(t, i) in PROFILE_LOOKS" :key="t.id" :class="{ on: i === profileAt, worn: i === profileAt }" /></p>
         <p class="line" :title="profile.line">{{ profile.line }}</p>
       </section>
+      </div>
+      <button class="edge next" aria-label="Later cases" @click="slide(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></button>
     </div>
 
     <footer class="foot">
@@ -332,6 +395,8 @@ onMounted(load)
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
+  scrollbar-color: var(--line) transparent;
+  scrollbar-width: thin;
 }
 .widget {
   background: var(--panel-background);
@@ -397,25 +462,78 @@ input {
 /* ---------- the showroom ---------- */
 .showroom {
   flex: 1;
+  /* every case sits in the same cell; the one in focus is in the middle, the others slide */
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(18px, 3.2vw, 56px);
-  /* the cases keep their own shape and sit in the upper middle, the sky around them */
+  justify-items: center;
   align-content: center;
-  align-items: start;
   width: 100%;
   max-width: 1500px;
   margin: 0 auto;
-  padding: 6px clamp(8px, 2vw, 32px) 0;
+  padding: 6px 4px 14px;
   box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+  outline: none;
 }
+.showroom-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  /* overflow:hidden would let it shrink below the cases when the Create form is open; the page scrolls instead */
+  flex: 1 0 auto;
+}
+.edge {
+  position: absolute;
+  top: 40%;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+.edge svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.edge.prev { left: 0; }
+.edge.next { right: 0; }
 .case {
+  grid-area: 1 / 1;
+  width: min(31%, 440px);
+  min-width: 300px; /* the buttons of your own themes (Use, Polish, Paint, Delete) fit on one row */
+  transform: translateX(calc(var(--d) * (100% + 28px))) scale(var(--s, 1));
+  transition: transform 0.45s ease, filter 0.45s ease, opacity 0.45s ease;
   display: flex;
   flex-direction: column;
   min-height: 0;
   gap: 8px;
+  text-align: center;  flex-direction: column;
+  min-height: 0;
+  gap: 8px;
   text-align: center;
 }
+.case.focus { --s: 1; }
+.case.side {
+  --s: 0.86;
+  filter: blur(3px);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.case.away {
+  --s: 0.86;
+  opacity: 0;
+  pointer-events: none;
+}
+/* a case being put on the side it will enter from moves without any animation */
+.case.jump { transition: none; }
 .case h3 {
   margin: 0 0 4px;
   font-family: 'Palatino Linotype', Palatino, Georgia, serif;
@@ -576,6 +694,11 @@ input {
   padding: 6px 0;
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
+}
+.dots.count {
+  font-size: 11px;
+  line-height: 7px;
+  color: var(--text-dim);
 }
 .dots i {
   width: 7px;

@@ -7,6 +7,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 - **The chat's settings have their own tab in Settings.** **Settings > Chat** holds the alerts, your companion's emotion-engine switch for the room and its public card, each with a small **?** that explains it when you point at it. The **Chat settings** button in the room's side panel opens it. Thank you, Bernard Choong, for the idea.
 - **Alerts only when you are named.** In **Settings > Chat**, **Alert me for** can be **Only when someone names me or** your companion: a busy room then stays quiet unless a line says your name or your companion's, as a whole word.
 - **Hide the whole USAGE card.** Settings > Companion > Usage card has a new first switch, **Show the USAGE card on HOME**. Off, HOME has no USAGE card and Castle asks neither Claude Code nor Codex; on, the Claude Code and Codex switches below it choose what the card shows, as before.
+- **THEME is a carousel.** The four cases (MAIN, DIARY, STORY, PROFILE) now stand in a row with one in focus in the middle and its two neighbours blurred either side. Turn it with the arrows at the screen edges, a click on a neighbour, a swipe or the keyboard; it loops. The "You are wearing" line now includes the PROFILE look too. Thank you, Bernard Choong.
 
 ## 0.2.7 - 2026-11-14
 
