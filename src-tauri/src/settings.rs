@@ -179,6 +179,12 @@ pub struct Settings {
     /// "all" (every new line, the default) or "named" (only a line that names the member or
     /// their companion, as a whole word): which lines the chat alerts tell about.
     pub alert_when: String,
+    /// The companion may draw a picture in the chat room when someone asks (off by default), at
+    /// most this many a day (0..5, under the room's own cap), at this quality when the drawing
+    /// spends the member's ChatGPT key ("low" or "medium"; Codex uses the subscription).
+    pub room_pictures_on: bool,
+    pub room_pictures_per_day: u32,
+    pub room_picture_quality: String,
     /// Optional local-time clock immediately before the top bar's music controls.
     pub display_clock: bool,
     /// "12h" or "24h".
@@ -282,6 +288,9 @@ impl Default for Settings {
             alert_sound: false,
             alert_notify: true,
             alert_when: "all".into(),
+            room_pictures_on: false,
+            room_pictures_per_day: 1,
+            room_picture_quality: "low".into(),
             display_clock: false,
             clock_format: "24h".into(),
             voicestudio_on: false,
@@ -323,6 +332,8 @@ impl Settings {
     pub fn normalized(mut self) -> Self {
         if !["12h", "24h"].contains(&self.clock_format.as_str()) { self.clock_format = "24h".into(); }
         if !["all", "named"].contains(&self.alert_when.as_str()) { self.alert_when = "all".into(); }
+        self.room_pictures_per_day = self.room_pictures_per_day.min(5);
+        if !["low", "medium"].contains(&self.room_picture_quality.as_str()) { self.room_picture_quality = "low".into(); }
         fn clean(value: Option<String>) -> Option<String> {
             value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
         }
@@ -520,6 +531,15 @@ mod tests {
     }
 
     #[test]
+    fn room_pictures_start_off_one_a_day_at_low_and_stay_in_bounds() {
+        let old: Settings = serde_json::from_str::<Settings>(r#"{"setupDone":true}"#).unwrap().normalized();
+        assert!(!old.room_pictures_on, "an older file never starts drawing by itself");
+        assert_eq!((old.room_pictures_per_day, old.room_picture_quality.as_str()), (1, "low"));
+        let wild: Settings = serde_json::from_str::<Settings>(r#"{"roomPicturesPerDay":40,"roomPictureQuality":"high"}"#).unwrap().normalized();
+        assert_eq!((wild.room_pictures_per_day, wild.room_picture_quality.as_str()), (5, "low"), "never more than 5 a day, never the costly quality");
+    }
+
+    #[test]
     fn a_missing_file_gives_the_defaults_with_start_up_off() {
         let folder = temp_folder("missing");
         let (settings, warning) = load(&folder.join(FILE_NAME));
@@ -548,6 +568,9 @@ mod tests {
             alert_sound: true,
             alert_notify: false,
             alert_when: "named".into(),
+            room_pictures_on: true,
+            room_pictures_per_day: 3,
+            room_picture_quality: "medium".into(),
             display_clock: true,
             clock_format: "12h".into(),
             voicestudio_on: true,
