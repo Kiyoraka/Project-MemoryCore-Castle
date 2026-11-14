@@ -46,6 +46,7 @@ mod voicestudio;
 mod system;
 mod theme;
 mod themes;
+mod traits;
 mod tree;
 mod transcript;
 mod tray;
