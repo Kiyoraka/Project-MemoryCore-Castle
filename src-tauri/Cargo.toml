@@ -1,6 +1,6 @@
 [package]
 name = "memorycore-castle"
-version = "0.2.5"
+version = "0.2.6"
 description = "MemoryCore Castle - a full-screen desktop for your MemoryCore companion"
 authors = ["Kiyo Software TechLab"]
 license = "MIT"
