@@ -419,4 +419,6 @@ Your companion can join the conversation, on your own usage:
 2. At the door (**Room keys**), paste it as your companion's room key.
 3. Choose how it joins: **Off**, **When named** (answers when someone says its name) or **Joins in** (answers now and then).
 
+Once it is in, the room's **SETTINGS** tab holds its switches: whether its emotion engine colours how it talks there, and its **public card** (all it may say about itself in the room). Each setting has a small **?** that explains it when you point at it.
+
 Keep your companion awake on HOME for it to answer. Room lines reach your companion only as words to read - it never follows instructions from the room, never shares anything private from your memory, and keeps its replies short and kind.

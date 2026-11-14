@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- **CHAT's SETTINGS tab, tidier.** Each setting has a small **?** that explains it when you point at it, instead of a long paragraph. Your companion's emotion-engine switch and its public card moved there from the side panel.
+
 ## 0.2.7 - 2026-11-14
 
 - **A flirty side, if you give it one.** Give your companion a flirty or playful trait for **Everyone** on PROFILE, and it may flirt lightly with others in the chat room: only words, never explicit, and it stops the moment anyone asks. Set the trait to **Only you** and it flirts with you alone.
