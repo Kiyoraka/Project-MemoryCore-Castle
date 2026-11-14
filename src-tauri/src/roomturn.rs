@@ -11,14 +11,12 @@
 //! At most one turn a minute; lines that land while a turn runs, or too soon, stay owed.
 
 use crate::chatroom::{my_line_ids, Room};
-use crate::env::{self, NEVER_INHERITED};
 use crate::key;
 use crate::settings::{Cli, Settings, SettingsStore};
 use serde::Serialize;
 use serde_json::Value;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -181,11 +179,7 @@ pub fn room_folder(store: &SettingsStore) -> PathBuf {
     store.folder().join("room")
 }
 
-fn write_if_changed(path: &Path, text: &str) {
-    if std::fs::read_to_string(path).ok().as_deref() != Some(text) {
-        let _ = std::fs::write(path, text);
-    }
-}
+use crate::oneshot::write_if_changed;
 
 /// Makes the room folder: the public card (kept as the member wrote it) and the rules for both CLIs.
 pub fn prepare_folder(store: &SettingsStore) -> Result<PathBuf, String> {
@@ -236,58 +230,7 @@ fn log(folder: &Path, text: &str) {
 
 /// Runs the member's CLI once in the room folder with no tools; its whole output.
 fn run_cli(cli: Cli, folder: &Path, words: &str) -> Result<String, String> {
-    let program = env::find_on_path(cli.command()).ok_or_else(|| format!("{} is not installed.", cli.label()))?;
-    let script = program.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-    let mut command = if script {
-        let mut c = Command::new("cmd.exe");
-        c.arg("/c").arg(&program);
-        c
-    } else {
-        Command::new(&program)
-    };
-    let answer_file = folder.join("last-answer.txt");
-    let _ = std::fs::remove_file(&answer_file);
-    match cli {
-        // no tools at all, no MCP servers, no user-level settings or memory - only this folder
-        Cli::Claude => command.args(["-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", "rules.md"]),
-        Cli::Codex => command.args(["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message"]).arg(&answer_file).arg("-"),
-    };
-    command.current_dir(folder).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    for name in NEVER_INHERITED {
-        command.env_remove(name);
-    }
-    // the room's companion speaks in public: no tools, and no door to the memory database
-    for name in ["CASTLE_TOOLS", "CASTLE_STYLES", "CASTLE_IMAGE", "CASTLE_CLI", "CASTLE_EXE"] {
-        command.env_remove(name);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let mut child = command.spawn().map_err(|_| format!("{} could not be started.", cli.label()))?;
-    if let Some(mut input) = child.stdin.take() {
-        let _ = input.write_all(words.as_bytes());
-    }
-    let mut stdout = child.stdout.take().ok_or("No output.")?;
-    let reader = std::thread::spawn(move || {
-        let mut out = String::new();
-        let _ = stdout.read_to_string(&mut out);
-        out
-    });
-    let until = Instant::now() + RUN_LIMIT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(200)),
-            _ => {
-                let _ = child.kill();
-                return Err("The turn took too long and was stopped.".into());
-            }
-        }
-    }
-    let out = reader.join().unwrap_or_default();
-    Ok(std::fs::read_to_string(&answer_file).ok().filter(|a| !a.trim().is_empty()).unwrap_or(out))
+    crate::oneshot::run(cli, folder, "rules.md", words, RUN_LIMIT).map_err(|why| if why.starts_with("It took too long") { "The turn took too long and was stopped.".into() } else { why })
 }
 
 fn take_turn(app: &AppHandle) {

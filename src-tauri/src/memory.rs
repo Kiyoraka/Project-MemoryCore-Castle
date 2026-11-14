@@ -520,9 +520,66 @@ pub fn memory_read(file: String, store: tauri::State<crate::settings::SettingsSt
     read_page(&folder, &file)
 }
 
+// ---------- the recent diary (the emotion engine's Scan my diary) ----------
+
+/// Newest-first entries cut to size: each at most `each` characters, the whole at most `total`
+/// (an entry that no longer fits is left out). Pure, tested.
+pub fn cap_entries(entries: Vec<(String, String)>, each: usize, total: usize) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut used = 0;
+    for (title, body) in entries {
+        let body: String = body.trim().chars().take(each).collect();
+        let size = title.chars().count() + body.chars().count();
+        if body.is_empty() || used + size > total {
+            continue;
+        }
+        used += size;
+        out.push((title, body));
+    }
+    out
+}
+
+/// The newest `n` diary entries with their text, newest first, cut to size: from the database
+/// when the memory lives there, else from the diary files.
+pub fn recent_diary(folder: &Path, n: usize, each: usize, total: usize) -> Vec<(String, String)> {
+    let entries: Vec<(String, String)> = match crate::store::source(folder) {
+        Some(mut conn) => {
+            use mysql::prelude::Queryable;
+            conn.exec::<(Option<String>, String, String), _, _>(
+                "SELECT DATE_FORMAT(entry_date, '%Y-%m-%d'), title, body FROM diary_entries ORDER BY entry_date IS NULL, entry_date DESC, session_no DESC, id DESC LIMIT ?",
+                (n as u64,),
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(date, title, body)| (date.map(|d| format!("{d} - {title}")).unwrap_or(title), body))
+            .collect()
+        }
+        None => diary_files(folder)
+            .into_iter()
+            .rev()
+            .take(n)
+            .filter_map(|p| {
+                let body = std::fs::read_to_string(&p).ok()?;
+                let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                Some((name, body))
+            })
+            .collect(),
+    };
+    cap_entries(entries, each, total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_recent_diary_is_cut_to_size() {
+        let entries = vec![("Today".to_string(), format!("  {}  ", "a".repeat(50))), ("Empty".into(), "   ".into()), ("Long ago".into(), "b".repeat(50))];
+        let cut = cap_entries(entries.clone(), 10, 1000);
+        assert_eq!(cut, vec![("Today".to_string(), "a".repeat(10)), ("Long ago".to_string(), "b".repeat(10))]);
+        // the whole is capped: the newest is kept, the rest left out once it no longer fits
+        assert_eq!(cap_entries(entries, 50, 60).len(), 1);
+    }
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(name)

@@ -17,6 +17,7 @@ mod dev_tabs;
 mod door;
 mod door_plan;
 mod door_trait;
+mod emotion;
 mod env;
 mod files;
 mod git;
@@ -30,6 +31,7 @@ mod plans;
 mod pty;
 mod providers;
 mod messages;
+mod oneshot;
 mod quota;
 mod roomread;
 mod rooms;
@@ -381,6 +383,11 @@ pub fn run() {
             db::db_export,
             db::db_skills,
             db::db_skill_stub,
+            emotion::db_traits,
+            emotion::db_trait_save,
+            emotion::db_trait_activate,
+            emotion::db_trait_retire,
+            emotion::emotion_propose,
             db::db_setup_all,
             db::db_move_out
         ])

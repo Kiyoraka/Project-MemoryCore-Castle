@@ -222,6 +222,15 @@ export const dbMoveOut = () => invoke('db_move_out')
 // SKILL.md on disk and its instructions are loaded from the database when it fires
 export const dbSkills = () => invoke('db_skills')
 export const dbSkillStub = (plugin, name, on) => invoke('db_skill_stub', { plugin, name, on })
+// The emotion engine (PROFILE). A trait: { number, name, line, body, audience, origin, why, status, updatedAt }.
+export const dbTraits = () => invoke('db_traits')
+// draft = { name, line, body, audience, why }; number given = new words for that trait, else a new active one
+export const dbTraitSave = (draft, number = null, origin = null) => invoke('db_trait_save', { draft, number, origin })
+export const dbTraitActivate = (number) => invoke('db_trait_activate', { number })
+// a trait she lives is retired; a proposal is let go
+export const dbTraitRetire = (number) => invoke('db_trait_retire', { number })
+// kind 'diary' (her recent diary) or 'idea' (the member's words) -> [{ name, line, body, audience, why }]; nothing is kept
+export const emotionPropose = (kind, idea = null) => invoke('emotion_propose', { kind, idea })
 // "Set it up for me": install, start, create, check - then it stops and gives the move's counts
 export const dbSetupAll = () => invoke('db_setup_all')
 // while it runs: { step: install | start | create | check, state: running | done }
