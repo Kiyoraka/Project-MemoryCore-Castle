@@ -1,11 +1,13 @@
 //! A new line in the Foundation room: a sound and a desktop notification when the member is not
 //! looking at the CHAT tab. The notification is on by default and the sound off (the sound ignores
-//! Windows quiet hours); each has its own switch in Settings > Rooms.
+//! Windows quiet hours); each has its own switch in Settings > Chat, with the choice of every line
+//! or only the lines that name the member or their companion.
 //! The room reader (roomread.rs) runs from the moment Castle starts, also while Castle is hidden in
 //! the tray, so this reaches the member then too. An alert is best effort: it never stops a read.
 
-use crate::settings::SettingsStore;
+use crate::settings::{Settings, SettingsStore};
 use serde_json::Value;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 
@@ -51,19 +53,70 @@ fn looking(app: &AppHandle, chat_shown: bool) -> bool {
     chat_shown && app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
 }
 
+/// Does the text name one of `names` as a whole word (or phrase), case and spacing aside?
+/// "Ali" never matches inside "Alice", and "Kiyo," or "@Kiyo" still name Kiyo. Pure, tested.
+pub fn names_someone(text: &str, names: &[String]) -> bool {
+    let squeeze = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let text = squeeze(text);
+    names.iter().map(|n| squeeze(n)).filter(|n| !n.is_empty()).any(|name| {
+        let mut from = 0;
+        while let Some(at) = text[from..].find(&name) {
+            let start = from + at;
+            let end = start + name.len();
+            let before = text[..start].chars().next_back();
+            let after = text[end..].chars().next();
+            if !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric) {
+                return true;
+            }
+            from = start + text[start..].chars().next().map_or(1, char::len_utf8);
+        }
+        false
+    })
+}
+
+/// The member's display name in the room (their Foundation name), asked once and kept until
+/// sign-in, sign-out or a display-name change forgets it.
+static ROOM_NAME: Mutex<Option<String>> = Mutex::new(None);
+
+fn room_name() -> Option<String> {
+    if let Some(name) = ROOM_NAME.lock().unwrap().clone() {
+        return Some(name);
+    }
+    let token = crate::key::load("member")?;
+    let me = crate::chatroom::Room::new(&crate::signin::portfolio(), &token).me().ok()?;
+    let name = me.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty())?.to_string();
+    *ROOM_NAME.lock().unwrap() = Some(name.clone());
+    Some(name)
+}
+
+/// The kept room name is out of date (signed in or out, or the display name changed).
+pub fn forget_name() {
+    *ROOM_NAME.lock().unwrap() = None;
+}
+
+/// The names that make a line worth an alert in "named" mode: the member's name in Settings,
+/// their name in the room, and their companion's name.
+fn names_to_hear(settings: &Settings) -> Vec<String> {
+    let mut names: Vec<String> = [settings.member_name.clone(), room_name(), settings.companion_name.clone()].into_iter().flatten().collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names.dedup_by_key(|n| n.to_lowercase());
+    names
+}
+
 /// Called with the lines a read just found (never the first read after start or sign-in).
 pub fn new_lines(app: &AppHandle, fresh: &[Value], chat_shown: bool) {
     let store = app.state::<SettingsStore>();
     let settings = store.get();
-    if !(settings.alert_sound || settings.alert_notify) {
+    if !(settings.alert_sound || settings.alert_notify) || looking(app, chat_shown) {
         return;
     }
     // the member's own companion speaking is not news to tell them about
-    let fresh: Vec<Value> = fresh.iter().filter(|l| !crate::roomturn::companion_said(&settings, l)).cloned().collect();
-    let Some((title, body)) = summary(&fresh, &crate::chatroom::my_line_ids(&store)) else { return };
-    if looking(app, chat_shown) {
-        return;
+    let mut fresh: Vec<Value> = fresh.iter().filter(|l| !crate::roomturn::companion_said(&settings, l)).cloned().collect();
+    if settings.alert_when == "named" {
+        let names = names_to_hear(&settings);
+        fresh.retain(|l| l.get("text").and_then(Value::as_str).is_some_and(|t| names_someone(t, &names)));
     }
+    let Some((title, body)) = summary(&fresh, &crate::chatroom::my_line_ids(&store)) else { return };
     if settings.alert_sound {
         beep();
     }
@@ -121,5 +174,35 @@ mod tests {
         assert!(body.ends_with('…'));
         let (_, body) = summary(&[json!({ "id": 2, "text": "", "author": { "name": "  " } })], &[]).unwrap();
         assert_eq!(body, "Someone: sent a picture or a voice line");
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn a_name_counts_only_as_a_whole_word() {
+        let heard = names(&["Kiyo", "Ali"]);
+        assert!(names_someone("hi Kiyo, how are you?", &heard));
+        assert!(names_someone("@kiyo look at this", &heard), "case aside, an @ in front is fine");
+        assert!(names_someone("thanks KIYO!", &heard));
+        assert!(!names_someone("Kiyoraka pushed the PR", &heard), "not inside a longer word");
+        assert!(!names_someone("Alice said hello", &heard), "Ali is not inside Alice");
+        assert!(names_someone("Ali: are you there", &heard));
+    }
+
+    #[test]
+    fn a_name_of_two_words_is_heard_as_a_phrase() {
+        let heard = names(&["Alice Test"]);
+        assert!(names_someone("what do you think, alice   test?", &heard), "spacing aside");
+        assert!(!names_someone("Alice is a test", &heard));
+        assert!(!names_someone("Alice Tester", &heard));
+    }
+
+    #[test]
+    fn no_names_hear_nothing() {
+        assert!(!names_someone("hello everyone", &[]));
+        assert!(!names_someone("hello everyone", &names(&["", "   "])), "empty names never match everything");
+        assert!(!names_someone("", &names(&["Kiyo"])));
     }
 }
