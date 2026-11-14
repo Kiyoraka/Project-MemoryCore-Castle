@@ -5,13 +5,35 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import ImageViewer from '../components/ImageViewer.vue'
 import ImageJobs from '../components/ImageJobs.vue'
+import ThemedAudio from '../components/ThemedAudio.vue'
 import { imageRequest } from '../api/castle.js'
 const imageBrief = ref('')
 const imageProblem = ref('')
 async function drawImage() {
   try { await imageRequest(imageBrief.value); imageBrief.value = ''; imageProblem.value = '' } catch (e) { imageProblem.value = String(e) }
 }
-import { chatMediaOpen, studioLibrary, studioPowers } from '../api/castle.js'
+import { chatMediaOpen, studioLibrary, studioPowers, voiceStudioSpeak, voiceStudioStatus } from '../api/castle.js'
+
+// VoiceStudio (optional, switched on in Settings) is the Voice power while it is on and running
+const voiceUp = ref(false)
+const voiceText = ref('')
+const voiceBusy = ref(false)
+const voiceProblem = ref('')
+const voiceClip = ref('')
+async function speak() {
+  if (voiceBusy.value || !voiceText.value.trim()) return
+  voiceBusy.value = true
+  voiceProblem.value = ''
+  try {
+    const path = await voiceStudioSpeak(voiceText.value)
+    voiceClip.value = convertFileSrc(path)
+    await load()
+  } catch (e) {
+    voiceProblem.value = String(e)
+  } finally {
+    voiceBusy.value = false
+  }
+}
 
 const props = defineProps({
   companion: { type: String, default: 'Your companion' },
@@ -52,6 +74,7 @@ function when(at) {
 
 async function load() {
   try {
+    voiceUp.value = await voiceStudioStatus().catch(() => false)
     powers.value = await studioPowers()
     lib.value = await studioLibrary()
   } catch {
@@ -69,12 +92,19 @@ watch(() => props.stamp, load)
     <section class="powers">
       <article v-for="p in POWERS" :key="p.id" class="power widget">
         <h3>{{ p.label }}</h3>
-        <span class="state" :class="STATE[powers[p.id]]?.cls">{{ p.id === 'image' && powers.image === 'prompt' ? 'Prompt only — install/sign in to Codex' : STATE[powers[p.id]]?.text ?? '…' }}</span>
+        <span v-if="p.id === 'voice' && voiceUp" class="state ready">Ready — VoiceStudio (on this computer)</span>
+        <span v-else class="state" :class="STATE[powers[p.id]]?.cls">{{ p.id === 'image' && powers.image === 'prompt' ? 'Prompt only — install/sign in to Codex' : STATE[powers[p.id]]?.text ?? '…' }}</span>
         <p class="hint">Ask {{ companion }}: <em>"{{ p.ask }} …"</em></p>
         <template v-if="p.id === 'image'">
           <textarea v-model="imageBrief" rows="2" placeholder="Describe the picture for Codex…" aria-label="Picture request" @keydown.ctrl.enter="drawImage"></textarea>
           <button :disabled="!imageBrief.trim()" @click="drawImage">Create picture with Codex</button>
           <p v-if="imageProblem" role="alert" class="problem">{{ imageProblem }}</p>
+        </template>
+        <template v-else-if="p.id === 'voice' && voiceUp">
+          <textarea v-model="voiceText" rows="2" placeholder="Type what VoiceStudio should say…" @keydown.ctrl.enter="speak"></textarea>
+          <button :disabled="voiceBusy || !voiceText.trim()" @click="speak">{{ voiceBusy ? 'Speaking…' : 'Speak with VoiceStudio' }}</button>
+          <ThemedAudio v-if="voiceClip" :src="voiceClip" />
+          <p v-if="voiceProblem" role="alert" class="problem">{{ voiceProblem }}</p>
         </template>
         <button v-else-if="powers[p.id] === 'prompt'" @click="emit('keys')">Add the {{ p.key }} key</button>
       </article>

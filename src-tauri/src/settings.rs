@@ -175,6 +175,9 @@ pub struct Settings {
     pub display_clock: bool,
     /// "12h" or "24h".
     pub clock_format: String,
+    /// Use VoiceStudio, a text-to-speech app the member runs on this same computer, as STUDIO's Voice
+    /// power. Off until the member turns it on: Castle then never talks to it.
+    pub voicestudio_on: bool,
     /// Whether HOME's USAGE card shows Claude Code's limits, and Codex's. On by default; a CLI that
     /// is off is not asked at all.
     pub show_claude_usage: bool,
@@ -261,6 +264,7 @@ impl Default for Settings {
             minimize_to_taskbar: false,
             display_clock: false,
             clock_format: "24h".into(),
+            voicestudio_on: false,
             show_claude_usage: true,
             show_codex_usage: true,
             room_companion_key_id: None,
@@ -454,6 +458,15 @@ mod tests {
     }
 
     #[test]
+    fn local_voicestudio_is_off_until_turned_on() {
+        let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
+        assert!(!old.voicestudio_on);
+        assert!(!Settings::default().voicestudio_on);
+        let on: Settings = serde_json::from_str(r#"{"voicestudioOn":true}"#).unwrap();
+        assert!(on.voicestudio_on);
+    }
+
+    #[test]
     fn a_missing_file_gives_the_defaults_with_start_up_off() {
         let folder = temp_folder("missing");
         let (settings, warning) = load(&folder.join(FILE_NAME));
@@ -481,6 +494,7 @@ mod tests {
             minimize_to_taskbar: true,
             display_clock: true,
             clock_format: "12h".into(),
+            voicestudio_on: true,
             show_claude_usage: false,
             show_codex_usage: true,
             room_companion_key_id: Some("17".into()),

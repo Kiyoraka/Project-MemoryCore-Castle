@@ -42,6 +42,7 @@ mod startup;
 mod store;
 mod story;
 mod studio;
+mod voicestudio;
 mod system;
 mod theme;
 mod themes;
@@ -298,6 +299,8 @@ pub fn run() {
             theme::theme_folder,
             studio::studio_library,
             studio::studio_powers,
+            voicestudio::voicestudio_status,
+            voicestudio::voicestudio_speak,
             appearance::appearance_look,
             appearance::appearance_new,
             appearance::appearance_import,

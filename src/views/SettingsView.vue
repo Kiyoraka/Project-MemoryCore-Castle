@@ -28,6 +28,7 @@ import {
   setupApply,
   setupCheckCli,
   setupInspect,
+  voiceStudioStatus,
 } from '../api/castle.js'
 
 const props = defineProps({
@@ -112,6 +113,16 @@ async function attempt(label, work) {
   } finally {
     busy.value = ''
   }
+}
+
+// VoiceStudio (optional, for people who run it on this computer): is it answering right now?
+const voiceUp = ref(null)
+async function checkVoice() {
+  voiceUp.value = settings.value?.voicestudioOn ? await voiceStudioStatus().catch(() => false) : null
+}
+async function toggleVoice(on) {
+  const saved = await save({ voicestudioOn: on }, on ? "Saved. The Voice card in STUDIO now uses VoiceStudio while it is running." : 'Saved.')
+  if (saved) await checkVoice()
 }
 
 async function save(patch, message = 'Saved.') {
@@ -233,6 +244,7 @@ onMounted(async () => {
     keys.value = await keyStatus()
     avatar.value = await avatarGet()
     await readLink()
+    await checkVoice()
   } catch (reason) {
     problem.value = String(reason)
   }
@@ -281,6 +293,10 @@ onMounted(async () => {
         <label class="toggle"><input type="checkbox" :checked="settings.showClaudeUsage !== false" @change="save({ showClaudeUsage: $event.target.checked })" /> Show Claude Code usage on HOME</label>
         <label class="toggle"><input type="checkbox" :checked="settings.showCodexUsage !== false" @change="save({ showCodexUsage: $event.target.checked })" /> Show Codex usage on HOME</label>
         <p class="hint">The USAGE card on HOME shows how much of the five-hour and weekly limits is used. One you switch off is not asked at all. Switch both off and the card says so.</p>
+        <h3>Local voice (optional)</h3>
+        <label class="toggle"><input type="checkbox" :checked="!!settings.voicestudioOn" :disabled="!!busy" @change="toggleVoice($event.target.checked)" /> Use VoiceStudio for the Voice card in STUDIO</label>
+        <p v-if="settings.voicestudioOn" class="hint">VoiceStudio is {{ voiceUp === null ? 'being checked…' : voiceUp ? 'running on this computer.' : 'not running. Open it and wait for it to finish starting, then check again.' }} <button v-if="voiceUp === false" @click="checkVoice">Check again</button></p>
+        <p class="hint">For people who run their own <a href="#" @click.prevent="openUrl('https://github.com/debpalash/voicestudio')">VoiceStudio</a> on this PC. Off: Castle never contacts it. On: STUDIO's Voice card can speak a line with it, and the clip is saved with your other voice lines. Everything stays on this computer. Castle does not install or start VoiceStudio, and its voice models carry their own licences (some are non-commercial).</p>
         <button @click="emit('setup')">Run the first-run setup again</button>
       </section>
 

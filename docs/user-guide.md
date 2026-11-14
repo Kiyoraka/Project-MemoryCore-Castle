@@ -245,6 +245,10 @@ At the top of **STUDIO**, each power shows its state:
 
 Press **Add the ... key** on a card to add it (see chapter 4, Keys).
 
+### Your own voice (optional, for self-hosters)
+
+If you run [VoiceStudio](https://github.com/debpalash/voicestudio) on this PC, you can use it for the Voice card instead of a key. It is off by default: turn it on in **Settings > Companion > Local voice**. With it on and VoiceStudio running, the Voice card says **Ready - VoiceStudio (on this computer)**: type a line, press **Speak with VoiceStudio**, and the clip plays and is saved with your other voice lines. Castle uses your first saved VoiceStudio voice (a saved voice also keeps one-word lines from coming out as noise) and checks each clip with VoiceStudio's own transcriber, making it again if it came out as noise. Everything stays on your computer, Castle never installs or starts VoiceStudio, and while the switch is off Castle never contacts it. VoiceStudio's models have their own licences; some are non-commercial.
+
 ### Before anything costs money
 
 Your companion always tells you the estimated cost first and asks before making a picture, video, song or voice line.

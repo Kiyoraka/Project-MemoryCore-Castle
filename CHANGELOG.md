@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- **Optional local voice.** For people who run [VoiceStudio](https://github.com/debpalash/voicestudio) on their own PC: Settings > Companion has a new **Local voice** switch (off by default). Turned on, and with VoiceStudio running, STUDIO's Voice card can speak a line with it and saves the clip with your other voice lines. Everything stays on your computer; with the switch off Castle never contacts it.
+
 ## 0.2.4 - 2026-11-14
 
 - **Pictures and voice lines now show in CHAT.** The room names each one by a number, and Castle only took text, so they were refused before they were fetched and the chat showed nothing.
