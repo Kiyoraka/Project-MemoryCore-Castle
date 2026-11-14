@@ -8,6 +8,8 @@ const props = defineProps({
   tabs: { type: Array, required: true },
   active: { type: String, required: true },
   displayClock: { type: Boolean, default: false },
+  // Castle's version ("0.2.4"), said after its name
+  version: { type: String, default: '' },
   clockFormat: { type: String, default: '24h' },
   // Tabs with something new waiting (the story room speaking, a new chat line): their button changes colour.
   marks: { type: Array, default: () => [] },
@@ -77,7 +79,7 @@ onBeforeUnmount(stopListening)
 
 <template>
   <header class="top-bar">
-    <span class="title"><span class="gem">◆</span> MEMORYCORE</span>
+    <span class="title"><span class="gem">◆</span> MEMORYCORE<span v-if="version" class="version" :title="`MemoryCore Castle ${version}`">v{{ version }}</span></span>
     <nav class="tabs" :class="{ sorting: dragging }">
       <button
         v-for="tab in tabs"
@@ -144,6 +146,13 @@ onBeforeUnmount(stopListening)
 .gem {
   margin-right: 6px;
   color: var(--accent);
+}
+
+.version {
+  margin-left: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
 }
 
 .tabs {

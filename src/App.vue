@@ -360,6 +360,7 @@ watch(settingsStamp, () => {
       :tabs="tabs"
       :active="active"
       :display-clock="barClock.enabled"
+      :version="appVersion"
       :clock-format="barClock.format"
       :marks="marks"
       :mark-titles="{ story: 'The story has new lines', chat: 'New in the room' }"
