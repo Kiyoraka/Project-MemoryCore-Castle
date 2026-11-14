@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readReveal, revealStyle } from './usagereveal.js'
+import { readReveal, revealEdge, revealStyle } from './usagereveal.js'
 import { builtInThemes, problemWith } from './loader.js'
 
 const sky = readReveal({ lowUrl: 'low.jpg', mode: 'rise', angle: '32deg', from: 0.29, to: 0.85 })
@@ -31,6 +31,12 @@ describe('the picture fills with the week', () => {
       expect(problemWith(theme), id).toBeNull()
     }
     expect(readReveal(builtInThemes().find((t) => t.id === 'constellation').usageReveal).mode).toBe('rise')
+  })
+
+  it('puts the gliding edge where the percent says', () => {
+    expect(revealEdge(0, sky)).toBe(0)
+    expect(revealEdge(30, sky)).toBeCloseTo(0.458, 3)
+    expect(revealEdge(100, sky)).toBeGreaterThan(1)
   })
 
   it('fades in proportion', () => {

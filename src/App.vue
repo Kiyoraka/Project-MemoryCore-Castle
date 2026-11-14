@@ -25,6 +25,7 @@ import DevView from './views/DevView.vue'
 import SettingsView from './views/SettingsView.vue'
 import UpdateChip from './components/UpdateChip.vue'
 import QuotaGlow from './components/QuotaGlow.vue'
+import UsageReveal from './components/UsageReveal.vue'
 import WhatsNew from './components/WhatsNew.vue'
 import { sectionFor, unseenSections } from './components/changelog.js'
 import { moveTab, orderTabs } from './components/taborder.js'
@@ -373,6 +374,7 @@ watch(settingsStamp, () => {
     />
     <main class="screen">
       <div v-show="active === 'home'" class="home" :class="theme?.widgetStyle ?? 'glass'">
+        <UsageReveal v-if="theme?.usageReveal" :theme="theme" :visible="active === 'home'" />
         <QuotaGlow v-if="theme?.quotaGlow" :theme="theme" :visible="active === 'home'" />
         <TerminalPanel
           :settings-stamp="settingsStamp"

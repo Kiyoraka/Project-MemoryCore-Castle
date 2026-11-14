@@ -24,6 +24,17 @@ export function readReveal(reveal) {
   return { mode: 'rise', lowUrl: reveal.lowUrl, angle, from: Math.min(from, to), to: Math.max(from, to) }
 }
 
+// Where a rise's edge stands at `usedPercent`, as a fraction of the gradient line: 0 hides the
+// wallpaper whole, past 1 (plus the soft edge) shows it whole. HOME glides between two readings.
+export function revealEdge(usedPercent, reveal) {
+  const used = Math.min(100, Math.max(0, Number(usedPercent) || 0)) / 100
+  if (used <= 0) return 0
+  if (used >= 1) return 1 + SOFT
+  return reveal.from + (reveal.to - reveal.from) * used
+}
+
+export const REVEAL_SOFT = SOFT
+
 // How the wallpaper layer is shown at `usedPercent` (0..100): { opacity } for fade, { mask } for
 // rise (an empty mask = the whole wallpaper).
 export function revealStyle(usedPercent, reveal) {
