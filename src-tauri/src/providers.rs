@@ -534,6 +534,32 @@ fn end_process_tree(child: &mut std::process::Child) {
 }
 
 fn run_image(job: &ImageJob, styles: Option<&Path>, stop_asked: &dyn Fn() -> bool) -> Result<(), String> {
+    let program = codex_ready()?;
+    run_image_with_program(job, &program, styles, stop_asked, IMAGE_TIME_LIMIT)
+}
+
+/// One drawing for the chat room: the job queue's Codex path, without the queue, in `folder` (the
+/// room's own folder, the only place it may write), with its own time limit; the picture lands at
+/// `output`.
+pub(crate) fn draw_once(brief: &str, folder: &Path, output: &Path, limit: std::time::Duration) -> Result<(), String> {
+    let program = codex_ready()?;
+    let job = ImageJob {
+        id: format!("room-{}", crate::link::now_secs()),
+        label: "A picture for the chat room".into(),
+        phase: "working".into(),
+        message: String::new(),
+        output: output.display().to_string(),
+        brief: brief.to_string(),
+        references: Vec::new(),
+        memory: folder.to_path_buf(),
+        prompt: folder.join("last-picture.prompt.md"),
+        stop_asked: false,
+    };
+    run_image_with_program(&job, &program, None, &|| false, limit)
+}
+
+/// Codex signed in with ChatGPT, and where it is; the reason in words otherwise.
+fn codex_ready() -> Result<PathBuf, String> {
     let auth = auth_output(Cli::Codex)
         .ok_or("Codex sign-in could not be verified. Prompt saved; no API fallback.")?;
     let mode = format!(
@@ -545,9 +571,8 @@ fn run_image(job: &ImageJob, styles: Option<&Path>, stop_asked: &dyn Fn() -> boo
     if !auth.status.success() || !mode.contains("chatgpt") {
         return Err("Image jobs require Codex signed in with ChatGPT. Prompt saved; API-key fallback is disabled.".into());
     }
-    let program = crate::env::find_on_path("codex")
-        .ok_or("Codex is unavailable. The prompt is saved for retry; no API fallback was used.")?;
-    run_image_with_program(job, &program, styles, stop_asked, IMAGE_TIME_LIMIT)
+    crate::env::find_on_path("codex")
+        .ok_or_else(|| "Codex is unavailable. The prompt is saved for retry; no API fallback was used.".to_string())
 }
 
 fn run_image_with_program(

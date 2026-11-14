@@ -279,7 +279,12 @@ fn now_label() -> String {
     format!("{secs}")
 }
 
-fn log(folder: &Path, text: &str) {
+/// The companion's own picture line: never answered as someone else's.
+pub(crate) fn remember_own(id: u64) {
+    with_turns(|t| t.own.push(id));
+}
+
+pub(crate) fn log(folder: &Path, text: &str) {
     let path = folder.join("log.txt");
     if path.metadata().map(|m| m.len()).unwrap_or(0) > LOG_KEEP {
         let old = std::fs::read_to_string(&path).unwrap_or_default();

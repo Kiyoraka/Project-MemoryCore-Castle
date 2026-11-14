@@ -34,6 +34,7 @@ mod messages;
 mod oneshot;
 mod quota;
 mod roomalert;
+mod roomdraw;
 mod roomread;
 mod rooms;
 mod roomturn;
