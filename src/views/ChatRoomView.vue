@@ -8,8 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { rememberLibraryOpened, rememberedLibraryOpened, roomSteps } from '../components/roomsteps.js'
 import { listen } from '@tauri-apps/api/event'
-import HelpTip from '../components/HelpTip.vue'
-import { choosePicture, getSettings, keyStatus, memberSignIn, memberSignOut, memberStatus, openUrl, roomAvatar, roomBacklog, roomCard, roomCardSave, roomCompanionIn, roomFaceSet, roomFile, roomLog, roomMe, roomMine, roomPost, roomPresence, roomReset, roomSeen, roomVisible, saveSettings } from '../api/castle.js'
+import { choosePicture, getSettings, keyStatus, memberSignIn, memberSignOut, memberStatus, openUrl, roomAvatar, roomBacklog, roomCompanionIn, roomFaceSet, roomFile, roomLog, roomMe, roomMine, roomPost, roomPresence, roomReset, roomSeen, roomVisible, saveSettings } from '../api/castle.js'
 import { avatarLoader, currentAvatar, datedLines, initial, isMine, roomMembers, roomPresenceState, speakerPresentation, ticks } from '../components/roomchat.js'
 import { roomNameSet } from '../api/castle.js'
 import { avatarGet } from '../api/castle.js'
@@ -18,7 +17,7 @@ const props = defineProps({
   visible: { type: Boolean, default: true },
   companion: { type: String, default: 'Your companion' },
 })
-const emit = defineEmits(['fresh'])
+const emit = defineEmits(['fresh', 'settings'])
 
 const settings = ref(null)
 const keys = ref([])
@@ -29,7 +28,7 @@ const lines = ref([])
 const seen = ref([]) // who has read how far (the ticks)
 const myIds = ref([]) // the lines Castle posted for the member
 const faces = ref({}) // avatar token -> picture
-const tab = ref('chat') // CHAT | LOG | SETTINGS
+const tab = ref('chat') // CHAT | LOG
 const readProblem = ref('')
 const faceLine = ref('')
 const displayName = ref('')
@@ -37,7 +36,6 @@ const nameEditing = ref(false)
 const nameSaving = ref(false)
 const nameLine = ref('')
 const turnLog = ref('') // the companion's room turns, raw
-const card = ref({ open: false, text: '', saved: '' })
 const presence = ref([])
 const refused = ref(null)
 const draft = ref('')
@@ -178,44 +176,9 @@ async function loadLog() {
   }
 }
 
-async function openCard() {
-  try {
-    card.value = { open: true, text: await roomCard(), saved: '' }
-  } catch (reason) {
-    doorProblem.value = String(reason?.message ?? reason)
-  }
-}
-
-async function saveCard() {
-  try {
-    await roomCardSave(card.value.text)
-    card.value = { ...card.value, saved: 'Saved - this is all your companion may say about itself in the room.' }
-  } catch (reason) {
-    card.value = { ...card.value, saved: String(reason?.message ?? reason) }
-  }
-}
-
 async function setMode(next) {
   try {
     settings.value = (await saveSettings({ ...settings.value, roomCompanionMode: next })).settings
-  } catch (reason) {
-    refused.value = { kind: 'other', message: String(reason) }
-  }
-}
-
-// Her emotion engine colours how she talks here: only her traits' one-line manner, by audience.
-// CHAT > SETTINGS: the chat alerts (alertNotify on by default, alertSound off)
-async function setAlert(name, on) {
-  try {
-    settings.value = (await saveSettings({ ...settings.value, [name]: on })).settings
-  } catch (reason) {
-    refused.value = { kind: 'other', message: String(reason) }
-  }
-}
-
-async function setRoomVoice(on) {
-  try {
-    settings.value = (await saveSettings({ ...settings.value, emotionRoomVoice: on })).settings
   } catch (reason) {
     refused.value = { kind: 'other', message: String(reason) }
   }
@@ -447,7 +410,6 @@ watch(() => props.visible, (on) => {
         <div class="tabs">
           <button :class="{ on: tab === 'chat' }" @click="tab = 'chat'">CHAT</button>
           <button :class="{ on: tab === 'log' }" @click="tab = 'log'">LOG</button>
-          <button :class="{ on: tab === 'settings' }" @click="tab = 'settings'">SETTINGS</button>
         </div>
         <p v-if="readProblem" class="problem">{{ readProblem }}</p>
         <div v-show="tab === 'chat'" ref="scroller" class="lines">
@@ -478,36 +440,7 @@ watch(() => props.visible, (on) => {
           <pre v-if="turnLog" class="turns">{{ turnLog }}</pre>
           <p v-else class="hint">No turns yet.</p>
         </div>
-        <div v-show="tab === 'settings'" class="lines chat-settings">
-          <h4>Alerts <HelpTip :text="`Your own messages, and ${companion}'s, never alert. Switch both off to keep only the glow on the CHAT tab.`" /></h4>
-          <div class="setting-row">
-            <label class="mode"><input type="checkbox" :checked="settings?.alertNotify !== false" :disabled="!settings" @change="setAlert('alertNotify', $event.target.checked)" /> Show a desktop notification when a new message arrives</label>
-            <HelpTip text="Only while you're not looking at CHAT. It shows who wrote and the start of the line (careful when screen sharing). Windows' Do Not Disturb and quiet hours apply. While Castle is in the tray it can come up to 30 seconds late." />
-          </div>
-          <div class="setting-row">
-            <label class="mode"><input type="checkbox" :checked="!!settings?.alertSound" :disabled="!settings" @change="setAlert('alertSound', $event.target.checked)" /> Also play a sound</label>
-            <HelpTip text="Windows' own notification sound. It starts off because it plays even during quiet hours." />
-          </div>
-
-          <h4>{{ companion.toUpperCase() }} IN THE ROOM</h4>
-          <p v-if="!haveCompanionKey" class="hint">Let {{ companion }} in (the switch beside the chat) to set these.</p>
-          <template v-else>
-            <div class="setting-row">
-              <label class="mode"><input type="checkbox" :checked="settings?.emotionRoomVoice !== false" @change="setRoomVoice($event.target.checked)" /> Let {{ companion }}'s emotion engine colour how it talks here</label>
-              <HelpTip text="Only how it sounds, never what it knows: its traits' one-line manner, and the ones meant for you only when it answers you." />
-            </div>
-            <div class="setting-row">
-              <button @click="card.open ? (card.open = false) : openCard()">{{ card.open ? 'Close the public card' : `${companion}'s public card` }}</button>
-              <HelpTip :text="`All ${companion} may say about itself in the room. Nothing from your memory goes there.`" />
-            </div>
-            <div v-if="card.open" class="card-edit">
-              <textarea v-model="card.text" rows="6" maxlength="2000"></textarea>
-              <button class="primary" @click="saveCard">Save the card</button>
-              <p v-if="card.saved" class="hint">{{ card.saved }}</p>
-            </div>
-          </template>
-        </div>
-        <form v-show="tab !== 'settings'" class="say" @submit.prevent="send">
+        <form class="say" @submit.prevent="send">
           <input v-model="draft" maxlength="1000" placeholder="Write to the room..." :disabled="me?.needsName || me?.muted" />
           <button class="primary" :disabled="!draft.trim()">Send</button>
         </form>
@@ -536,7 +469,8 @@ watch(() => props.visible, (on) => {
         </select>
         <p class="hint">{{ !haveCompanionKey ? `Switch on to let ${companion} enter, then choose a rule.` : mode === 'off' ? `${companion} listens without posting replies.` : mode === 'named' ? `${companion} replies when someone mentions its name.` : `${companion} may join the conversation on your usage, without sharing anything private.` }}</p>
         <p v-if="doorProblem" class="problem">{{ doorProblem }}</p>
-        <p v-if="haveCompanionKey" class="hint">Its voice and public card are in SETTINGS, beside LOG.</p>
+        <button class="chat-settings-open" @click="emit('settings', 'chat')">Chat settings</button>
+        <p class="hint">The alerts, and {{ companion }}'s voice here and public card once it is in.</p>
         <h3>YOUR PROFILE</h3>
         <div class="profile-pair">
           <section class="profile-person" aria-label="Your room picture">
@@ -604,21 +538,6 @@ watch(() => props.visible, (on) => {
   font: 12px/1.5 ui-monospace, Consolas, monospace;
   white-space: pre-wrap;
   color: var(--text-dim);
-}
-.card-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.card-edit textarea {
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  resize: vertical;
 }
 .tabs {
   display: flex;
@@ -783,30 +702,6 @@ label.mode {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-}
-.chat-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.chat-settings .setting-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.chat-settings .setting-row button:not(.mark) {
-  width: auto;
-}
-.chat-settings .card-edit {
-  max-width: 560px;
-}
-.chat-settings h4 {
-  display: flex;
-  align-items: center;
-  margin: 8px 0 0;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  color: var(--accent);
 }
 input:not([type='radio']) {
   padding: 8px 10px;
