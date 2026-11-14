@@ -389,7 +389,7 @@ watch(settingsStamp, () => {
         </div>
       </div>
       <AppsView v-if="active === 'apps'" class="room" />
-      <ChatRoomView v-show="active === 'chat'" v-if="chatOpened" :visible="active === 'chat'" :companion="companion" @settings="openSettings" @fresh="!marks.includes('chat') && (marks = [...marks, 'chat'])" />
+      <ChatRoomView v-show="active === 'chat'" v-if="chatOpened" :visible="active === 'chat'" :companion="companion" :settings-stamp="settingsStamp" @settings="openSettings" @fresh="!marks.includes('chat') && (marks = [...marks, 'chat'])" />
       <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" @settings="openSettings" @setup="openSetup" />
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
       <StoryView v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />

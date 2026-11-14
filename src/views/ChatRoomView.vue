@@ -16,6 +16,8 @@ import { avatarGet } from '../api/castle.js'
 const props = defineProps({
   visible: { type: Boolean, default: true },
   companion: { type: String, default: 'Your companion' },
+  // goes up each time Settings saves: the page reads the settings again
+  settingsStamp: { type: Number, default: 0 },
 })
 const emit = defineEmits(['fresh', 'settings'])
 
@@ -178,11 +180,21 @@ async function loadLog() {
 
 async function setMode(next) {
   try {
-    settings.value = (await saveSettings({ ...settings.value, roomCompanionMode: next })).settings
+    // read fresh first: Settings saves the same file, and an older copy here would undo it
+    const fresh = (await getSettings()).settings
+    settings.value = (await saveSettings({ ...fresh, roomCompanionMode: next })).settings
   } catch (reason) {
     refused.value = { kind: 'other', message: String(reason) }
   }
 }
+
+watch(() => props.settingsStamp, async () => {
+  try {
+    settings.value = (await getSettings()).settings
+  } catch {
+    // the next save reads fresh anyway
+  }
+})
 
 // ---------- The door: a guide that opens by itself ----------
 
