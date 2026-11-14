@@ -16,6 +16,8 @@ pub struct UserTheme {
     pub folder: String,
     pub theme: Option<Value>,
     pub wallpaper_url: Option<String>,
+    /// the theme's usageReveal low picture, read the same way (a missing one is named by the page)
+    pub low_url: Option<String>,
     pub error: Option<String>,
 }
 
@@ -57,7 +59,7 @@ fn read_picture(folder: &Path, name: &str) -> Result<String, String> {
 
 fn read_theme(folder: &Path) -> UserTheme {
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let broken = |error: String| UserTheme { folder: name.clone(), theme: None, wallpaper_url: None, error: Some(error) };
+    let broken = |error: String| UserTheme { folder: name.clone(), theme: None, wallpaper_url: None, low_url: None, error: Some(error) };
 
     let text = match fs::read_to_string(folder.join("theme.json")) {
         Ok(text) => text,
@@ -74,7 +76,8 @@ fn read_theme(folder: &Path) -> UserTheme {
         },
         None => None,
     };
-    UserTheme { folder: name, theme: Some(theme), wallpaper_url: wallpaper, error: None }
+    let low_url = theme.pointer("/usageReveal/low").and_then(Value::as_str).and_then(|picture| read_picture(folder, picture).ok());
+    UserTheme { folder: name, theme: Some(theme), wallpaper_url: wallpaper, low_url, error: None }
 }
 
 /// Every folder under `<settings folder>/themes`, in name order. A broken one is listed with its reason.

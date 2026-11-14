@@ -3,6 +3,7 @@
   "name": "The Seed of Evolution",
   "description": "A glowing seed in cupped soil sends up a young tree of light at sunrise; roots are the core, branches the features, leaves the days.",
   "wallpaper": "wallpaper.jpg",
+  "usageReveal": { "low": "wallpaper-low.jpg", "mode": "rise", "angle": "0deg", "from": 0.3, "to": 0.9 },
   "wallpaperPosition": "center",
   "widgetStyle": "glass",
   "portrait": "panel",

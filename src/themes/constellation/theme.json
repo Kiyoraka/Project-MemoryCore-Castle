@@ -3,6 +3,7 @@
   "name": "The Constellation",
   "description": "A deep night sky where every diary day is a star and projects are bright clusters, joined into constellations above a quiet lake.",
   "wallpaper": "wallpaper.jpg",
+  "usageReveal": { "low": "wallpaper-low.jpg", "mode": "rise", "angle": "32deg", "from": 0.29, "to": 0.85 },
   "wallpaperPosition": "center",
   "widgetStyle": "glass",
   "portrait": "panel",

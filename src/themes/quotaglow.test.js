@@ -50,11 +50,9 @@ describe('the light over a painted shining thing', () => {
     expect(clipPath([[0.5, 0], [1, 1], [0, 1]])).toBe('polygon(50.0% 0.0%, 100.0% 100.0%, 0.0% 100.0%)')
   })
 
-  it('marks the great crystal in the Crystal theme', () => {
+  it('leaves the Crystal to its usage reveal (the crystal wakes as the week is used)', () => {
     const crystal = builtInThemes().find((t) => t.id === 'crystal')
-    const g = readGlow(crystal.quotaGlow)
-    expect(g).not.toBeNull()
-    expect(g.outline.length).toBeGreaterThanOrEqual(6)
-    expect(g.shine).not.toBeNull()
+    expect(readGlow(crystal.quotaGlow)).toBeNull()
+    expect(crystal.usageReveal.mode).toBe('fade')
   })
 })

@@ -25,7 +25,9 @@ export function builtInThemes() {
     // A built-in theme may borrow another built-in's picture, so the art ships once.
     const pictureFolder = theme.wallpaperFrom ?? folder
     const wallpaperUrl = theme.wallpaper ? pictures[`./${pictureFolder}/${theme.wallpaper}`] ?? null : null
-    return { ...theme, id: theme.id ?? folder, source: 'built-in', wallpaperUrl }
+    // the picture HOME shows under the wallpaper while the week is not yet used (usagereveal.js)
+    const usageReveal = theme.usageReveal?.low ? { ...theme.usageReveal, lowUrl: pictures[`./${pictureFolder}/${theme.usageReveal.low}`] ?? null } : theme.usageReveal
+    return { ...theme, id: theme.id ?? folder, source: 'built-in', wallpaperUrl, usageReveal }
   })
 }
 
@@ -37,7 +39,8 @@ export function fromUserFolders(entries) {
     if (entry.error || !entry.theme) {
       broken.push({ folder: entry.folder, error: entry.error ?? 'The theme could not be read.' })
     } else {
-      themes.push({ ...entry.theme, id: entry.theme.id ?? entry.folder, source: 'yours', wallpaperUrl: entry.wallpaperUrl })
+      const usageReveal = entry.theme.usageReveal?.low ? { ...entry.theme.usageReveal, lowUrl: entry.lowUrl ?? null } : entry.theme.usageReveal
+      themes.push({ ...entry.theme, id: entry.theme.id ?? entry.folder, source: 'yours', wallpaperUrl: entry.wallpaperUrl, usageReveal })
     }
   }
   return { themes, broken }
@@ -51,6 +54,7 @@ export function problemWith(theme) {
     if (!key.startsWith('--')) return `Colour names start with --, and "${key}" does not.`
   }
   if (theme.wallpaper && !theme.wallpaperUrl) return `The wallpaper ${theme.wallpaper} was not found.`
+  if (theme.usageReveal?.low && !theme.usageReveal.lowUrl) return `The picture ${theme.usageReveal.low} was not found.`
   return null
 }
 
