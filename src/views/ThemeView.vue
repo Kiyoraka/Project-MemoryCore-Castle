@@ -20,6 +20,9 @@ import DiaryPage from '../components/DiaryPage.vue'
 import { lookOf } from '../components/diaryviews.js'
 import { typeLine } from '../components/typeline.js'
 import { DIARY_THEMES, indexOf, SAMPLE_PAGE, SAMPLE_PAGES, SAMPLE_TEXT, step, STORY_THEMES, wearingLine } from '../components/themeroom.js'
+import ProfileCards from './profile/ProfileCards.vue'
+import ProfileConstellation from './profile/ProfileConstellation.vue'
+import { PROFILE_LOOKS, profileLookOf } from './profile/profile.js'
 import { builtInThemes, fromUserFolders, problemWith } from '../themes/loader.js'
 
 const props = defineProps({
@@ -37,6 +40,17 @@ const currentId = ref('constellation')
 const shownAt = ref(0)
 const diaryLook = ref('list')
 const storyLook = ref('classic')
+const profileLook = ref('cards')
+// sample traits for the PROFILE case: never anyone's own
+const SAMPLE_TRAITS = [
+  { number: 1, name: 'Gentle Curiosity', line: 'asks one more question, kindly', audience: 'everyone', status: 'active' },
+  { number: 2, name: 'Quiet Warmth', line: 'soft, unhurried, never cold', audience: 'everyone', status: 'active' },
+  { number: 3, name: 'Playful Teasing', line: 'a little teasing, never unkind', audience: 'owner', status: 'active' },
+  { number: 4, name: 'Steady Honesty', line: 'says the true thing gently', audience: 'everyone', status: 'active' },
+]
+const SAMPLE_WAITING = [{ key: 'new-0', source: 'new', index: 0, name: 'Shy When Praised', line: 'flustered, then glad', audience: 'everyone' }]
+const profileAt = computed(() => Math.max(0, PROFILE_LOOKS.findIndex((l) => l.id === profileLook.value)))
+const profile = computed(() => PROFILE_LOOKS[profileAt.value])
 const busy = ref('')
 const problem = ref('')
 const done = ref('')
@@ -60,6 +74,7 @@ async function load() {
     currentId.value = view.settings.theme ?? 'constellation'
     diaryLook.value = lookOf(view.settings.diaryLook)
     storyLook.value = view.settings.storyLook ?? 'classic'
+    profileLook.value = profileLookOf(view.settings.profileLook)
     const yours = fromUserFolders(await userThemes())
     themes.value = [...builtInThemes(), ...yours.themes]
     broken.value = yours.broken
@@ -114,6 +129,11 @@ async function wear(patch, apply) {
 function turnDiary(by) {
   const next = DIARY_THEMES[step(diaryAt.value, by, DIARY_THEMES.length)].id
   wear({ diaryLook: next }, () => (diaryLook.value = next))
+}
+
+function turnProfile(by) {
+  const next = PROFILE_LOOKS[step(profileAt.value, by, PROFILE_LOOKS.length)].id
+  wear({ profileLook: next }, () => (profileLook.value = next))
 }
 
 function turnStory(by) {
@@ -269,6 +289,25 @@ onMounted(load)
         </div>
         <p class="dots" aria-hidden="true"><i v-for="(t, i) in STORY_THEMES" :key="t.id" :class="{ on: i === storyAt, worn: i === storyAt }" /></p>
         <p class="line" :title="story.line">{{ story.line }}</p>
+      </section>
+
+      <!-- the profile theme: how HOME's PROFILE tab draws the emotion engine, with sample traits -->
+      <section class="case">
+        <h3>PROFILE THEME</h3>
+        <div class="glass">
+          <span class="lamp" aria-hidden="true" />
+          <div class="stage profile-preview" inert>
+            <ProfileCards v-if="profile.id === 'cards'" :companion="companion" :lived="SAMPLE_TRAITS" :waiting="SAMPLE_WAITING" />
+            <ProfileConstellation v-else :companion="companion" :lived="SAMPLE_TRAITS" :waiting="SAMPLE_WAITING" />
+          </div>
+        </div>
+        <div class="pick">
+          <button class="arrow" aria-label="Earlier profile theme" @click="turnProfile(-1)">‹</button>
+          <strong>{{ profile.label }}</strong>
+          <button class="arrow" aria-label="Later profile theme" @click="turnProfile(1)">›</button>
+        </div>
+        <p class="dots" aria-hidden="true"><i v-for="(t, i) in PROFILE_LOOKS" :key="t.id" :class="{ on: i === profileAt, worn: i === profileAt }" /></p>
+        <p class="line" :title="profile.line">{{ profile.line }}</p>
       </section>
     </div>
 
@@ -633,5 +672,11 @@ button.danger {
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.profile-preview {
+  overflow: hidden;
+  padding: 8px;
+  zoom: 0.6;
+  pointer-events: none;
 }
 </style>

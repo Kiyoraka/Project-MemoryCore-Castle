@@ -6,6 +6,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import ChatView from './ChatView.vue'
+import ProfileView from '../views/profile/ProfileView.vue'
 import { isTerminalReply } from './terminalreply.js'
 import QuickActions from './QuickActions.vue'
 import {
@@ -55,6 +56,8 @@ const props = defineProps({
 const emit = defineEmits(['settings', 'setup', 'view', 'running', 'state', 'busy', 'context'])
 
 const isDev = props.devSlot !== null && props.devSlot !== undefined
+// HOME's panel has a PROFILE tab (the emotion engine); STORY and DEV tabs do not
+const hasProfile = !isDev && props.room !== 'story'
 // the room Chat reads: a DEV tab's is routed to its own session (see castle.js)
 const chatRoom = isDev ? devRoom(props.devSlot) : props.room
 
@@ -120,7 +123,7 @@ function onDragDrop(event) {
     const paths = drop.paths ?? []
     if (!paths.length) return
     if (view.value === 'chat') chat.value?.addPaths(paths)
-    else if (running.value) term.paste(paths.map(quoted).join(' '))
+    else if (view.value === 'log' && running.value) term.paste(paths.map(quoted).join(' '))
   }
 }
 
@@ -128,7 +131,7 @@ function readView() {
   if (isDev) return props.showLog ? 'log' : 'chat'
   try {
     const saved = localStorage.getItem(VIEW_KEY)
-    if (saved === 'chat' || saved === 'log') return saved
+    if (saved === 'chat' || saved === 'log' || (saved === 'profile' && hasProfile)) return saved
   } catch {
     // Storage can be unavailable; Chat is shown.
   }
@@ -417,6 +420,7 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
       <div class="tabs" role="tablist" aria-label="Chat or log">
         <button role="tab" :aria-selected="view === 'chat'" :class="{ active: view === 'chat' }" @click="setView('chat')">CHAT</button>
         <button role="tab" :aria-selected="view === 'log'" :class="{ active: view === 'log' }" @click="setView('log')">LOG</button>
+        <button v-if="hasProfile" role="tab" :aria-selected="view === 'profile'" :class="{ active: view === 'profile' }" @click="setView('profile')">PROFILE</button>
         <span class="spacer"></span>
         <button
           class="widen"
@@ -427,7 +431,7 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
       </div>
     </div>
 
-    <QuickActions v-if="!isDev && room !== 'story'" :running="running" :write="writeToSession" :settings-stamp="settingsStamp" />
+    <QuickActions v-if="!isDev && room !== 'story' && view !== 'profile'" :running="running" :write="writeToSession" :settings-stamp="settingsStamp" />
 
     <div class="body">
     <div v-show="view === 'log'" ref="surface" class="surface"></div>
@@ -447,9 +451,13 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
       />
     </div>
 
-    <div v-if="dropping" class="drop-hint">{{ view === 'chat' ? `Drop to share with ${companion}` : 'Drop to type the path into the Log' }}</div>
+    <div v-if="view === 'profile'" class="profile-area">
+      <ProfileView :shown="view === 'profile'" :companion="companion" @settings="emit('settings', 'database')" />
+    </div>
 
-    <div v-if="!running" class="asleep">
+    <div v-if="dropping && view !== 'profile'" class="drop-hint">{{ view === 'chat' ? `Drop to share with ${companion}` : 'Drop to type the path into the Log' }}</div>
+
+    <div v-if="!running && view !== 'profile'" class="asleep">
       <p v-if="isDev" class="title">{{ ended ? 'The session in this project ended.' : `${companion} is not working here yet.` }}</p>
       <p v-else class="title">{{ ended ? `${companion}'s session ended.` : `${companion} is resting.` }}</p>
       <p class="message">{{ problem || status.message }}</p>
@@ -550,6 +558,14 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
 .chat-area {
   display: flex;
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.profile-area {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
 }

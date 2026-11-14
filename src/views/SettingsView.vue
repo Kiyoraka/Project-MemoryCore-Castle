@@ -6,6 +6,7 @@ import ModalSheet from '../components/ModalSheet.vue'
 import BackupPanel from '../components/BackupPanel.vue'
 import DatabasePanel from '../components/DatabasePanel.vue'
 import { DIARY_LOOKS, lookOf } from '../components/diaryviews.js'
+import { PROFILE_LOOKS, profileLookOf } from './profile/profile.js'
 import {
   providerSwitch,
   roomsApply,
@@ -360,6 +361,11 @@ onMounted(async () => {
         <p class="hint">How the DIARY room is read. The pages are the same; only the design changes. The THEME room shows each one with the page it wears.</p>
         <div class="row">
           <button v-for="l in DIARY_LOOKS" :key="l.id" :class="{ primary: lookOf(settings.diaryLook) === l.id }" :title="l.line" @click="save({ diaryLook: l.id })">{{ l.label }}</button>
+        </div>
+        <h3>Profile</h3>
+        <p class="hint">How HOME's PROFILE tab shows {{ settings.companionName ?? 'your companion' }}'s emotion engine. The traits are the same; only the design changes.</p>
+        <div class="row">
+          <button v-for="l in PROFILE_LOOKS" :key="l.id" :class="{ primary: profileLookOf(settings.profileLook) === l.id }" :title="l.line" @click="save({ profileLook: l.id })">{{ l.label }}</button>
         </div>
         <h3>Neural Link</h3>
         <label class="toggle"><input type="checkbox" :checked="settings.linkOn !== false" :disabled="!!busy" @change="switchLink({ linkOn: $event.target.checked })" /> Neural Link - your terminals leave each other notes in the memory folder's <code>link</code> folder</label>
