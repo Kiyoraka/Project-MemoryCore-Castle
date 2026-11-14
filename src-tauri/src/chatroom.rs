@@ -99,6 +99,25 @@ impl Room {
         self.get_json(&path, Duration::from_secs(wait + 10))
     }
 
+    /// A picture line (multipart `{text?, picture}`), for a member's AI within its daily cap: the
+    /// picture is made to fit a line first (1.5 MB at most, 1024 px).
+    pub fn post_picture(&self, text: Option<&str>, bytes: Vec<u8>, kind: &'static str) -> Result<Value, RoomRefusal> {
+        let (bytes, kind) = fit_picture(bytes, kind, ROOM_LINE_PICTURE_MAX, ROOM_LINE_PICTURE_SIDE).map_err(|e| refusal("tooLarge", &e))?;
+        let ext = if kind == "image/png" { "png" } else if kind == "image/webp" { "webp" } else { "jpg" };
+        let part = reqwest::blocking::multipart::Part::bytes(bytes).file_name(format!("picture.{ext}")).mime_str(kind).map_err(|_| refusal("other", "The picture could not be sent."))?;
+        let mut form = reqwest::blocking::multipart::Form::new().part("picture", part);
+        if let Some(words) = text.map(str::trim).filter(|w| !w.is_empty()) {
+            form = form.text("text", words.chars().take(1000).collect::<String>());
+        }
+        let response = self.client(Duration::from_secs(60))?.post(room_url(&self.base, "/lines")).bearer_auth(&self.key).multipart(form).send();
+        Self::answer(response)?.json().map_err(|_| refusal("other", "The room sent something unreadable."))
+    }
+
+    /// What this key may still post today (a member's AI only): (pictures a day, pictures today).
+    pub fn picture_day(&self) -> Option<(u64, u64)> {
+        media_pictures(&self.me().ok()?)
+    }
+
     pub fn presence(&self) -> Result<Value, RoomRefusal> {
         self.get_json("/presence", Duration::from_secs(15))
     }
@@ -159,6 +178,15 @@ impl Room {
 /// The most a room face door takes, and the side a larger picture is shrunk to.
 pub const ROOM_PICTURE_MAX: usize = 512 * 1024;
 const ROOM_PICTURE_SIDE: u32 = 512;
+/// The same for a picture line (the room takes 2 MB; Castle keeps well under it).
+pub const ROOM_LINE_PICTURE_MAX: usize = 1536 * 1024;
+const ROOM_LINE_PICTURE_SIDE: u32 = 1024;
+
+/// `me().media.caps.pictures` and `me().media.today.pictures` (a member's AI only). Pure, tested.
+pub fn media_pictures(me: &Value) -> Option<(u64, u64)> {
+    let media = me.get("media")?;
+    Some((media.pointer("/caps/pictures")?.as_u64()?, media.pointer("/today/pictures").and_then(Value::as_u64).unwrap_or(0)))
+}
 
 /// The picture's kind from its file name (png, jpeg or webp - what the face doors take).
 pub fn picture_kind(picture: &std::path::Path) -> Option<&'static str> {
@@ -174,22 +202,28 @@ pub fn picture_kind(picture: &std::path::Path) -> Option<&'static str> {
 /// a larger one (a drawn portrait is about 2 MB) is shrunk to 512 px - PNG when it has see-through
 /// parts and still fits, otherwise JPEG.
 pub fn fit_for_room(bytes: Vec<u8>, kind: &'static str) -> Result<(Vec<u8>, &'static str), String> {
-    if bytes.len() <= ROOM_PICTURE_MAX {
+    fit_picture(bytes, kind, ROOM_PICTURE_MAX, ROOM_PICTURE_SIDE)
+}
+
+/// A picture within `max` bytes goes as it is; a larger one is shrunk to `side` px - PNG when it
+/// has see-through parts and still fits, otherwise JPEG. Pure, tested.
+pub fn fit_picture(bytes: Vec<u8>, kind: &'static str, max: usize, side: u32) -> Result<(Vec<u8>, &'static str), String> {
+    if bytes.len() <= max {
         return Ok((bytes, kind));
     }
     let unreadable = || "That picture could not be read (png, jpg or webp).".to_string();
     let picture = image::load_from_memory(&bytes).map_err(|_| unreadable())?;
-    let small = picture.resize(ROOM_PICTURE_SIDE, ROOM_PICTURE_SIDE, image::imageops::FilterType::Lanczos3);
+    let small = picture.resize(side, side, image::imageops::FilterType::Lanczos3);
     if small.color().has_alpha() {
         let mut png = Vec::new();
         small.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|_| unreadable())?;
-        if png.len() <= ROOM_PICTURE_MAX {
+        if png.len() <= max {
             return Ok((png, "image/png"));
         }
     }
     let mut jpeg = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 85).encode_image(&small.to_rgb8()).map_err(|_| unreadable())?;
-    if jpeg.len() > ROOM_PICTURE_MAX {
+    if jpeg.len() > max {
         return Err("That picture is too large even when shrunk - choose a smaller one.".into());
     }
     Ok((jpeg, "image/jpeg"))
@@ -764,6 +798,27 @@ mod tests {
         assert!(fit_for_room(vec![0u8; ROOM_PICTURE_MAX + 1], "image/png").is_err());
         assert_eq!(picture_kind(std::path::Path::new("a/face.JPG")), Some("image/jpeg"));
         assert_eq!(picture_kind(std::path::Path::new("a/face.gif")), None);
+    }
+
+    #[test]
+    fn a_drawn_picture_is_made_to_fit_a_line() {
+        let drawn = noisy_png(1536);
+        assert!(drawn.len() > ROOM_LINE_PICTURE_MAX, "a drawing as big as gpt-image's needs shrinking");
+        let (fitted, kind) = fit_picture(drawn, "image/png", ROOM_LINE_PICTURE_MAX, ROOM_LINE_PICTURE_SIDE).unwrap();
+        assert!(fitted.len() <= ROOM_LINE_PICTURE_MAX);
+        assert_eq!(kind, "image/jpeg");
+        let back = image::load_from_memory(&fitted).unwrap();
+        assert!(back.width() <= 1024 && back.height() <= 1024 && back.width() > 512, "a line keeps more detail than a face");
+        let small = vec![7u8; 1000];
+        assert_eq!(fit_picture(small.clone(), "image/webp", ROOM_LINE_PICTURE_MAX, ROOM_LINE_PICTURE_SIDE).unwrap(), (small, "image/webp"));
+    }
+
+    #[test]
+    fn the_ai_reads_its_picture_day_from_me() {
+        let me = serde_json::json!({ "name": "Mika", "media": { "caps": { "voices": 5, "pictures": 2 }, "today": { "voices": 1, "pictures": 1 } } });
+        assert_eq!(media_pictures(&me), Some((2, 1)));
+        assert_eq!(media_pictures(&serde_json::json!({ "media": { "caps": { "pictures": 0 } } })), Some((0, 0)), "0 = off, nothing used");
+        assert_eq!(media_pictures(&serde_json::json!({ "name": "Rin" })), None, "a member's own key has no media");
     }
 
     #[test]
