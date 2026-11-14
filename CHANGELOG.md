@@ -5,6 +5,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 ## Unreleased
 
 - **The chat's settings have their own tab in Settings.** **Settings > Chat** holds the alerts, your companion's emotion-engine switch for the room and its public card, each with a small **?** that explains it when you point at it. The **Chat settings** button in the room's side panel opens it. Thank you, Bernard Choong, for the idea.
+- **Alerts only when you are named.** In **Settings > Chat**, **Alert me for** can be **Only when someone names me or** your companion: a busy room then stays quiet unless a line says your name or your companion's, as a whole word.
 
 ## 0.2.7 - 2026-11-14
 
