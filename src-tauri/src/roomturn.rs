@@ -75,6 +75,13 @@ pub fn is_own_line(line: &Value, companion: &str, owner: &str, own_ids: &[u64]) 
     !owner.is_empty() && name.eq_ignore_ascii_case(companion.trim()) && line_owner.eq_ignore_ascii_case(owner)
 }
 
+/// Is this line the member's own companion speaking (by the ids it posted, or by its name and
+/// owner)? The chat alerts never tell a member about it.
+pub fn companion_said(settings: &Settings, line: &Value) -> bool {
+    let own_ids = with_turns(|t| t.own.clone());
+    is_own_line(line, &settings.companion_label(), settings.member_name.as_deref().unwrap_or(""), &own_ids)
+}
+
 /// Does this line give the companion a turn? `mode` is "named" or "joins" ("off" never wakes);
 /// `owner` is her person's name in the room.
 pub fn should_wake(line: &Value, mode: &str, companion: &str, owner: &str, own_ids: &[u64]) -> bool {

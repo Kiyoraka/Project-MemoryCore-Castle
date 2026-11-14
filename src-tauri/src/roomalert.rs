@@ -58,7 +58,9 @@ pub fn new_lines(app: &AppHandle, fresh: &[Value], chat_shown: bool) {
     if !(settings.alert_sound || settings.alert_notify) {
         return;
     }
-    let Some((title, body)) = summary(fresh, &crate::chatroom::my_line_ids(&store)) else { return };
+    // the member's own companion speaking is not news to tell them about
+    let fresh: Vec<Value> = fresh.iter().filter(|l| !crate::roomturn::companion_said(&settings, l)).cloned().collect();
+    let Some((title, body)) = summary(&fresh, &crate::chatroom::my_line_ids(&store)) else { return };
     if looking(app, chat_shown) {
         return;
     }

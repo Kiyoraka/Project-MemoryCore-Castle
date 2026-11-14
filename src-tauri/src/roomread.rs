@@ -86,7 +86,8 @@ pub fn start(app: &AppHandle) {
                 }
                 if !fresh.is_empty() && cursor.is_some() {
                     crate::roomturn::heard(&app, &fresh);
-                    crate::roomalert::new_lines(&app, &fresh, visible);
+                    // read again: a held read can last 20 s, and the member may have left CHAT meanwhile
+                    crate::roomalert::new_lines(&app, &fresh, reader.visible.load(Ordering::Relaxed));
                 }
                 let more = answer.get("more").and_then(Value::as_bool).unwrap_or(false);
                 if !more && !reader.visible.load(Ordering::Relaxed) {
