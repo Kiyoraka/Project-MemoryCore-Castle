@@ -24,6 +24,7 @@ serde_json = "1"
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
 keyring = { version = "3", features = ["windows-native"] }
 portable-pty = "0.9"
@@ -43,4 +44,4 @@ mysql = { version = "28.0.4", default-features = false, features = ["minimal-rus
 [target.'cfg(windows)'.dependencies]
 # the world windows ask which window is on top at a few points, to rest when covered
 # (and the CPU gauge reads processor time with GetSystemTimes, from Threading)
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Media_Audio"] }

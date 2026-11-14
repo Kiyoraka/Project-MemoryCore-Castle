@@ -357,6 +357,11 @@ onMounted(async () => {
         <p class="hint">Arrange the tabs your way: drag a tab in the top bar onto another, or press Alt+Left / Alt+Right on a tab. Castle remembers the order.</p>
         <button v-if="settings.tabOrder?.length" :disabled="!!busy" @click="save({ tabOrder: [] }, 'The tabs are back in their first order.')">Put the tabs back in their first order</button>
 
+        <h3>Chat alerts</h3>
+        <label class="toggle"><input type="checkbox" :checked="!!settings.alertSound" :disabled="!!busy" @change="save({ alertSound: $event.target.checked })" /> Also play a sound when a new message arrives in the chat room</label>
+        <label class="toggle"><input type="checkbox" :checked="settings.alertNotify !== false" :disabled="!!busy" @change="save({ alertNotify: $event.target.checked })" /> Show a desktop notification when a new message arrives in the chat room</label>
+        <p class="hint">Only while you are not looking at CHAT. The notification names who wrote and shows the start of the line (worth knowing during a screen share), and Windows' Do Not Disturb and quiet hours apply to it. The sound is Windows' own notification sound and starts switched off, because it plays even in quiet hours. Your own messages never alert. Castle checks the room every 30 seconds while it is hidden in the tray, so an alert can come up to 30 seconds late. Switch both off to keep only the glow on the CHAT tab.</p>
+
         <h3>Diary</h3>
         <p class="hint">How the DIARY room is read. The pages are the same; only the design changes. The THEME room shows each one with the page it wears.</p>
         <div class="row">

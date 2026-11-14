@@ -86,6 +86,7 @@ pub fn start(app: &AppHandle) {
                 }
                 if !fresh.is_empty() && cursor.is_some() {
                     crate::roomturn::heard(&app, &fresh);
+                    crate::roomalert::new_lines(&app, &fresh, visible);
                 }
                 let more = answer.get("more").and_then(Value::as_bool).unwrap_or(false);
                 if !more && !reader.visible.load(Ordering::Relaxed) {
