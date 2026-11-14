@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import MarkdownText from './MarkdownText.vue'
+import { chooseLine, isDesignGroup } from './designpick.js'
 
 // Chat's conversation: the member's bubbles right, the companion's left, plan cards, pictures side
 // by side, voice lines, the typing bubble, and the card for a choice asked in the Log. Only shows;
@@ -21,7 +22,22 @@ defineProps({
   companion: { type: String, default: 'Your companion' },
   cli: { type: String, default: 'claude' },
 })
-const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose'])
+const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose', 'choose-designs'])
+
+// Designs to choose from (two to four pictures from one Design folder): a tick on each, one Choose.
+const designTicks = ref({}) // group id -> [paths ticked]
+const designsSent = ref({}) // group id -> the line sent
+function tickDesign(group, path, on) {
+  const now = designTicks.value[group] ?? []
+  designTicks.value = { ...designTicks.value, [group]: on ? [...now, path] : now.filter((p) => p !== path) }
+}
+function chooseDesigns(item) {
+  const line = chooseLine(item.list, designTicks.value[item.id] ?? [])
+  if (!line) return
+  emit('choose-designs', line)
+  designsSent.value = { ...designsSent.value, [item.id]: line }
+  designTicks.value = { ...designTicks.value, [item.id]: [] }
+}
 
 const TICK_TITLES = {
   sending: 'Sent to the terminal',
@@ -133,16 +149,17 @@ defineExpose({ nearBottom, toBottom })
 
       <div v-else-if="item.kind === 'pictures'" class="row companion">
         <div class="pictures">
-          <button
-            v-for="picture in item.list"
-            :key="picture.id"
-            class="thumb"
-            :title="picture.text"
-            @click="emit('open-picture', picture.path)"
-          >
-            <img v-if="media[picture.path]" :src="media[picture.path]" :alt="picture.text" />
-            <span v-else class="thumb-wait">{{ media[picture.path] === null ? 'Not available' : 'Loading…' }}</span>
-          </button>
+          <div v-for="picture in item.list" :key="picture.id" class="thumb-wrap">
+            <button class="thumb" :title="picture.text" @click="emit('open-picture', picture.path)">
+              <img v-if="media[picture.path]" :src="media[picture.path]" :alt="picture.text" />
+              <span v-else class="thumb-wait">{{ media[picture.path] === null ? 'Not available' : 'Loading…' }}</span>
+            </button>
+            <label v-if="isDesignGroup(item.list)" class="tick"><input type="checkbox" :checked="(designTicks[item.id] ?? []).includes(picture.path)" @change="tickDesign(item.id, picture.path, $event.target.checked)" /> {{ fileName(picture.path) }}</label>
+          </div>
+          <div v-if="isDesignGroup(item.list)" class="design-choose">
+            <button class="choose" :disabled="!(designTicks[item.id] ?? []).length" @click="chooseDesigns(item)">{{ (designTicks[item.id] ?? []).length > 1 ? `Choose these ${(designTicks[item.id] ?? []).length}` : 'Choose' }}</button>
+            <span v-if="designsSent[item.id]" class="sent">Sent: {{ designsSent[item.id].split(' - ')[0] }}</span>
+          </div>
         </div>
       </div>
 
@@ -344,6 +361,52 @@ button {
   flex-wrap: wrap;
   gap: 6px;
   max-width: 82%;
+}
+
+.thumb-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-choose {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 10px;
+}
+
+.design-choose .choose {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #07142e;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.design-choose .choose:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.design-choose .sent {
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .thumb {

@@ -375,6 +375,7 @@ defineExpose({ poll, addPaths })
       @toggle-voice="toggleVoice"
       @play-voice="playVoice"
       @choose="choose"
+      @choose-designs="send"
     />
 
     <ImageViewer v-if="viewerStart !== null" :pictures="allPictures" :start="viewerStart" @close="viewerStart = null" />
