@@ -349,7 +349,7 @@ export const releasesPage = () => invoke('releases_page')
 export const diaryStamp = () => invoke('diary_stamp')
 
 // The memory database. dbStatus -> { engine: { state: notInstalled | stopped | running | external, port, external, answering },
-//   version, downloadBytes, keepRunning }; dbMemory -> { name, reachable, movedIn, canRestore };
+//   version, downloadBytes, partialBytes (an interrupted download's size on disk, 0 if none), keepRunning }; dbMemory -> { name, reachable, movedIn, canRestore };
 //   dbMovePreview / dbMoveIn -> { files, diary, reminders, projects, memory, skills, skipped }
 export const dbStatus = () => invoke('db_status')
 export const dbInstall = () => invoke('db_install')

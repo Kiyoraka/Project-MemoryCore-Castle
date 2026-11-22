@@ -9,7 +9,7 @@ import {
 } from '../api/castle.js'
 import { installState, runInstall, runningInstall } from '../composables/useDbInstall.js'
 import HelpTip from './HelpTip.vue'
-import { installLine, moveLine, nextStep, steps as stepsOf, thisComputer } from './database.js'
+import { installButton, installLine, moveLine, nextStep, steps as stepsOf, thisComputer } from './database.js'
 
 const here = thisComputer()
 
@@ -18,7 +18,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['changed'])
 
-const view = ref(null) // { engine, version, downloadBytes, keepRunning }
+const view = ref(null) // { engine, version, downloadBytes, partialBytes, keepRunning }
 const memory = ref(null) // { name, reachable, movedIn, canRestore }
 const preview = ref(null) // Counts
 const skills = ref([]) // [{ plugin, name, description, stubbed }]
@@ -204,7 +204,7 @@ onMounted(async () => {
 
     <template v-if="next === 'install'">
       <div class="row">
-        <button class="primary" :disabled="!!busy" @click="install">Install the database</button>
+        <button class="primary" :disabled="!!busy" @click="install">{{ installButton(view) }}</button>
         <span class="hint">{{ installLine(view) }} · MariaDB {{ view?.version }} · no admin needed</span>
       </div>
       <div v-if="engine?.external" class="row">

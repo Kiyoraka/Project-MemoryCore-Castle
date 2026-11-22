@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { card, thisComputer, installLine, megabytes, moveLine, nextStep, progressLine, setupStepLabel, shouldOffer, steps } from './database.js'
+import { card, thisComputer, installButton, installLine, megabytes, moveLine, nextStep, progressLine, setupStepLabel, shouldOffer, steps } from './database.js'
 
 const none = { state: 'notInstalled', external: null }
 const stopped = { state: 'stopped', port: 3307 }
@@ -51,6 +51,12 @@ describe('the words', () => {
     expect(megabytes(95024126)).toBe('91 MB')
     expect(installLine({ source: 'download', downloadBytes: 95024126 })).toBe('About 91 MB')
     expect(installLine({ source: 'homebrew', downloadBytes: 95024126 })).toBe('Installed with Homebrew')
+    expect(installLine({ source: 'download', downloadBytes: 95024126, partialBytes: 26214400 })).toBe('25 MB of 91 MB already downloaded')
+    expect(installLine({ source: 'download', downloadBytes: 95024126, partialBytes: 0 })).toBe('About 91 MB')
+    expect(installButton({ source: 'download', downloadBytes: 95024126, partialBytes: 26214400 })).toBe('Continue the download')
+    expect(installButton({ source: 'download', downloadBytes: 95024126, partialBytes: 0 })).toBe('Install the database')
+    expect(installButton({ source: 'homebrew', partialBytes: 5 })).toBe('Install the database')
+    expect(installButton(null)).toBe('Install the database')
     expect(progressLine(0, 0)).toBe('Downloading…')
     expect(progressLine(41, 95)).toBe('Downloading… 43%')
     expect(progressLine(200, 95)).toBe('Downloading… 100%')

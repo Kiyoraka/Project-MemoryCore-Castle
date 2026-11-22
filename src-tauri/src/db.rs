@@ -289,10 +289,24 @@ fn brew_install(progress: impl Fn(u64, u64)) -> Result<(), String> {
     Ok(())
 }
 
+/// Where an unfinished download waits to be carried on.
+fn part_path(home: &Path) -> PathBuf {
+    home.join(format!("mariadb-{VERSION}-winx64.zip.part"))
+}
+
+/// How many bytes of an unfinished download are already on disk: 0 when there is none, or when it
+/// is no longer a part of this release (a whole or longer file is checked or thrown away by Install).
+fn partial_bytes(home: &Path) -> u64 {
+    match std::fs::metadata(part_path(home)) {
+        Ok(m) if m.len() < ZIP_BYTES => m.len(),
+        _ => 0,
+    }
+}
+
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn install_release(home: &Path, port: u16, progress: impl Fn(u64, u64)) -> Result<u16, String> {
     // kept on disk while it comes, so a dropped connection or a closed Castle carries on from there
-    let part = home.join(format!("mariadb-{VERSION}-winx64.zip.part"));
+    let part = part_path(home);
     let bytes = crate::fetch::download_resumable(ZIP_URL, ZIP_BYTES, "MariaDB", &part, progress)?;
     if !checksum_ok(&bytes) {
         crate::fetch::discard(&part);
@@ -383,6 +397,8 @@ pub struct DbView {
     pub version: &'static str,
     /// The size of the download, for the Install button.
     pub download_bytes: u64,
+    /// How much of that an interrupted download already holds, so Install can say it continues.
+    pub partial_bytes: u64,
     /// How Install gets the engine: "download" (the release zip) or "homebrew" (macOS).
     pub source: &'static str,
     pub keep_running: bool,
@@ -390,7 +406,7 @@ pub struct DbView {
 
 fn view_of(store: &SettingsStore) -> DbView {
     let s = store.get();
-    DbView { engine: detect(&home(), s.db_port, s.db_external), version: VERSION, download_bytes: ZIP_BYTES, source: if cfg!(target_os = "macos") { "homebrew" } else { "download" }, keep_running: s.db_keep_running }
+    DbView { engine: detect(&home(), s.db_port, s.db_external), version: VERSION, download_bytes: ZIP_BYTES, partial_bytes: if cfg!(target_os = "macos") { 0 } else { partial_bytes(&home()) }, source: if cfg!(target_os = "macos") { "homebrew" } else { "download" }, keep_running: s.db_keep_running }
 }
 
 /// Keeps the engine's port and kind in settings.json (the page never writes these two).
@@ -901,6 +917,19 @@ mod tests {
         assert!(!keep_in_unpack(Path::new("bin/server.pdb")));
         assert!(!keep_in_unpack(Path::new("lib/server.lib")));
         assert!(!keep_in_unpack(Path::new("include/mysql/mysql.h")));
+    }
+
+    #[test]
+    fn an_unfinished_download_is_reported_so_install_can_say_it_continues() {
+        let home = std::env::temp_dir().join(format!("castle-db-part-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(partial_bytes(&home), 0, "nothing downloaded yet");
+        std::fs::write(part_path(&home), vec![0u8; 1234]).unwrap();
+        assert_eq!(partial_bytes(&home), 1234);
+        std::fs::File::create(part_path(&home)).unwrap().set_len(ZIP_BYTES).unwrap();
+        assert_eq!(partial_bytes(&home), 0, "a whole file is not offered as a part: Install checks it");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// The real thing, on demand: `cargo test --lib db::tests::live -- --ignored` with
