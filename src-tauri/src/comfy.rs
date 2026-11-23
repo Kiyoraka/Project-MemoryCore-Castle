@@ -1114,6 +1114,33 @@ mod tests {
         assert!(comfy.asked().iter().any(|r| r.starts_with("POST /interrupt ")));
     }
 
+    /// The whole drawing path against the member's real ComfyUI, as Castle's worker runs it: starts
+    /// it when it is not running (CASTLE_COMFY_START), draws a plain picture with the checkpoint
+    /// (CASTLE_COMFY_MODEL, default the first) and saves it; ends ComfyUI again only if Castle started it:
+    /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live_draw -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_draw_with_the_members_comfyui_from_a_cold_start() {
+        let settings = ComfySettings {
+            on: true,
+            address: std::env::var("CASTLE_COMFY_ADDRESS").unwrap_or_default(),
+            start: std::env::var("CASTLE_COMFY_START").unwrap_or_default(),
+            model: std::env::var("CASTLE_COMFY_MODEL").unwrap_or_default(),
+        };
+        let launcher = Launcher::default();
+        let out = std::env::temp_dir().join(format!("castle-comfy-draw-{}.png", std::process::id()));
+        let log = std::env::temp_dir().join("castle-comfy-live-start.log");
+        let brief = Brief { prompt: "a small red lantern on a wooden table, soft light, photo", size: Some("1024x1024"), quality: Some("medium") };
+        let began = Instant::now();
+        let result = draw(&settings, &launcher, &log, &brief, &out, Duration::from_secs(900), &no_stop);
+        println!("took {:.0} s, started by Castle: {}, result: {result:?}", began.elapsed().as_secs_f32(), launcher.running());
+        stop_started(&launcher);
+        result.unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']), "not a PNG");
+        println!("saved {} ({} bytes)", out.display(), bytes.len());
+    }
+
     /// Needs the member's own start file: CASTLE_COMFY_START (a path or command) with ComfyUI not
     /// running at CASTLE_COMFY_ADDRESS (default http://127.0.0.1:8188). Starts it, checks it, ends it:
     /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live_castle_starts -- --ignored --nocapture`
