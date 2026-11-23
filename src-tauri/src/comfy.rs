@@ -4,9 +4,15 @@
 //! caller hands in the graph. Nothing here is wired to a screen or to the picture queue yet.
 #![allow(dead_code)] // used by the next change, which makes ComfyUI one of the ways to draw
 
+use crate::settings::SettingsStore;
 use reqwest::blocking::{Client, Response};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Manager, State};
 
 /// Where ComfyUI listens when the member starts it the usual way.
 pub const DEFAULT_ADDRESS: &str = "http://127.0.0.1:8188";
@@ -17,6 +23,50 @@ const ASK_LIMIT: Duration = Duration::from_secs(15);
 const FETCH_LIMIT: Duration = Duration::from_secs(60);
 /// How many answers in a row may fail before a drawing is given up (ComfyUI crashed or was closed).
 const LOST_AFTER: u32 = 3;
+
+/// How long Castle waits for ComfyUI to answer after running the member's start command. A
+/// ComfyUI with many custom nodes can take a minute or two to come up.
+pub const START_LIMIT: Duration = Duration::from_secs(180);
+
+/// What the member told Castle about their ComfyUI. Off until they switch it on. Changed only by
+/// its own command (`comfy_save`), never by the Settings page.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ComfySettings {
+    pub on: bool,
+    /// Where ComfyUI listens; empty means the usual local one (`DEFAULT_ADDRESS`).
+    pub address: String,
+    /// What starts ComfyUI: the path of a start file (.bat, .cmd, .sh) or a command line. Castle
+    /// runs it only when nothing answers at the address. Empty means the member starts ComfyUI.
+    pub start: String,
+    /// The checkpoint to draw with; empty means the first one ComfyUI lists.
+    pub model: String,
+}
+
+impl ComfySettings {
+    pub fn server(&self) -> Result<Server, String> {
+        parse_address(&self.address)
+    }
+}
+
+/// The member's choices, checked and tidied before they are kept.
+pub fn clean(on: bool, address: &str, start: &str, model: &str) -> Result<ComfySettings, String> {
+    let address = match address.trim() {
+        "" => String::new(),
+        text => parse_address(text)?.address().to_string(),
+    };
+    let one_line = |text: &str, what: &str, most: usize| -> Result<String, String> {
+        let text = text.trim();
+        if text.chars().any(char::is_control) {
+            return Err(format!("The {what} must be on one line."));
+        }
+        if text.chars().count() > most {
+            return Err(format!("The {what} is too long."));
+        }
+        Ok(text.to_string())
+    };
+    Ok(ComfySettings { on, address, start: one_line(start, "start command", 1000)?, model: one_line(model, "checkpoint name", 300)? })
+}
 
 /// A ComfyUI server, by its address.
 #[derive(Debug, Clone, PartialEq)]
@@ -184,6 +234,208 @@ impl Server {
             let _ = self.post("/interrupt", &json!({}), ASK_LIMIT);
         }
     }
+}
+
+/// The ComfyUI Castle itself started, if it did: the one thing Castle may end, when Castle ends.
+#[derive(Default)]
+pub struct Launcher(Mutex<Option<Child>>);
+
+impl Launcher {
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<Child>> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Whether the start command Castle ran is still going.
+    pub fn running(&self) -> bool {
+        self.slot().as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+    }
+
+    /// The exit code of a start command that ended badly (not 0), once.
+    fn failed(&self) -> Option<i32> {
+        let mut slot = self.slot();
+        let status = slot.as_mut()?.try_wait().ok()??;
+        (!status.success()).then(|| status.code().unwrap_or(-1))
+    }
+}
+
+/// Ends the ComfyUI Castle started, with everything it started. A ComfyUI the member started is
+/// never touched.
+pub fn stop_started(launcher: &Launcher) {
+    if let Some(mut child) = launcher.slot().take() {
+        if matches!(child.try_wait(), Ok(None)) {
+            crate::providers::end_process_tree(&mut child);
+        }
+    }
+}
+
+/// Castle is closing: ends the ComfyUI it started.
+pub fn stop_with_castle(app: &AppHandle) {
+    stop_started(&app.state::<Launcher>());
+}
+
+/// The member's start command as a process. A start file given by its full path runs from its own
+/// folder (a ComfyUI start file reaches its Python by a path relative to itself); anything else is a
+/// command line for the computer's own shell.
+fn start_process(start: &str) -> Command {
+    let plain = start.trim().trim_matches('"');
+    let file = Path::new(plain);
+    let mut command = if file.is_absolute() && file.is_file() {
+        let mut command = if !cfg!(windows) && file.extension().is_some_and(|e| e.eq_ignore_ascii_case("sh")) {
+            let mut command = Command::new("sh");
+            command.arg(file);
+            command
+        } else {
+            Command::new(file)
+        };
+        if let Some(folder) = file.parent() {
+            command.current_dir(folder);
+        }
+        command
+    } else {
+        shell_line(start.trim())
+    };
+    for name in crate::env::NEVER_INHERITED {
+        command.env_remove(name);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
+#[cfg(windows)]
+fn shell_line(line: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new("cmd");
+    command.arg("/C").raw_arg(line);
+    command
+}
+
+#[cfg(not(windows))]
+fn shell_line(line: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.args(["-c", line]);
+    command
+}
+
+/// Runs the start command, its words going to `log` so the member can see why ComfyUI did not come.
+fn spawn(start: &str, log: &Path) -> Result<Child, String> {
+    let file = std::fs::File::create(log).map_err(|_| "Castle could not open its log for the start command.".to_string())?;
+    let more = file.try_clone().map_err(|_| "Castle could not open its log for the start command.".to_string())?;
+    start_process(start)
+        .stdin(Stdio::null())
+        .stdout(file)
+        .stderr(more)
+        .spawn()
+        .map_err(|_| "The start command could not run. Check the path in Settings.".to_string())
+}
+
+/// Makes sure a ComfyUI answers at `server`: one that already does is left alone; otherwise the
+/// member's start command is run (once, however many drawings wait) and waited for up to `limit`.
+/// `stop` is asked between looks.
+pub fn ensure_up(server: &Server, start: &str, launcher: &Launcher, log: &Path, limit: Duration, poll: Duration, stop: &dyn Fn() -> bool) -> Result<(), String> {
+    if server.ping().is_ok() {
+        return Ok(());
+    }
+    let start = start.trim();
+    if start.is_empty() {
+        return Err(format!("{} Add a start command in Settings and Castle can start it for you.", server.down()));
+    }
+    {
+        let mut slot = launcher.slot();
+        let going = slot.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)));
+        if !going {
+            *slot = Some(spawn(start, log)?);
+        }
+    }
+    let began = Instant::now();
+    loop {
+        if stop() {
+            return Err("Stopped.".into());
+        }
+        if server.ping().is_ok() {
+            return Ok(());
+        }
+        if let Some(code) = launcher.failed() {
+            return Err(format!("The start command ended with code {code} before ComfyUI answered. Its words are in {}.", log.display()));
+        }
+        if began.elapsed() >= limit {
+            return Err(format!("ComfyUI did not answer within {} seconds of the start command. Its words are in {}.", limit.as_secs(), log.display()));
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+fn start_log(store: &SettingsStore) -> std::path::PathBuf {
+    store.folder().join("comfy-start.log")
+}
+
+#[tauri::command]
+pub fn comfy_get(store: State<SettingsStore>) -> ComfySettings {
+    store.get().comfy
+}
+
+/// Keeps the member's choices (after checking them). The Settings page never overwrites them.
+#[tauri::command]
+pub fn comfy_save(store: State<SettingsStore>, on: bool, address: String, start: String, model: String) -> Result<ComfySettings, String> {
+    let comfy = clean(on, &address, &start, &model)?;
+    let mut next = store.get();
+    next.comfy = comfy.clone();
+    crate::settings::save(&store.path, &next).map_err(|_| "The ComfyUI settings could not be saved.".to_string())?;
+    *store.current.lock().unwrap() = next;
+    Ok(comfy)
+}
+
+/// What the Settings page shows about the connection.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Status {
+    pub up: bool,
+    pub address: String,
+    pub checkpoints: Vec<String>,
+    /// ComfyUI is running because Castle ran the start command
+    pub started_by_castle: bool,
+    /// one plain line for the member
+    pub message: String,
+}
+
+fn status_of(server: &Server, launcher: &Launcher) -> Status {
+    let started_by_castle = launcher.running();
+    match server.ping().and_then(|_| server.checkpoints()) {
+        Ok(checkpoints) => {
+            let message = match checkpoints.len() {
+                0 => format!("ComfyUI answers at {}, but it lists no checkpoint.", server.address()),
+                1 => format!("ComfyUI answers at {} with 1 checkpoint.", server.address()),
+                n => format!("ComfyUI answers at {} with {n} checkpoints.", server.address()),
+            };
+            Status { up: true, address: server.address().into(), checkpoints, started_by_castle, message }
+        }
+        Err(message) => Status { up: false, address: server.address().into(), checkpoints: Vec::new(), started_by_castle, message },
+    }
+}
+
+/// Asks the saved address whether ComfyUI is there and which checkpoints it has. Never starts it.
+#[tauri::command]
+pub async fn comfy_check(app: AppHandle) -> Result<Status, String> {
+    let server = app.state::<SettingsStore>().get().comfy.server()?;
+    tauri::async_runtime::spawn_blocking(move || status_of(&server, &app.state::<Launcher>())).await.map_err(|_| "The check stopped before it finished.".to_string())
+}
+
+/// Runs the start command if nothing answers (waiting for ComfyUI to come up), then checks.
+#[tauri::command]
+pub async fn comfy_start(app: AppHandle) -> Result<Status, String> {
+    let comfy = app.state::<SettingsStore>().get().comfy;
+    let server = comfy.server()?;
+    let log = start_log(&app.state::<SettingsStore>());
+    tauri::async_runtime::spawn_blocking(move || {
+        let launcher = app.state::<Launcher>();
+        ensure_up(&server, &comfy.start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &|| false)?;
+        Ok(status_of(&server, &launcher))
+    })
+    .await
+    .map_err(|_| "The start stopped before it finished.".to_string())?
 }
 
 /// ComfyUI's own reason for refusing a workflow, in a line.
@@ -500,6 +752,161 @@ mod tests {
         assert!(missing.server.fetch(&Picture { filename: "x.png".into(), subfolder: String::new(), kind: "output".into() }).unwrap_err().contains("(404)"));
         let empty = Fake::new(|_| (200, Vec::new()));
         assert!(empty.server.fetch(&Picture { filename: "x.png".into(), subfolder: String::new(), kind: "output".into() }).unwrap_err().contains("empty"));
+    }
+
+    fn nothing_listens() -> Server {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        parse_address(&base).unwrap()
+    }
+
+    fn temp(name: &str) -> std::path::PathBuf {
+        let folder = std::env::temp_dir().join(format!("castle-comfy-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    /// A ComfyUI that begins answering once `flag` exists.
+    fn comfy_after(flag: std::path::PathBuf) -> Fake {
+        Fake::new(move |_| if flag.exists() { ok(json!({ "system": {} })) } else { (404, b"no".to_vec()) })
+    }
+
+    #[cfg(windows)]
+    fn make_file(flag: &Path) -> String {
+        format!("echo ready> \"{}\"", flag.display())
+    }
+    #[cfg(not(windows))]
+    fn make_file(flag: &Path) -> String {
+        format!("touch '{}'", flag.display())
+    }
+    #[cfg(windows)]
+    const LONG: &str = "ping -n 30 127.0.0.1 > nul";
+    #[cfg(not(windows))]
+    const LONG: &str = "sleep 30";
+
+    #[test]
+    fn the_members_choices_are_checked_and_tidied() {
+        let kept = clean(true, " 192.168.1.20:8188/ ", "  W:\\Comfy\\start.bat ", " model.safetensors ").unwrap();
+        assert_eq!(kept, ComfySettings { on: true, address: "http://192.168.1.20:8188".into(), start: "W:\\Comfy\\start.bat".into(), model: "model.safetensors".into() });
+        assert_eq!(clean(false, "", "", "").unwrap(), ComfySettings::default());
+        assert!(clean(true, "http://127.0.0.1:8188/prompt", "", "").unwrap_err().contains("nothing after it"));
+        assert!(clean(true, "", "a\nb", "").unwrap_err().contains("one line"));
+        assert!(clean(true, "", "", "a\0b").unwrap_err().contains("one line"));
+        assert!(clean(true, "", &"x".repeat(1001), "").unwrap_err().contains("too long"));
+        assert!(clean(true, "", "", &"x".repeat(301)).unwrap_err().contains("too long"));
+    }
+
+    #[test]
+    fn an_older_settings_file_has_comfyui_off_and_the_choices_survive_a_save() {
+        let old: crate::settings::Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.comfy, ComfySettings::default());
+        assert!(!old.comfy.on);
+        let read: ComfySettings = serde_json::from_str(r#"{"on":true,"start":"x.bat"}"#).unwrap();
+        assert!(read.on && read.address.is_empty() && read.start == "x.bat");
+        let mut settings = crate::settings::Settings::default();
+        settings.comfy = clean(true, "localhost:9000", "start.cmd", "m.safetensors").unwrap();
+        let again: crate::settings::Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(again.comfy, settings.comfy);
+        assert_eq!(again.comfy.server().unwrap().address(), "http://localhost:9000");
+        assert_eq!(ComfySettings::default().server().unwrap().address(), DEFAULT_ADDRESS);
+    }
+
+    #[test]
+    fn a_comfyui_that_is_already_there_is_left_alone() {
+        let comfy = Fake::new(|_| ok(json!({ "system": {} })));
+        let launcher = Launcher::default();
+        let log = temp("up").join("start.log");
+        // a start command that would fail loudly if it ever ran
+        ensure_up(&comfy.server, "exit 9", &launcher, &log, Duration::from_secs(2), Duration::from_millis(5), &no_stop).unwrap();
+        assert!(!launcher.running());
+        assert!(!log.exists(), "nothing was started, so nothing was logged");
+    }
+
+    #[test]
+    fn nothing_there_and_no_start_command_says_what_to_add() {
+        let said = ensure_up(&nothing_listens(), "  ", &Launcher::default(), &temp("none").join("l.log"), Duration::from_secs(1), Duration::from_millis(5), &no_stop).unwrap_err();
+        assert!(said.contains("Is it running?") && said.contains("start command"));
+    }
+
+    #[test]
+    fn the_start_command_runs_and_castle_waits_until_comfyui_answers() {
+        let folder = temp("start");
+        let flag = folder.join("ready.txt");
+        let comfy = comfy_after(flag.clone());
+        let launcher = Launcher::default();
+        ensure_up(&comfy.server, &make_file(&flag), &launcher, &folder.join("start.log"), Duration::from_secs(20), Duration::from_millis(20), &no_stop).unwrap();
+        assert!(flag.exists());
+        stop_started(&launcher);
+    }
+
+    #[test]
+    fn a_start_file_runs_from_its_own_folder() {
+        let folder = temp("folder");
+        // ComfyUI's own start file reaches its Python by a path relative to itself
+        #[cfg(windows)]
+        let (file, body) = (folder.join("start comfy.cmd"), "@echo %CD%> here.txt\r\n");
+        #[cfg(not(windows))]
+        let (file, body) = (folder.join("start comfy.sh"), "pwd > here.txt\n");
+        std::fs::write(&file, body).unwrap();
+        let here = folder.join("here.txt");
+        let comfy = comfy_after(here.clone());
+        let launcher = Launcher::default();
+        ensure_up(&comfy.server, &format!("\"{}\"", file.display()), &launcher, &folder.join("start.log"), Duration::from_secs(20), Duration::from_millis(20), &no_stop).unwrap();
+        let wrote = std::fs::read_to_string(&here).unwrap();
+        let name = folder.file_name().unwrap().to_string_lossy().to_lowercase();
+        assert!(wrote.trim().to_lowercase().ends_with(&name), "it ran in {wrote:?}, not in the start file's folder");
+        stop_started(&launcher);
+    }
+
+    #[test]
+    fn a_start_command_that_fails_is_reported_with_its_code_at_once() {
+        let folder = temp("fails");
+        let began = Instant::now();
+        let said = ensure_up(&nothing_listens(), "exit 3", &Launcher::default(), &folder.join("start.log"), Duration::from_secs(30), Duration::from_millis(20), &no_stop).unwrap_err();
+        assert!(said.contains("code 3") && said.contains("start.log"), "{said}");
+        assert!(began.elapsed() < Duration::from_secs(10), "it did not wait out the limit");
+    }
+
+    #[test]
+    fn a_comfyui_that_never_comes_is_given_up_on_and_a_stop_is_honoured() {
+        let folder = temp("slow");
+        let launcher = Launcher::default();
+        let said = ensure_up(&nothing_listens(), LONG, &launcher, &folder.join("start.log"), Duration::from_millis(300), Duration::from_millis(20), &no_stop).unwrap_err();
+        assert!(said.contains("did not answer within") && said.contains("start.log"), "{said}");
+        // the command is still going (a slow ComfyUI may yet come); asking again does not run it twice
+        assert!(launcher.running());
+        let looks = AtomicUsize::new(0);
+        let stop = || looks.fetch_add(1, Ordering::SeqCst) >= 2;
+        assert_eq!(ensure_up(&nothing_listens(), LONG, &launcher, &folder.join("start.log"), Duration::from_secs(30), Duration::from_millis(20), &stop).unwrap_err(), "Stopped.");
+        assert!(launcher.running());
+        // quitting Castle ends what Castle started, and only that
+        stop_started(&launcher);
+        assert!(!launcher.running());
+    }
+
+    /// Needs the member's own start file: CASTLE_COMFY_START (a path or command) with ComfyUI not
+    /// running at CASTLE_COMFY_ADDRESS (default http://127.0.0.1:8188). Starts it, checks it, ends it:
+    /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live_castle_starts -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_castle_starts_the_members_comfyui_and_ends_it_again() {
+        let server = parse_address(&std::env::var("CASTLE_COMFY_ADDRESS").unwrap_or_default()).unwrap();
+        let start = std::env::var("CASTLE_COMFY_START").expect("set CASTLE_COMFY_START to the start file");
+        assert!(server.ping().is_err(), "ComfyUI is already running; close it first, this test starts it");
+        let launcher = Launcher::default();
+        let log = std::env::temp_dir().join("castle-comfy-live-start.log");
+        let began = Instant::now();
+        ensure_up(&server, &start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &no_stop).unwrap();
+        println!("answered {:.0} s after the start command; running by Castle: {}", began.elapsed().as_secs_f32(), launcher.running());
+        let status = status_of(&server, &launcher);
+        println!("{status:?}");
+        assert!(status.up && status.started_by_castle);
+        stop_started(&launcher);
+        std::thread::sleep(Duration::from_secs(4));
+        println!("after ending it, ComfyUI answers: {}", server.ping().is_ok());
+        assert!(server.ping().is_err(), "ComfyUI is still running after Castle ended it");
     }
 
     /// Against a real ComfyUI with at least one checkpoint, started by hand:

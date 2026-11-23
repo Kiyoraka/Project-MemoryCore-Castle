@@ -650,7 +650,7 @@ pub fn start_images(app: &AppHandle) {
 }
 
 /// Ends the drawing process and everything it started (Codex runs under `cmd.exe` and node).
-fn end_process_tree(child: &mut std::process::Child) {
+pub(crate) fn end_process_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
