@@ -422,7 +422,7 @@ pub(crate) fn wake_with_prompt(app: &AppHandle, store: &SettingsStore, host: &Pt
     // The main session picks its own earlier conversation up again (never a provider switch's
     // handoff, which is a fresh session by design); the others always start fresh.
     let fresh_handoff = prompt.is_some_and(|p| p.starts_with(crate::providers::HANDOFF_PROMPT));
-    let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !fresh_handoff));
+    let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !fresh_handoff, &settings.main_start));
     let resumed = plan.as_ref().is_some_and(|p| p.resumed);
     let mut args = Vec::new();
     // Codex's `resume <id>` is a subcommand, so it comes before any option

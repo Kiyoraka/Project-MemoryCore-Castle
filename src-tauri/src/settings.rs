@@ -358,6 +358,10 @@ pub struct Settings {
     pub only_this_companion: bool,
     /// How the DIARY room is read: one of DIARY_LOOKS.
     pub diary_look: String,
+    /// How the main session starts: one of MAIN_STARTS - `continue` picks the last talk up,
+    /// `rested` picks it up unless it has been quiet REST_HOURS (a fresh session wakes from the
+    /// memory and costs far fewer tokens than reading a long talk back), `fresh` always starts new.
+    pub main_start: String,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -445,6 +449,9 @@ const ALWAYS_SHOWN: [&str; 3] = ["home", "launcher", "widgets"];
 const TAB_ID_MAX: usize = 32;
 
 pub const DIARY_LOOKS: [&str; 3] = ["list", "calendar", "book"];
+pub const MAIN_STARTS: [&str; 3] = ["continue", "rested", "fresh"];
+/// How long a talk may be quiet before `rested` starts a fresh session instead.
+pub const REST_HOURS: u64 = 6;
 pub const PROFILE_LOOKS: [&str; 2] = ["cards", "constellation"];
 pub const STORY_LOOKS: [&str; 5] = ["classic", "cinema", "book", "messenger", "jrpg"];
 
@@ -524,6 +531,7 @@ impl Default for Settings {
             project_databases: BTreeMap::new(),
             only_this_companion: false,
             diary_look: "list".into(),
+            main_start: "rested".into(),
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -617,6 +625,9 @@ impl Settings {
         }
         if !DIARY_LOOKS.contains(&self.diary_look.as_str()) {
             self.diary_look = "list".into();
+        }
+        if !MAIN_STARTS.contains(&self.main_start.as_str()) {
+            self.main_start = "rested".into();
         }
         if !PROFILE_LOOKS.contains(&self.profile_look.as_str()) {
             self.profile_look = "cards".into();
@@ -1055,6 +1066,7 @@ mod tests {
             )]),
             only_this_companion: true,
             diary_look: "book".into(),
+            main_start: "continue".into(),
             emotion_room_voice: false,
             emotion_market_voice: false,
             profile_look: "constellation".into(),
@@ -1192,6 +1204,13 @@ mod tests {
         assert_eq!(Settings::default().last_seen_version, None);
         assert_eq!(Settings { last_seen_version: Some(" 0.2.0 ".into()), ..Settings::default() }.normalized().last_seen_version.as_deref(), Some("0.2.0"));
         assert_eq!(Settings { last_seen_version: Some("  ".into()), ..Settings::default() }.normalized().last_seen_version, None);
+    }
+
+    #[test]
+    fn the_main_start_is_one_of_the_three_and_rests_by_default() {
+        assert_eq!(Settings::default().main_start, "rested");
+        assert_eq!(Settings { main_start: "fresh".into(), ..Settings::default() }.normalized().main_start, "fresh");
+        assert_eq!(Settings { main_start: "sometimes".into(), ..Settings::default() }.normalized().main_start, "rested");
     }
 
     #[test]

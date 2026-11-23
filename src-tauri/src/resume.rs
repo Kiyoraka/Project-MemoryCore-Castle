@@ -5,7 +5,7 @@
 //! terminal conversation when they also use Claude Code or Codex by hand in the same folder.
 //! A provider switch is always a fresh session (a conversation cannot move between providers).
 
-use crate::settings::{Cli, SettingsStore};
+use crate::settings::{Cli, SettingsStore, REST_HOURS};
 use crate::transcript::{claude, codex};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -118,18 +118,35 @@ fn claude_records(folder: &Path) -> Option<PathBuf> {
     Some(claude::projects_root()?.join(claude::project_folder_name(&folder.display().to_string())))
 }
 
-/// How to start the main session. `allow_resume` is false for a provider switch.
-pub fn plan(store: &SettingsStore, cli: Cli, folder: &Path, allow_resume: bool) -> Plan {
+/// Whether the member's start setting (`main_start`, one of settings::MAIN_STARTS) picks a talk up
+/// whose record was last written at `last_write`: `rested` only while it has been quiet less than
+/// REST_HOURS - the morning after, a fresh session wakes from the memory instead of reading the
+/// whole old talk back at full price.
+pub fn resumes(start: &str, last_write: Option<SystemTime>, now: SystemTime) -> bool {
+    match start {
+        "fresh" => false,
+        "continue" => true,
+        _ => last_write.is_some_and(|at| now.duration_since(at).map_or(true, |quiet| quiet < Duration::from_secs(REST_HOURS * 3600))),
+    }
+}
+
+/// How to start the main session. `allow_resume` is false for a provider switch and for the
+/// member's one-off "Start fresh"; `start` is their setting.
+pub fn plan(store: &SettingsStore, cli: Cli, folder: &Path, allow_resume: bool, start: &str) -> Plan {
     let saved = load(store);
     let remembered = match cli {
         Cli::Claude => saved.claude,
         Cli::Codex => saved.codex,
     }
     .filter(|r| allow_resume && r.folder == folder.display().to_string() && is_id(&r.id));
-    let resumable = remembered.map(|r| r.id).filter(|id| match cli {
-        Cli::Claude => claude_records(folder).is_some_and(|dir| dir.join(format!("{id}.jsonl")).metadata().is_ok_and(|m| m.len() > 0)),
-        Cli::Codex => codex::record_with_id(id).is_some(),
-    });
+    let record = |id: &str| -> Option<std::fs::Metadata> {
+        match cli {
+            Cli::Claude => claude_records(folder)?.join(format!("{id}.jsonl")).metadata().ok().filter(|m| m.len() > 0),
+            Cli::Codex => codex::record_with_id(id)?.metadata().ok(),
+        }
+    };
+    let now = SystemTime::now();
+    let resumable = remembered.map(|r| r.id).filter(|id| record(id).is_some_and(|m| resumes(start, m.modified().ok(), now)));
     let fresh = new_id();
     let args = args_for(cli, resumable.as_deref(), &fresh);
     if cli == Cli::Claude {
@@ -188,6 +205,19 @@ mod tests {
         let path = Path::new("C:/x/rollout-2026-11-21T12-00-00-019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b.jsonl");
         assert_eq!(id_from_rollout(path).as_deref(), Some("019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b"));
         assert_eq!(id_from_rollout(Path::new("rollout-short.jsonl")), None);
+    }
+
+    #[test]
+    fn the_start_setting_decides_whether_a_quiet_talk_is_picked_up() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let quiet = |mins: u64| Some(now - Duration::from_secs(mins * 60));
+        assert!(resumes("continue", quiet(60 * 24 * 3), now));
+        assert!(!resumes("fresh", quiet(1), now));
+        assert!(resumes("rested", quiet(5 * 60 + 59), now));
+        assert!(!resumes("rested", quiet(6 * 60 + 1), now));
+        assert!(!resumes("rested", None, now), "an unknown age is not picked up after a rest");
+        // a clock that went backwards still picks a talk up
+        assert!(resumes("rested", Some(now + Duration::from_secs(60)), now));
     }
 
     #[test]

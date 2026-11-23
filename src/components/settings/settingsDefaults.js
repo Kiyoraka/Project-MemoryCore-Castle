@@ -32,6 +32,7 @@ export const SETTINGS_DEFAULTS = {
   roomMayPass: false,
   onlyThisCompanion: false,
   diaryLook: 'list',
+  mainStart: 'rested',
   emotionRoomVoice: true,
   profileLook: 'cards',
 }
