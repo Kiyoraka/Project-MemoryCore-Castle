@@ -102,12 +102,26 @@ export function parseBlocks(text) {
   return out
 }
 
+// A bare web address in running text: http(s)://, up to a space or bracket, never ending on the
+// punctuation that closes a sentence ("see https://x.y." links https://x.y).
+const BARE_URL = /https?:\/\/[^\s<>()[\]`"']*[^\s<>()[\]`"'.,;:!?*]/
+const isBareUrl = (piece) => new RegExp(`^${BARE_URL.source}$`).test(piece)
+
+/** Spans for a plain chat line: only its web addresses become links ({ text, link? }). */
+export function linkSpans(text) {
+  return String(text ?? '')
+    .split(new RegExp(`(${BARE_URL.source})`))
+    .filter(Boolean)
+    .map((piece) => (isBareUrl(piece) ? { text: piece, link: piece } : { text: piece }))
+}
+
 /** Spans inside a line: { text, bold?, em?, code?, link? }. */
 export function parseSpans(text) {
   return String(text ?? '')
-    .split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\n]+\*)/)
+    .split(new RegExp(`(\`[^\`\\n]+\`|\\*\\*[^*\\n]+\\*\\*|\\[[^\\]\\n]+\\]\\([^)\\s]+\\)|${BARE_URL.source}|\\*[^*\\n]+\\*)`))
     .filter(Boolean)
     .map((piece) => {
+      if (isBareUrl(piece)) return { text: piece, link: piece }
       if (piece.length > 2 && piece.startsWith('`') && piece.endsWith('`')) return { code: true, text: piece.slice(1, -1) }
       if (piece.length > 4 && piece.startsWith('**') && piece.endsWith('**')) return { bold: true, text: piece.slice(2, -2) }
       const link = piece.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)
