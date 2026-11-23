@@ -755,8 +755,29 @@ pub async fn comfy_start(app: AppHandle) -> Result<Status, String> {
     .map_err(|_| "The start stopped before it finished.".to_string())?
 }
 
-/// ComfyUI's own reason for refusing a workflow, in a line.
+/// ComfyUI's own reason for refusing a workflow, in plain words. The two ways a workflow made on
+/// someone else's computer most often fails on this one say what to do next: a node this ComfyUI
+/// does not have (a custom node that is not installed) and a model file it does not have. Castle
+/// downloads nothing for the member; it says where to look.
 fn rejection_words(body: &Value, status: u16) -> String {
+    if body.pointer("/error/type").and_then(Value::as_str) == Some("missing_node_type") {
+        let said = body.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
+        let class = body.pointer("/error/extra_info/class_type").and_then(Value::as_str).or_else(|| said.split('\'').nth(1)).unwrap_or("a node");
+        return format!("Your ComfyUI is missing a node this workflow needs ({class}). Open the workflow in ComfyUI, use Manager > Install Missing Custom Nodes, then Export (API) again.");
+    }
+    for (node, report) in body.get("node_errors").and_then(Value::as_object).into_iter().flatten() {
+        for problem in report.get("errors").and_then(Value::as_array).into_iter().flatten() {
+            if problem.get("type").and_then(Value::as_str) != Some("value_not_in_list") {
+                continue;
+            }
+            if let Some((input, value)) = missing_choice(problem.get("details").and_then(Value::as_str).unwrap_or("")) {
+                if is_model_input(&input) {
+                    let class = report.get("class_type").and_then(Value::as_str).unwrap_or("a node");
+                    return format!("This workflow names a model your ComfyUI does not have ({value}, in {class} node {node}). Put that file in ComfyUI's models folder, or pick one you have inside ComfyUI, then Export (API) again.");
+                }
+            }
+        }
+    }
     let mut words = body.pointer("/error/message").and_then(Value::as_str).unwrap_or("it was not accepted").to_string();
     if let Some((node, report)) = body.get("node_errors").and_then(Value::as_object).and_then(|m| m.iter().next()) {
         let class = report.get("class_type").and_then(Value::as_str).unwrap_or("?");
@@ -764,7 +785,21 @@ fn rejection_words(body: &Value, status: u16) -> String {
         let detail = report.pointer("/errors/0/details").and_then(Value::as_str).filter(|d| !d.is_empty()).map(|d| format!(" ({d})")).unwrap_or_default();
         words = format!("{words}: {class} (node {node}) {what}{detail}");
     }
-    format!("ComfyUI refused the workflow ({status}): {words}.")
+    format!("ComfyUI refused the workflow ({status}): {}.", words.trim_end_matches('.'))
+}
+
+/// ComfyUI's "Value not in list" detail, `ckpt_name: 'x.safetensors' not in [...]`, as (the input's
+/// name, the value the workflow asked for).
+fn missing_choice(details: &str) -> Option<(String, String)> {
+    let (input, rest) = details.split_once(": '")?;
+    let (value, _) = rest.split_once("' not in")?;
+    Some((input.trim().to_string(), value.to_string()))
+}
+
+/// Inputs that name a file the member has to have (ckpt_name, unet_name, vae_name, lora_name, ...),
+/// not a setting such as the sampler's name, which a newer ComfyUI may know and this one not.
+fn is_model_input(input: &str) -> bool {
+    input.ends_with("_name") && !matches!(input, "sampler_name" | "scheduler_name")
 }
 
 /// What a finished history entry holds: its saved pictures, or the reason it failed.
@@ -945,7 +980,7 @@ mod tests {
                 400,
                 json!({
                     "error": { "type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation" },
-                    "node_errors": { "4": { "class_type": "CheckpointLoaderSimple", "errors": [{ "message": "Value not in list", "details": "ckpt_name: 'x.safetensors' not in []" }] } }
+                    "node_errors": { "5": { "class_type": "KSampler", "errors": [{ "type": "required_input_missing", "message": "Required input is missing", "details": "positive" }] } }
                 })
                 .to_string()
                 .into_bytes(),
@@ -954,11 +989,91 @@ mod tests {
         let said = comfy.server.submit(&json!({}), "c").unwrap_err();
         assert!(said.contains("refused the workflow (400)"));
         assert!(said.contains("Prompt outputs failed validation"));
-        assert!(said.contains("CheckpointLoaderSimple (node 4) Value not in list"));
-        assert!(said.contains("x.safetensors"));
+        assert!(said.contains("KSampler (node 5) Required input is missing (positive)"));
+        assert!(!said.contains(".."), "{said}");
 
         let bare = Fake::new(|_| (400, b"not json".to_vec()));
         assert!(bare.server.submit(&json!({}), "c").unwrap_err().contains("it was not accepted"));
+    }
+
+    #[test]
+    fn a_node_this_comfyui_does_not_have_says_what_to_do_about_it() {
+        // ComfyUI's real answer for a custom node that is not installed
+        let real = json!({ "error": { "type": "missing_node_type", "message": "Node 'SomeAuthorsFancyUpscaler' not found. The custom node may not be installed.", "details": "Node ID '#1'" }, "node_errors": {} });
+        let said = rejection_words(&real, 400);
+        assert_eq!(said, "Your ComfyUI is missing a node this workflow needs (SomeAuthorsFancyUpscaler). Open the workflow in ComfyUI, use Manager > Install Missing Custom Nodes, then Export (API) again.");
+        // a ComfyUI that names the class on its own takes that over the message
+        let named = json!({ "error": { "type": "missing_node_type", "message": "Node not found", "extra_info": { "class_type": "OtherNode" } } });
+        assert!(rejection_words(&named, 400).contains("(OtherNode)"));
+        // and the sentence reaches the member through submit
+        let comfy = Fake::new(move |_| (400, real.to_string().into_bytes()));
+        assert!(comfy.server.submit(&json!({}), "c").unwrap_err().contains("Install Missing Custom Nodes"));
+    }
+
+    #[test]
+    fn a_model_this_comfyui_does_not_have_says_what_to_do_about_it() {
+        // ComfyUI's real answer for a checkpoint file that is not there
+        let real = json!({
+            "error": { "type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "" },
+            "node_errors": { "1": { "class_type": "CheckpointLoaderSimple", "errors": [{ "type": "value_not_in_list", "message": "Value not in list", "details": "ckpt_name: 'authors_special_model_v9.safetensors' not in ['juggernautXL_ragnarokBy.safetensors']" }] } }
+        });
+        let said = rejection_words(&real, 400);
+        assert_eq!(said, "This workflow names a model your ComfyUI does not have (authors_special_model_v9.safetensors, in CheckpointLoaderSimple node 1). Put that file in ComfyUI's models folder, or pick one you have inside ComfyUI, then Export (API) again.");
+        // any kind of model file counts, not only a checkpoint
+        for input in ["unet_name", "vae_name", "clip_name", "lora_name", "control_net_name"] {
+            let one = json!({ "node_errors": { "7": { "class_type": "Loader", "errors": [{ "type": "value_not_in_list", "details": format!("{input}: 'm.safetensors' not in []") }] } } });
+            assert!(rejection_words(&one, 400).contains("does not have (m.safetensors, in Loader node 7)"), "{input}");
+        }
+        let comfy = Fake::new(move |_| (400, real.to_string().into_bytes()));
+        assert!(comfy.server.submit(&json!({}), "c").unwrap_err().contains("models folder"));
+    }
+
+    #[test]
+    fn a_setting_from_a_newer_comfyui_is_not_mistaken_for_a_missing_model() {
+        // the sampler's name is a choice, not a file the member can put in a folder
+        let sampler = json!({
+            "error": { "type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation" },
+            "node_errors": { "5": { "class_type": "KSampler", "errors": [{ "type": "value_not_in_list", "message": "Value not in list", "details": "sampler_name: 'res_multistep_x' not in ['euler', 'dpmpp_2m']" }] } }
+        });
+        let said = rejection_words(&sampler, 400);
+        assert!(said.contains("sampler_name: 'res_multistep_x' not in ['euler', 'dpmpp_2m']") && !said.contains("models folder"), "{said}");
+        // a missing choice that is not a model file at all stays ComfyUI's own words
+        let other = json!({ "node_errors": { "2": { "class_type": "X", "errors": [{ "type": "value_not_in_list", "details": "mode: 'fast' not in ['slow']" }] } } });
+        assert!(!rejection_words(&other, 400).contains("models folder"));
+        // and no refusal ends in two full stops
+        assert!(!rejection_words(&json!({ "error": { "message": "Something failed." } }), 400).contains(".."));
+    }
+
+    #[test]
+    fn the_name_and_the_value_are_read_from_comfyuis_detail() {
+        assert_eq!(missing_choice("ckpt_name: 'a.safetensors' not in ['b']"), Some(("ckpt_name".into(), "a.safetensors".into())));
+        assert_eq!(missing_choice("unet_name: 'dir/my model.gguf' not in []"), Some(("unet_name".into(), "dir/my model.gguf".into())));
+        assert_eq!(missing_choice(""), None);
+        assert_eq!(missing_choice("no quotes here"), None);
+        assert!(is_model_input("ckpt_name") && is_model_input("vae_name") && is_model_input("lora_name"));
+        assert!(!is_model_input("sampler_name") && !is_model_input("scheduler_name") && !is_model_input("scheduler") && !is_model_input("text"));
+    }
+
+    /// Against a real ComfyUI: two deliberately incomplete workflows (a node class it does not have,
+    /// a checkpoint file it does not have) are refused at validation, so nothing is queued or run; the
+    /// refusals are printed in the words the member sees:
+    /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live_incomplete -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_incomplete_workflows_are_refused_in_plain_words() {
+        let server = parse_address(&std::env::var("CASTLE_COMFY_ADDRESS").unwrap_or_default()).unwrap();
+        server.ping().unwrap();
+        let no_node = json!({
+            "1": { "class_type": "SomeAuthorsFancyUpscaler", "inputs": { "image": ["2", 0] } },
+            "2": { "class_type": "SaveImage", "inputs": { "images": ["1", 0], "filename_prefix": "x" } }
+        });
+        let said = server.submit(&no_node, "castle-live-missing-node").unwrap_err();
+        println!("missing node  : {said}");
+        assert!(said.contains("missing a node this workflow needs (SomeAuthorsFancyUpscaler)") && said.contains("Install Missing Custom Nodes"));
+        let no_model = txt2img_graph("authors_special_model_v9.safetensors", "x", 512, 512, 1, 1);
+        let said = server.submit(&no_model, "castle-live-missing-model").unwrap_err();
+        println!("missing model : {said}");
+        assert!(said.contains("does not have (authors_special_model_v9.safetensors, in CheckpointLoaderSimple node 1)") && said.contains("models folder"));
     }
 
     #[test]
