@@ -77,6 +77,17 @@ fn follow_a_clear(cli: Cli, folder: &Path, host: &crate::pty::PtyHost) {
     }
 }
 
+/// Whether a record Chat now follows is the main session's own to pick up again. Claude's is
+/// pinned (it only moves after Castle's own turn); a Codex rollout may be a conversation the
+/// member began in a terminal of their own, so it counts only when born right after a turn
+/// Castle sent (a /new). A fresh Codex session is remembered when it appears (resume.rs).
+fn started_by_castle(cli: Cli, record: &Path, enters: &[SystemTime]) -> bool {
+    match cli {
+        Cli::Claude => true,
+        Cli::Codex => record.metadata().and_then(|m| m.created()).is_ok_and(|born| claude::born_after_a_turn(born, enters)),
+    }
+}
+
 /// A DEV tab's Chat: the newest record of that project's session, followed like the main room's
 /// (a fresh record after /clear is picked up), without the main room's journal.
 pub fn follow_folder(chat: &ChatState, host: &crate::pty::PtyHost, cli: Cli, folder: &Path) -> ChatPoll {
@@ -143,6 +154,10 @@ pub fn chat_poll(
     let mut reset = false;
     let current = slot.as_ref().map(|(id, f)| (*id, f.path.clone()));
     if current != Some((session, newest.clone())) {
+        // the main session's talk now lives in this record: a restart picks this one up
+        if room == Room::Main && started_by_castle(settings.cli, &newest, &host.recent_enters()) {
+            crate::resume::remember_followed(&store, settings.cli, &newest, &folder);
+        }
         let follower = follow(newest, started);
         // The main Chat leaves the STORY room's pictures and voices to the STORY room.
         let follower = match room {

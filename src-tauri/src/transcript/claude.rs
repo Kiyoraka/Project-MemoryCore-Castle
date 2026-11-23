@@ -158,16 +158,19 @@ pub fn follow_clear(folder: &Path, enters: &[SystemTime]) -> Option<String> {
     Some(new_id)
 }
 
+/// Whether a record was born right after one of the turns Castle sent (two seconds of clock grace
+/// before, CLEAR_GRACE after).
+pub fn born_after_a_turn(born: SystemTime, enters: &[SystemTime]) -> bool {
+    enters.iter().any(|sent| {
+        let early = sent.checked_sub(Duration::from_secs(2)).unwrap_or(*sent);
+        born >= early && born <= *sent + CLEAR_GRACE
+    })
+}
+
 fn pick_cleared(candidates: Vec<(PathBuf, SystemTime, u64)>, pinned: &Path, quiet_since: SystemTime, enters: &[SystemTime]) -> Option<PathBuf> {
-    let after_a_turn = |born: SystemTime| {
-        enters.iter().any(|sent| {
-            let early = sent.checked_sub(Duration::from_secs(2)).unwrap_or(*sent);
-            born >= early && born <= *sent + CLEAR_GRACE
-        })
-    };
     candidates
         .into_iter()
-        .filter(|(path, born, len)| path != pinned && *born > quiet_since && *len <= FALLBACK_LIMIT && after_a_turn(*born))
+        .filter(|(path, born, len)| path != pinned && *born > quiet_since && *len <= FALLBACK_LIMIT && born_after_a_turn(*born, enters))
         .max_by_key(|(_, born, _)| *born)
         .map(|(path, _, _)| path)
 }

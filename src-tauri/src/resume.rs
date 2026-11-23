@@ -55,6 +55,29 @@ fn remember(store: &SettingsStore, cli: Cli, id: &str, folder: &Path) {
     save(store, &saved);
 }
 
+/// The session id a record carries in its file name: Claude Code's `<id>.jsonl`, Codex's rollout.
+pub fn id_of_record(cli: Cli, record: &Path) -> Option<String> {
+    match cli {
+        Cli::Claude => record.file_stem()?.to_str().filter(|id| is_id(id)).map(str::to_string),
+        Cli::Codex => id_from_rollout(record),
+    }
+}
+
+/// Chat moved to another record of the main session (a /clear in Claude Code, a /new in Codex):
+/// that conversation is the one to pick up again, not the one before it.
+pub fn remember_followed(store: &SettingsStore, cli: Cli, record: &Path, folder: &Path) {
+    if let Some(id) = id_of_record(cli, record) {
+        let saved = load(store);
+        let kept = match cli {
+            Cli::Claude => saved.claude,
+            Cli::Codex => saved.codex,
+        };
+        if kept.as_ref().map(|r| (r.id.as_str(), r.folder.as_str())) != Some((id.as_str(), &folder.display().to_string())) {
+            remember(store, cli, &id, folder);
+        }
+    }
+}
+
 /// A fresh random (version 4) id in the usual written form.
 pub fn new_id() -> String {
     let mut b = [0u8; 16];
@@ -165,6 +188,15 @@ mod tests {
         let path = Path::new("C:/x/rollout-2026-11-21T12-00-00-019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b.jsonl");
         assert_eq!(id_from_rollout(path).as_deref(), Some("019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b"));
         assert_eq!(id_from_rollout(Path::new("rollout-short.jsonl")), None);
+    }
+
+    #[test]
+    fn a_followed_record_names_its_session() {
+        let id = "6fa92052-0000-4000-8000-000000000001";
+        assert_eq!(id_of_record(Cli::Claude, Path::new(&format!("C:/r/{id}.jsonl"))).as_deref(), Some(id));
+        assert_eq!(id_of_record(Cli::Claude, Path::new("C:/r/notes.jsonl")), None);
+        let rollout = Path::new("C:/x/rollout-2026-11-21T12-00-00-019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b.jsonl");
+        assert_eq!(id_of_record(Cli::Codex, rollout).as_deref(), Some("019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b"));
     }
 
     #[test]
