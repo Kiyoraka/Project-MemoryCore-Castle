@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-23
+
 - Every skill is now served from the memory database by default: its SKILL.md on disk becomes a short note that keeps the skill's own rules and loads the rest a flow or a section at a time, so each firing reads far less. Settings > Database > Skills shows the saving, switches one skill or all of them back to whole files, and lists each skill's flows.
 
 - Fixed: after /clear, your companion's replies stayed in the Log and never reached Chat, and reopening Castle went back to the talk from before the /clear. Chat now follows the new talk, and the next start picks that one up.
@@ -11,6 +13,12 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 - Choose how your companion's session starts in Settings > Companion > When Castle starts: Continue, After a rest (new default: picks the talk up within six hours, fresh after that) or Fresh. A fresh session wakes with its full memory and uses far fewer tokens than reading a long talk back. Start fresh beside Wake does it once.
 
 - Fixed: HOME's widgets and the chat panel now stay exactly where they are. There is one arrangement for every theme: a theme only decides where a widget first appears, and after that changing theme or restarting Castle never moves it (the chat panel no longer jumps to the right in Sunset Shore). The AUTOMATIONS and CALENDAR cards were also forgetting their place, size and off switch at every restart, which piled them over the other cards; they are kept now. "Back to the theme's places" is now "Reset the layout".
+
+- The database download now carries on from where it stopped: a dropped connection, a slow server or closing Castle no longer throws away what was already downloaded, and Settings > Database says "Continue the download" with how much is already here. (NecroSlav)
+
+- Fixed: moving your memory into the database stopped when a project's status in the project list was longer than 64 characters. A long status is now shortened with "…" (the whole list is still kept), and a project the database refuses is named with the reason. (NecroSlav)
+
+- APPS search shows one focus ring instead of two. (Brian-C69)
 
 ## 0.3.0 - 2026-11-23
 
