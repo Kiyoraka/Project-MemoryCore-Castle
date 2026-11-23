@@ -31,9 +31,17 @@ export function megabytes(bytes) {
   return `${Math.round((bytes ?? 0) / (1024 * 1024))} MB`
 }
 
-// How Install gets the engine, in words: the download's size, or Homebrew on a Mac.
+// How Install gets the engine, in words: the download's size, or Homebrew on a Mac. An
+// interrupted download is said so, with how much of it is already here.
 export function installLine(view) {
-  return view?.source === 'homebrew' ? 'Installed with Homebrew' : `About ${megabytes(view?.downloadBytes)}`
+  if (view?.source === 'homebrew') return 'Installed with Homebrew'
+  if (view?.partialBytes > 0) return `${megabytes(view.partialBytes)} of ${megabytes(view.downloadBytes)} already downloaded`
+  return `About ${megabytes(view?.downloadBytes)}`
+}
+
+// The Install button's words: it carries on when an interrupted download is waiting.
+export function installButton(view) {
+  return view?.source !== 'homebrew' && view?.partialBytes > 0 ? 'Continue the download' : 'Install the database'
 }
 
 // "Downloading… 43%" while the engine downloads.
