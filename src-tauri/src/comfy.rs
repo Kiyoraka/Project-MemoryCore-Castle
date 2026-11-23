@@ -373,6 +373,16 @@ impl Launcher {
         self.slot().as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)))
     }
 
+    /// Whether Castle ran a start command at all (and so has a log of what it printed).
+    fn has_child(&self) -> bool {
+        self.slot().is_some()
+    }
+
+    /// How the start command Castle ran ended, if it has: its exit code (a crash of ComfyUI shows here).
+    fn exit_code(&self) -> Option<i32> {
+        self.slot().as_mut()?.try_wait().ok()??.code()
+    }
+
     /// The exit code of a start command that ended badly (not 0), once.
     fn failed(&self) -> Option<i32> {
         let mut slot = self.slot();
@@ -443,8 +453,54 @@ fn shell_line(line: &str) -> Command {
     command
 }
 
+/// The log of the run before this one: `comfy-start.log` becomes `comfy-start.previous.log`.
+fn previous_log(log: &Path) -> std::path::PathBuf {
+    log.with_extension("previous.log")
+}
+
+/// Keeps what the last run printed before a new run replaces the log: when ComfyUI dies, its last
+/// words (a crash message goes to the error output) are the only clue, and the restart that follows
+/// a failed drawing would otherwise wipe them.
+fn rotate_log(log: &Path) {
+    if log.is_file() {
+        let previous = previous_log(log);
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(log, previous);
+    }
+}
+
+/// The error for a ComfyUI that stopped answering mid-drawing, with what Castle can add when it
+/// started that ComfyUI itself: how the start command ended (a crash of the program shows as an
+/// exit code, often 0xC0000005 or another 0xC... code on Windows) and where its last words are.
+fn ended_words(said: String, code: Option<i32>, started: bool, log: &Path) -> String {
+    if !said.contains("stopped answering") || !started {
+        return said;
+    }
+    let previous = previous_log(log);
+    match code {
+        Some(code) => {
+            let shown = if code < 0 { format!("{code}, 0x{:08X}", code as u32) } else { code.to_string() };
+            format!("ComfyUI closed while it was drawing (exit code {shown}). What it printed last is in {}; the run before is in {}.", log.display(), previous.display())
+        }
+        None => format!("{said} It may have crashed or frozen. What it printed last is in {}.", log.display()),
+    }
+}
+
+/// The words to draw from a STUDIO brief. STUDIO adds "Size 1024x1024, medium quality." to the end
+/// of a workflow's brief for the ways that read it (Codex); a picture model would try to draw those
+/// words, and the size and quality are sent on their own anyway.
+pub fn words_of<'a>(brief: &'a str, size: Option<&str>, quality: Option<&str>) -> &'a str {
+    if let (Some(size), Some(quality)) = (size, quality) {
+        if let Some(words) = brief.strip_suffix(&format!("\n\nSize {size}, {quality} quality.")) {
+            return words.trim_end();
+        }
+    }
+    brief
+}
+
 /// Runs the start command, its words going to `log` so the member can see why ComfyUI did not come.
 fn spawn(start: &str, log: &Path) -> Result<Child, String> {
+    rotate_log(log);
     let file = std::fs::File::create(log).map_err(|_| "Castle could not open its log for the start command.".to_string())?;
     let more = file.try_clone().map_err(|_| "Castle could not open its log for the start command.".to_string())?;
     start_process(start)
@@ -567,13 +623,14 @@ pub fn draw(settings: &ComfySettings, launcher: &Launcher, log: &Path, brief: &B
     ensure_up(&server, &settings.start, launcher, log, START_LIMIT, Duration::from_secs(1), stop)?;
     let (width, height) = dimensions(brief.size);
     let (seed, steps) = (fresh_number(), steps_for(brief.quality));
+    let words = words_of(brief.prompt, brief.size, brief.quality);
     let graph = match &own {
-        Some(workflow) => fill(workflow, &Values { prompt: brief.prompt, width, height, seed, steps }),
+        Some(workflow) => fill(workflow, &Values { prompt: words, width, height, seed, steps }),
         // the built-in workflow needs a checkpoint; a workflow of the member's own names its models itself
-        None => txt2img_graph(&choose_checkpoint(&settings.model, &server.checkpoints()?)?, brief.prompt, width, height, seed, steps),
+        None => txt2img_graph(&choose_checkpoint(&settings.model, &server.checkpoints()?)?, words, width, height, seed, steps),
     };
     let id = server.submit(&graph, &format!("castle-{}", fresh_number()))?;
-    let pictures = server.wait(&id, limit, Duration::from_secs(1), stop)?;
+    let pictures = server.wait(&id, limit, Duration::from_secs(1), stop).map_err(|said| ended_words(said, launcher.exit_code(), launcher.has_child(), log))?;
     let bytes = as_png(server.fetch(&pictures[0])?)?;
     if let Some(folder) = output.parent() {
         std::fs::create_dir_all(folder).map_err(|_| "The picture's folder could not be made.".to_string())?;
@@ -1433,6 +1490,86 @@ mod tests {
         assert!(kept.starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(image::load_from_memory(&kept).is_ok());
         assert!(as_png(b"not a picture".to_vec()).unwrap_err().contains("not a picture"));
+    }
+
+    #[test]
+    fn studios_size_and_quality_line_is_not_drawn_as_words() {
+        let line = "\n\nSize 1024x1024, medium quality.";
+        assert_eq!(words_of(&format!("yellow myvi extreme lowered{line}"), Some("1024x1024"), Some("medium")), "yellow myvi extreme lowered");
+        assert_eq!(words_of("two cats\n\nReference pictures, in order: 1 is Mochi.\n\nSize 1536x1024, low quality.", Some("1536x1024"), Some("low")), "two cats\n\nReference pictures, in order: 1 is Mochi.");
+        // a prompt typed in the Make bar has no such line, and words that only look like it stay
+        assert_eq!(words_of("a plain prompt", None, None), "a plain prompt");
+        assert_eq!(words_of("a plain prompt", Some("1024x1024"), Some("medium")), "a plain prompt");
+        assert_eq!(words_of(&format!("a poster{line}"), Some("1536x1024"), Some("medium")), format!("a poster{line}"), "a different size is not STUDIO's line");
+        assert_eq!(words_of("Size 1024x1024, medium quality.", Some("1024x1024"), Some("medium")), "Size 1024x1024, medium quality.", "the line alone is the member's own words");
+    }
+
+    #[test]
+    fn a_drawing_sends_the_words_without_studios_size_line_and_the_size_on_its_own() {
+        let comfy = comfy_that_draws(&["a.safetensors"], vec![0x89, b'P', b'N', b'G']);
+        let out = temp("words").join("p.png");
+        let brief = Brief { prompt: "yellow myvi extreme lowered\n\nSize 1024x1536, medium quality.", size: Some("1024x1536"), quality: Some("medium") };
+        draw(&settings_for(&comfy, ""), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        let graph = sent_graph(&comfy);
+        assert_eq!(graph["2"]["inputs"]["text"], "yellow myvi extreme lowered");
+        assert_eq!((graph["4"]["inputs"]["width"].clone(), graph["4"]["inputs"]["height"].clone()), (json!(1024), json!(1536)));
+    }
+
+    #[test]
+    fn a_comfyui_that_closed_mid_drawing_says_how_when_castle_started_it() {
+        let log = Path::new("C:\\cfg\\comfy-start.log");
+        let lost = "ComfyUI at http://127.0.0.1:8188 stopped answering while it was drawing.".to_string();
+        // not started by Castle: nothing to add, and no log to point at
+        assert_eq!(ended_words(lost.clone(), None, false, log), lost);
+        // an ordinary error is left as it is
+        assert_eq!(ended_words("Stopped.".into(), Some(0), true, log), "Stopped.");
+        // started by Castle and the program ended: the exit code, with a crash code also in hex
+        let crashed = ended_words(lost.clone(), Some(-1073741819), true, log);
+        assert!(crashed.contains("closed while it was drawing") && crashed.contains("-1073741819, 0xC0000005"), "{crashed}");
+        assert!(crashed.contains("comfy-start.log") && crashed.contains("comfy-start.previous.log"));
+        assert!(ended_words(lost.clone(), Some(1), true, log).contains("exit code 1)"));
+        // still running but not answering: frozen or crashed, with where to look
+        let frozen = ended_words(lost, None, true, log);
+        assert!(frozen.contains("stopped answering") && frozen.contains("crashed or frozen") && frozen.contains("comfy-start.log"), "{frozen}");
+    }
+
+    #[test]
+    fn the_last_runs_log_is_kept_when_the_next_run_starts() {
+        let folder = temp("rotate");
+        let log = folder.join("comfy-start.log");
+        rotate_log(&log); // nothing there yet: nothing happens
+        assert!(!previous_log(&log).exists());
+        std::fs::write(&log, "first run, then it died").unwrap();
+        rotate_log(&log);
+        assert!(!log.exists());
+        assert_eq!(std::fs::read_to_string(previous_log(&log)).unwrap(), "first run, then it died");
+        // a third run replaces the kept one, so only the last two runs are ever on the disk
+        std::fs::write(&log, "second run").unwrap();
+        rotate_log(&log);
+        assert_eq!(std::fs::read_to_string(previous_log(&log)).unwrap(), "second run");
+        assert_eq!(previous_log(&log).file_name().unwrap().to_string_lossy(), "comfy-start.previous.log");
+    }
+
+    #[test]
+    fn starting_comfyui_twice_keeps_the_first_runs_words() {
+        let folder = temp("twice");
+        let log = folder.join("start.log");
+        #[cfg(windows)]
+        let (first, second) = ("echo first run printed this", "echo second run printed that");
+        #[cfg(not(windows))]
+        let (first, second) = ("echo first run printed this", "echo second run printed that");
+        for (n, command) in [first, second].into_iter().enumerate() {
+            let flag = folder.join(format!("up{n}.txt"));
+            let comfy = comfy_after(flag.clone());
+            std::fs::write(&flag, "x").unwrap();
+            let launcher = Launcher::default();
+            // nothing answers at first for the real address used here: use a dead one so the command runs
+            let _ = ensure_up(&nothing_listens(), command, &launcher, &log, Duration::from_millis(400), Duration::from_millis(20), &no_stop);
+            drop(comfy);
+            stop_started(&launcher);
+        }
+        assert!(std::fs::read_to_string(previous_log(&log)).unwrap().contains("first run printed this"));
+        assert!(std::fs::read_to_string(&log).unwrap().contains("second run printed that"));
     }
 
     /// The whole drawing path against the member's real ComfyUI, as Castle's worker runs it: starts
