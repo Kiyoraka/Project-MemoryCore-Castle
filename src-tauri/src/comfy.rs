@@ -1,8 +1,10 @@
-//! A small client for a ComfyUI server the member runs themselves (their own PC or one on their
-//! network): is it there, which checkpoints does it hold, queue a workflow, wait for the picture,
-//! fetch it, cancel it. Plain HTTP on ComfyUI's own API; no workflow of ours is assumed here, the
-//! caller hands in the graph. Nothing here is wired to a screen or to the picture queue yet.
-#![allow(dead_code)] // used by the next change, which makes ComfyUI one of the ways to draw
+//! The member's own ComfyUI as a way to draw (Settings > ComfyUI). A small client for a ComfyUI
+//! server they run themselves, on their own PC or another one on their network: is it there, which
+//! checkpoints does it hold, queue a workflow, wait for the picture, fetch it, cancel it, over
+//! ComfyUI's own HTTP API. On top of it: the choices the member made (`ComfySettings`), starting
+//! ComfyUI with their start file when nothing answers (and closing only what Castle started), Castle's
+//! plain text-to-picture workflow, a workflow of the member's own with Castle's values put in, and
+//! `draw`, which the picture queue (providers.rs) calls for a plain picture.
 
 use crate::settings::SettingsStore;
 use reqwest::blocking::{Client, Response};
