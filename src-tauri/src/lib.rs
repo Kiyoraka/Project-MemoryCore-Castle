@@ -12,6 +12,7 @@ mod backup;
 mod chat;
 mod chatroom;
 mod clipboard;
+mod comfy;
 mod commands;
 mod credits;
 mod db;
