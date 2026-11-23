@@ -210,6 +210,12 @@ pub fn end_all(app: &AppHandle) {
 
 #[tauri::command]
 pub fn dev_state(store: State<SettingsStore>, hosts: State<DevHosts>) -> DevState {
+    // a session open in a project that is not on the list (bug #5): put the project back, so it
+    // can be selected and its files read
+    let current = store.get();
+    if let Some(projects) = dev_tabs::with_open_tabs(&current.dev_projects, &current.dev_tabs) {
+        let _ = save(&store, |s| s.dev_projects = projects);
+    }
     state(&store, &hosts)
 }
 
