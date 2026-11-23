@@ -4,7 +4,7 @@ import { getSettings, keyStatus, saveSettings } from '../api/castle.js'
 import { hasItsKey, isOn, resetPatch, roomIsOn, sizeOf, sizePatch, switchPatch, WIDGETS } from '../components/widgets/widgetplaces.js'
 
 // WIDGETS: HOME's widgets, each switched on or off and given a size; Arrange takes the member to
-// HOME to drag them into place (each theme keeps its own places).
+// HOME to drag them into place (one arrangement for every theme).
 const props = defineProps({
   themeId: { type: String, default: '' },
   themeName: { type: String, default: '' },
@@ -18,7 +18,7 @@ const savedKeys = ref([])
 const problem = ref('')
 const notice = ref('')
 
-const hasPlaces = () => Object.keys(settings.value.widgetPlaces?.[props.themeId] ?? {}).length > 0
+const hasPlaces = () => Object.keys(settings.value.widgetPlaces ?? {}).length > 0
 
 async function load() {
   try {
@@ -48,9 +48,9 @@ onMounted(load)
   <section class="widgets-room" aria-label="Widgets">
     <header class="top">
       <!-- the page's title and subtitle are Settings' own (SettingsPage) -->
-      <p class="dim">Arrange moves them on HOME{{ themeName ? ` - ${themeName} keeps its own places` : '' }}.</p>
+      <p class="dim">Arrange moves them on HOME. They stay where you put them, whichever theme you choose.</p>
       <div class="actions">
-        <button :disabled="!hasPlaces()" @click="save(resetPatch(settings, themeId), 'Back in the theme\'s places.')">Back to the theme's places</button>
+        <button :disabled="!hasPlaces()" @click="save(resetPatch(), 'The layout is reset: each widget takes the theme\'s place once and stays there.')">Reset the layout</button>
         <button class="primary" @click="emit('arrange')">Arrange on HOME</button>
       </div>
     </header>

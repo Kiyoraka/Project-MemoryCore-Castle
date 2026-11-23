@@ -101,9 +101,8 @@ export function applyTheme(theme) {
     applied.push(name)
   }
   for (const [name, value] of Object.entries(theme.colors ?? {})) set(name, value)
-  for (const [key, name] of Object.entries(PANEL_VARS)) {
-    if (theme.panel?.[key] != null) set(name, theme.panel[key])
-  }
+  // The chat panel sits in one place for every theme (TerminalPanel's own default); a theme's `panel`
+  // is no longer applied, so changing theme never moves the panel to the other side.
   set('--wallpaper', theme.wallpaperUrl ? `url("${theme.wallpaperUrl}")` : 'none')
   set('--wallpaper-position', theme.wallpaperPosition ?? 'center')
 }

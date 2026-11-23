@@ -56,7 +56,7 @@ import ThemeSound from './components/ThemeSound.vue'
 import WhatsNew from './components/WhatsNew.vue'
 import { sectionFor, unseenSections } from './components/changelog.js'
 import { moveTab, orderTabs } from './components/taborder.js'
-import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, scaleOf, startsOnControl, hasItsKey, roomIsOn } from './components/widgets/widgetplaces.js'
+import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn } from './components/widgets/widgetplaces.js'
 import { isCreditWidget } from './components/widgets/credits.js'
 import changelog from '../CHANGELOG.md?raw'
 import { version as appVersion } from '../package.json'
@@ -211,7 +211,7 @@ const SELF_PLACED = ['clock', 'gauges', 'sweep', 'weather', 'disks', 'sentinel',
 const FALLBACK_PLACES = { sweep: { right: '31%', top: '22%' }, weather: { left: '2%', bottom: '4%' }, disks: { right: '2%', bottom: '4%' }, sentinel: { right: '43%', top: '22%' }, automations: { right: '2%', top: '38%' }, calendar: { right: '2%', top: '62%' } }
 const shownWidgets = computed(() =>
   WIDGETS.map((w) => w.id).filter(
-    (id) => isOn(id, { ...widgetPrefs.value, showUsageCard: usageCard.value }) && (SELF_PLACED.includes(id) || widgets.value[id]) && hasItsKey(id, savedKeys.value) && roomIsOn(id, rooms.value),
+    (id) => isOn(id, { ...widgetPrefs.value, showUsageCard: usageCard.value }) && (SELF_PLACED.includes(id) || widgets.value[id] || memberPlace(widgetPrefs.value, theme.value?.id, id)) && hasItsKey(id, savedKeys.value) && roomIsOn(id, rooms.value),
   ),
 )
 
@@ -225,6 +225,32 @@ function slotStyle(id) {
   if (scale !== 1) style.transformOrigin = originOf(place)
   return style
 }
+
+// ONE arrangement for every theme: a widget that has no kept place yet (the first start, a new widget
+// after an update, a theme's first look) is kept where it stands now, once its card has settled, so a
+// theme change or a restart never moves it. The theme's own places only decide that first spot.
+let adoptTimer = null
+function keepPlacesSoon() {
+  clearTimeout(adoptTimer)
+  adoptTimer = setTimeout(keepPlaces, 2500)
+}
+async function keepPlaces() {
+  const el = homeEl.value
+  if (!el || active.value !== 'home' || arranging.value || drag.value || !theme.value) return
+  const home = el.getBoundingClientRect()
+  if (!home.width || !home.height) return
+  const found = {}
+  for (const id of unplaced(widgetPrefs.value, theme.value.id, shownWidgets.value)) {
+    const slot = el.querySelector(`[data-widget="${id}"]`)
+    if (!slot) continue
+    const r = slot.getBoundingClientRect()
+    if (!r.width || !r.height) continue
+    found[id] = dropPlace({ left: r.left - home.left, top: r.top - home.top, width: r.width, height: r.height }, { width: home.width, height: home.height })
+  }
+  const patch = adoptPatch(widgetPrefs.value, theme.value.id, found)
+  if (patch) await saveWidgets(patch)
+}
+watch([shownWidgets, theme, active, () => widgetPrefs.value.widgetPlaces], keepPlacesSoon)
 
 async function saveWidgets(patch) {
   widgetPrefs.value = { ...widgetPrefs.value, ...patch }
@@ -673,6 +699,7 @@ watch(settingsStamp, () => {
           v-for="id in shownWidgets"
           :key="id"
           class="widget-slot"
+          :data-widget="id"
           :class="{ movable: arranging, moving: drag?.id === id }"
           :style="slotStyle(id)"
           @pointerdown="startDrag($event, id)"
@@ -694,8 +721,8 @@ watch(settingsStamp, () => {
         </div>
         <button v-if="!arranging" class="manage-widgets" @click="openSettings('widgets')">Manage widgets</button>
         <div v-if="arranging" class="arrange-bar" role="toolbar" aria-label="Arrange HOME">
-          <span>Drag a widget to move it. Each theme keeps its own places.</span>
-          <button @click="saveWidgets(resetPatch(widgetPrefs, theme?.id))">Back to the theme's places</button>
+          <span>Drag a widget to move it. It stays where you put it, whatever the theme.</span>
+          <button @click="saveWidgets(resetPatch()).then(keepPlacesSoon)">Reset the layout</button>
           <button class="primary" @click="arranging = false">Done</button>
         </div>
       </div>

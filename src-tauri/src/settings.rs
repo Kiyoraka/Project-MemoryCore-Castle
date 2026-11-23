@@ -409,8 +409,8 @@ pub struct Settings {
 }
 
 /// HOME's widgets, by id (the theme's `widgets` keys).
-pub const WIDGETS: [&str; 17] = [
-    "clock", "gauges", "weather", "disks", "sentinel", "sweep", "usage", "today", "projects", "diary", "growth", "backup", "database",
+pub const WIDGETS: [&str; 19] = [
+    "clock", "gauges", "weather", "disks", "sentinel", "automations", "calendar", "sweep", "usage", "today", "projects", "diary", "growth", "backup", "database",
     // HOME's credit widgets, each shown once its key is saved
     "credit-openai", "credit-seedance", "credit-suno", "credit-elevenlabs",
 ];
@@ -870,6 +870,16 @@ mod tests {
         let on: Settings = serde_json::from_str(r#"{"widgetsOn":["weather","weather","diary","nonsense"]}"#).unwrap();
         assert_eq!(on.normalized().widgets_on, ["weather"], "only opt-in widgets are kept, once");
         assert!(WIDGETS.contains(&"weather"), "its size and place are kept like every widget's");
+    }
+
+    #[test]
+    fn the_one_arrangement_keeps_every_widgets_place_including_automations_and_calendar() {
+        let s: Settings = serde_json::from_str(r#"{"widgetPlaces":{"all":{"automations":{"left":61.5,"top":30},"calendar":{"left":62,"top":55},"ghost":{"left":1,"top":1}}},"widgetsOff":["calendar"]}"#).unwrap();
+        let s = s.normalized();
+        assert_eq!(s.widget_places["all"]["automations"], WidgetPlace { left: 61.5, top: 30.0 }, "a restart must not forget where AUTOMATIONS was put");
+        assert_eq!(s.widget_places["all"]["calendar"], WidgetPlace { left: 62.0, top: 55.0 });
+        assert!(!s.widget_places["all"].contains_key("ghost"));
+        assert_eq!(s.widgets_off, ["calendar"], "the off switch of the new cards is kept too");
     }
 
     #[test]

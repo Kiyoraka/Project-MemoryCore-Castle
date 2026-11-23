@@ -1,6 +1,7 @@
-// HOME's widgets as the member arranges them: which show, how big, and where (per theme). The
-// theme gives every widget its own place; the member's place, when there is one, replaces the
-// theme's anchors with a top-left corner in percent of HOME and keeps the theme's width.
+// HOME's widgets as the member arranges them: which show, how big, and where. ONE arrangement for
+// every theme: a theme's own places only decide where a widget FIRST appears; the moment it has
+// appeared its place is kept (SHARED below), so changing theme or restarting never moves it. The
+// member's place is a top-left corner in percent of HOME; the theme's width is kept.
 
 export const WIDGETS = [
   { id: 'clock', name: 'Clock', about: 'The time and the date.' },
@@ -103,9 +104,33 @@ export function placeFor(themePlace = {}, memberPlace = null) {
   return place
 }
 
-// The member's place for a widget in a theme, or null.
+// The key under which the one arrangement is kept in `widgetPlaces`.
+export const SHARED = 'all'
+
+// The member's place for a widget, or null while it has none. A place kept per theme by an older
+// Castle still counts for that theme until the arrangement is saved once (`adoptPatch`).
 export function memberPlace(settings = {}, themeId, id) {
-  return settings.widgetPlaces?.[themeId]?.[id] ?? null
+  return settings.widgetPlaces?.[SHARED]?.[id] ?? settings.widgetPlaces?.[themeId]?.[id] ?? null
+}
+
+// The widgets (of `ids`) that have no kept place yet.
+export function unplaced(settings = {}, themeId, ids = []) {
+  return ids.filter((id) => !memberPlace(settings, themeId, id))
+}
+
+// The settings change that keeps places for widgets that have none: `found` maps a widget id to the
+// place it has on HOME right now. Places already kept are never touched, and neither are other
+// themes' old places.
+export function adoptPatch(settings = {}, themeId, found = {}) {
+  const wanted = Object.entries(found).filter(([id]) => !memberPlace(settings, themeId, id))
+  if (!wanted.length) return null
+  const all = { ...(settings.widgetPlaces ?? {}) }
+  const shared = { ...(all[SHARED] ?? {}) }
+  // the old per-theme places of this theme come along, so nothing the member arranged is lost
+  for (const [id, place] of Object.entries(all[themeId] ?? {})) if (!shared[id]) shared[id] = place
+  for (const [id, place] of wanted) shared[id] = place
+  all[SHARED] = shared
+  return { widgetPlaces: all }
 }
 
 const round = (n) => Math.round(n * 10) / 10
@@ -121,18 +146,21 @@ export function dropPlace(box, home) {
   return { left: round((left / home.width) * 100), top: round((top / home.height) * 100) }
 }
 
-// The settings change for one widget put down in a theme.
+// The settings change for one widget put down: it is kept for every theme. (`themeId` is only used
+// to bring this theme's older places along.)
 export function placePatch(settings = {}, themeId, id, place) {
   const all = { ...(settings.widgetPlaces ?? {}) }
-  all[themeId] = { ...(all[themeId] ?? {}), [id]: place }
+  const shared = { ...(all[SHARED] ?? {}) }
+  for (const [other, p] of Object.entries(all[themeId] ?? {})) if (!shared[other]) shared[other] = p
+  shared[id] = place
+  all[SHARED] = shared
   return { widgetPlaces: all }
 }
 
-// The settings change for "Back to the theme's places": only this theme's places go.
-export function resetPatch(settings = {}, themeId) {
-  const all = { ...(settings.widgetPlaces ?? {}) }
-  delete all[themeId]
-  return { widgetPlaces: all }
+// The settings change for "Reset the layout": every kept place goes, so each widget is placed
+// afresh by the theme in use and then kept again.
+export function resetPatch() {
+  return { widgetPlaces: {} }
 }
 
 // HOME without arrange mode: a press on a widget becomes a drag only once the pointer has moved

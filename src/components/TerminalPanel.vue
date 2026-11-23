@@ -506,11 +506,12 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
 <style scoped>
 .terminal-panel {
   position: absolute;
-  top: var(--panel-top, 24px);
-  bottom: var(--panel-bottom, 24px);
-  left: var(--panel-left, 24px);
+  /* one place for every theme (a theme's own panel place is not applied any more) */
+  top: var(--panel-top, 3%);
+  bottom: var(--panel-bottom, 3%);
+  left: var(--panel-left, 1.6%);
   right: var(--panel-right, auto);
-  width: var(--panel-width, 40%);
+  width: var(--panel-width, 31%);
   height: var(--panel-height, auto);
   display: flex;
   flex-direction: column;

@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Fixed: HOME's widgets and the chat panel now stay exactly where they are. There is one arrangement for every theme: a theme only decides where a widget first appears, and after that changing theme or restarting Castle never moves it (the chat panel no longer jumps to the right in Sunset Shore). The AUTOMATIONS and CALENDAR cards were also forgetting their place, size and off switch at every restart, which piled them over the other cards; they are kept now. "Back to the theme's places" is now "Reset the layout".
+
 ## 0.3.0 - 2026-11-23
 
 - Fixed: with AUTOMATIONS on, a message from your approved Telegram, Discord or WhatsApp chat went unanswered whenever the database could not be read. Now it is answered as usual and AUTOMATIONS shows what went wrong.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dragBegins, dropPlace, isOn, startsOnControl, memberPlace, originOf, placeFor, placePatch, resetPatch, scaleOf, sizeOf, sizePatch, switchPatch, WIDGETS, hasItsKey, roomIsOn } from './widgetplaces.js'
+import { dragBegins, dropPlace, isOn, startsOnControl, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, sizeOf, sizePatch, switchPatch, WIDGETS, hasItsKey, roomIsOn } from './widgetplaces.js'
 
 describe('HOME widgets as the member arranges them', () => {
   it('lists every widget the themes place', () => {
@@ -64,14 +64,31 @@ describe('HOME widgets as the member arranges them', () => {
     expect(dropPlace({ left: 1, top: 1, width: 1, height: 1 }, { width: 0, height: 0 })).toEqual({ left: 0, top: 0 })
   })
 
-  it('remembers places per theme and resets only the theme in use', () => {
+  it('keeps one arrangement for every theme and resets all of it', () => {
     let s = {}
-    s = { ...s, ...placePatch(s, 'seed', 'clock', { left: 10, top: 5 }) }
     s = { ...s, ...placePatch(s, 'seed', 'today', { left: 50, top: 40 }) }
     s = { ...s, ...placePatch(s, 'crystal', 'clock', { left: 70, top: 5 }) }
-    expect(memberPlace(s, 'seed', 'today')).toEqual({ left: 50, top: 40 })
-    expect(memberPlace(s, 'constellation', 'today')).toBeNull()
-    expect(resetPatch(s, 'seed')).toEqual({ widgetPlaces: { crystal: { clock: { left: 70, top: 5 } } } })
+    for (const theme of ['seed', 'crystal', 'sunset-shore']) {
+      expect(memberPlace(s, theme, 'today')).toEqual({ left: 50, top: 40 })
+      expect(memberPlace(s, theme, 'clock')).toEqual({ left: 70, top: 5 })
+    }
+    expect(resetPatch(s, 'seed')).toEqual({ widgetPlaces: {} })
+  })
+
+  it("brings a theme's older places along into the one arrangement", () => {
+    const old = { widgetPlaces: { seed: { today: { left: 5, top: 6 } }, crystal: { today: { left: 9, top: 9 } } } }
+    expect(memberPlace(old, 'seed', 'today')).toEqual({ left: 5, top: 6 })
+    const next = placePatch(old, 'seed', 'clock', { left: 1, top: 2 })
+    expect(next.widgetPlaces.all).toEqual({ today: { left: 5, top: 6 }, clock: { left: 1, top: 2 } })
+    expect(memberPlace(next, 'crystal', 'today')).toEqual({ left: 5, top: 6 })
+  })
+
+  it('keeps a place for a widget that has none, once, and never moves one that has', () => {
+    const s = { widgetPlaces: { all: { clock: { left: 70, top: 5 } } } }
+    expect(unplaced(s, 'seed', ['clock', 'sweep'])).toEqual(['sweep'])
+    const patch = adoptPatch(s, 'seed', { clock: { left: 1, top: 1 }, sweep: { left: 30, top: 40 } })
+    expect(patch.widgetPlaces.all).toEqual({ clock: { left: 70, top: 5 }, sweep: { left: 30, top: 40 } })
+    expect(adoptPatch({ widgetPlaces: patch.widgetPlaces }, 'seed', { clock: { left: 9, top: 9 }, sweep: { left: 9, top: 9 } })).toBeNull()
   })
 })
 
