@@ -4,6 +4,7 @@
 // memory has nothing there yet (a fresh MemoryCore), never an error.
 import { computed } from 'vue'
 import { card as databaseCard } from '../database.js'
+import { cardCount, cardItems } from './homecards.js'
 
 const props = defineProps({
   kind: { type: String, required: true }, // today | projects | diary | growth | backup | database
@@ -37,11 +38,11 @@ function due(date) {
 
 <template>
   <section class="widget card" :class="kind">
-    <h3><span class="icon">{{ ICONS[kind] }}</span>{{ TITLES[kind] }}</h3>
+    <h3><span class="icon">{{ ICONS[kind] }}</span>{{ TITLES[kind] }}<span v-if="kind === 'today' || kind === 'projects'" class="count">{{ cardCount(kind, kind === 'today' ? data?.reminders : data?.projects) }}</span></h3>
 
     <template v-if="kind === 'today'">
-      <ul v-if="data?.reminders?.length">
-        <li v-for="r in data.reminders.slice(0, 4)" :key="r.title" :title="r.detail || r.title">
+      <ul v-if="data?.reminders?.length" class="scroll">
+        <li v-for="r in cardItems(data.reminders)" :key="r.title" :title="r.detail || r.title">
           <span class="dot">○</span><span class="text">{{ r.title }}</span><span class="side">{{ due(r.due) }}</span>
         </li>
       </ul>
@@ -49,8 +50,8 @@ function due(date) {
     </template>
 
     <template v-else-if="kind === 'projects'">
-      <ul v-if="data?.projects?.length">
-        <li v-for="(p, i) in data.projects.slice(0, 4)" :key="p.name" class="link" @click="$emit('open', p.file)">
+      <ul v-if="data?.projects?.length" class="scroll">
+        <li v-for="(p, i) in cardItems(data.projects)" :key="p.name" class="link" @click="$emit('open', p.file)">
           <span class="num">{{ i + 1 }}</span><span class="text">{{ p.name }}</span>
           <span v-if="p.tree?.kids || p.tree?.tasks" class="side progress-side" :title="`${p.tree.kids ? `${p.tree.kids} sub-project${p.tree.kids === 1 ? '' : 's'}` : ''}${p.tree.kids && p.tree.tasks ? ' · ' : ''}${p.tree.tasks ? `${p.tree.done} of ${p.tree.tasks} tasks done` : ''}`">{{ p.tree.tasks ? `${p.tree.done}/${p.tree.tasks}` : `${p.tree.kids} sub` }} ›</span>
           <span v-else class="side">›</span>
@@ -118,6 +119,20 @@ ul {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* TODAY and PROJECTS keep about four rows tall and scroll for the rest, so a long list never
+   pushes the card into the one below it */
+ul.scroll {
+  max-height: 11.5em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.count {
+  float: right;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
 }
 li,
 .diary-line {
