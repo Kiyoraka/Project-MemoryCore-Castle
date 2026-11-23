@@ -104,6 +104,57 @@ export function releaseChangelog(text, version, date) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
+// ---- weighing a release before its version is chosen ----
+// A release with new rooms, a new schema or many new features is a minor release, never "the next
+// patch" by habit (0.2.28 shipped three new rooms as a patch and was withdrawn for 0.3.0, Nov 23 2026).
+// Calibrated on Castle's own history: 0.2.16 to 0.2.27 each added at most one room and two migrations.
+export const MINOR_WHEN = { rooms: 2, migrations: 5, features: 10 }
+
+// 'major', 'minor' or 'patch': the step from one version to the next.
+export function changeKind(current, next) {
+  const [a, b] = [current, next].map((v) => {
+    const m = String(v).match(VERSION)
+    if (!m) throw new Error(`Not a version: ${v}`)
+    return m.slice(1).map(Number)
+  })
+  if (b[0] !== a[0]) return 'major'
+  if (b[1] !== a[1]) return 'minor'
+  return 'patch'
+}
+
+const RANK = { patch: 0, minor: 1, major: 2 }
+
+// The release's weight from what it adds since the last tag: the new room views, the new migration
+// files and the changelog lines under "## Unreleased" that are not fixes. Never suggests a major
+// release on its own: 1.0.0 is the owner's word.
+export function measureRelease({ views = [], migrations = [], unreleased = '' } = {}) {
+  const features = String(unreleased)
+    .split(/\r?\n/)
+    .filter((l) => /^\s*-\s+\S/.test(l) && !/^\s*-\s+Fixed\b/i.test(l)).length
+  const counts = { rooms: views.length, migrations: migrations.length, features }
+  const reasons = []
+  if (counts.rooms >= MINOR_WHEN.rooms) reasons.push(`${counts.rooms} new rooms`)
+  if (counts.migrations >= MINOR_WHEN.migrations) reasons.push(`${counts.migrations} new database migrations`)
+  if (counts.features >= MINOR_WHEN.features) reasons.push(`${counts.features} new feature lines`)
+  return { kind: reasons.length ? 'minor' : 'patch', reasons, counts }
+}
+
+// The next version of the given kind.
+export function nextVersion(current, kind) {
+  const m = String(current).match(VERSION)
+  if (!m) throw new Error(`Not a version: ${current}`)
+  const [x, y, z] = m.slice(1).map(Number)
+  if (kind === 'major') return `${x + 1}.0.0`
+  if (kind === 'minor') return `${x}.${y + 1}.0`
+  return `${x}.${y}.${z + 1}`
+}
+
+// Whether a chosen version is smaller than the release weighs: a patch for a minor release is
+// refused unless the owner said so on purpose (`--patch`).
+export function versionTooSmall(current, chosen, measured) {
+  return RANK[changeKind(current, chosen)] < RANK[measured.kind]
+}
+
 // The updater's latest.json (the shape tauri-plugin-updater reads).
 export function latestJson({ version, notes, date, signature, url }) {
   if (!isVersion(version)) throw new Error(`Not a version: ${version}`)

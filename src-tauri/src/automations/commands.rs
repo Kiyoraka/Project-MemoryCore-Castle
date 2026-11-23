@@ -290,6 +290,7 @@ mod tests {
             let script = self.file("fixture script.ps1", text);
             Spec {
                 kind: "command".into(),
+                // platform: windows-only - the module is cfg(all(test, windows))
                 program: Path::new(&std::env::var("SystemRoot").unwrap())
                     .join("System32/WindowsPowerShell/v1.0/powershell.exe")
                     .to_string_lossy()
@@ -506,6 +507,7 @@ mod hidden_tests {
         std::fs::create_dir_all(&folder).unwrap();
         let file = folder.join("hidden.ps1");
         std::fs::write(&file,r#"Add-Type -Namespace Fixture -Name Console -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();';[Console]::Write([Fixture.Console]::GetConsoleWindow().ToInt64())"#).unwrap();
+        // platform: windows-only - the module is cfg(all(test, windows))
         let program = Path::new(&std::env::var("SystemRoot").unwrap())
             .join("System32/WindowsPowerShell/v1.0/powershell.exe")
             .to_string_lossy()

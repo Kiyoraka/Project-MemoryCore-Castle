@@ -2384,7 +2384,7 @@ dependencies = [
 
 [[package]]
 name = "memorycore-castle"
-version = "0.2.28"
+version = "0.3.0"
 dependencies = [
  "arboard",
  "base64 0.22.1",

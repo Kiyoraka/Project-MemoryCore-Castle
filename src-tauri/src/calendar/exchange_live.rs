@@ -45,6 +45,7 @@ struct Pair {
 
 fn two_databases() -> Pair {
     let config = std::env::var("CASTLE_TEST_DB").unwrap_or_else(|_| {
+        // platform: windows-only - an on-demand live test run on Windows, where Castle's settings live under APPDATA
         let folder = std::env::var("APPDATA").unwrap() + "/com.memorycore.castle/settings.json";
         let port = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(folder).unwrap()).unwrap()["dbPort"].as_u64().unwrap();
         format!("{port}:root:{}", crate::key::db_root().unwrap_or_default())
