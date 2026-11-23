@@ -580,12 +580,25 @@ pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync
             *entry = skill_description(body);
         }
     }
+    let known: Vec<(String, String)> = conn.query("SELECT plugin, name FROM skills").map_err(sql("Reading the skills"))?;
     for ((plugin, name), description) in &skills {
         conn.exec_drop(
             "INSERT INTO skills (plugin, name, description) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE description = VALUES(description)",
             (plugin, name, description),
         )
         .map_err(sql("Saving the skill list"))?;
+        // a skill met for the first time is served from the database at once (the table's
+        // default since 026): its whole SKILL.md becomes the stub now, not at the next sync
+        if !known.iter().any(|(p, n)| p == plugin && n == name) {
+            let stubbed: Option<bool> = conn.exec_first("SELECT stubbed FROM skills WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Reading the skills"))?;
+            let key = (plugin.clone(), name.clone(), "SKILL.md".to_string());
+            if let (Some(true), Some((master, _))) = (stubbed, database.get(&key).or_else(|| disk.get(&key))) {
+                if !is_stub(master) {
+                    write_skill_file(folder, &key, &stub_of(plugin, name, master))?;
+                    report.to_disk += 1;
+                }
+            }
+        }
     }
     report.skills = skills.len();
     Ok(report)

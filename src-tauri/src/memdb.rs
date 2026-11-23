@@ -19,7 +19,7 @@ pub const HOST: &str = "127.0.0.1";
 pub const ENV_KEYS: [&str; 5] = ["MEMORY_DB_HOST", "MEMORY_DB_PORT", "MEMORY_DB_NAME", "MEMORY_DB_USER", "MEMORY_DB_PASSWORD"];
 
 /// The migrations, in order. A released file is never edited; a change is a new entry.
-pub const MIGRATIONS: [(&str, &str); 25] = [
+pub const MIGRATIONS: [(&str, &str); 27] = [
     ("001_core", include_str!("../resources/schema/001_core.sql")),
     ("002_imported_files", include_str!("../resources/schema/002_imported_files.sql")),
     ("003_memory_skills", include_str!("../resources/schema/003_memory_skills.sql")),
@@ -45,6 +45,8 @@ pub const MIGRATIONS: [(&str, &str); 25] = [
     ("023_calendar_automation", include_str!("../resources/schema/023_calendar_automation.sql")),
     ("024_calendar_ics", include_str!("../resources/schema/024_calendar_ics.sql")),
     ("025_calendar_subscriptions", include_str!("../resources/schema/025_calendar_subscriptions.sql")),
+    ("026_skills_by_default", include_str!("../resources/schema/026_skills_by_default.sql")),
+    ("027_skill_flows", include_str!("../resources/schema/027_skill_flows.sql")),
 ];
 
 /// How to reach one database.
@@ -283,6 +285,9 @@ mod tests {
         assert_eq!(core.len(), 5);
         assert!(core.iter().all(|s| s.starts_with("CREATE TABLE ") && s.contains("utf8mb4")));
         assert_eq!(statements(MIGRATIONS[3].1), vec!["ALTER TABLE skills ADD COLUMN stubbed TINYINT(1) NOT NULL DEFAULT 0"]);
+        // every skill from the database by default, the existing ones switched once
+        assert_eq!(statements(MIGRATIONS[25].1), vec!["ALTER TABLE skills ALTER COLUMN stubbed SET DEFAULT 1", "UPDATE skills SET stubbed = 1"]);
+        assert!(MIGRATIONS[26].0 == "027_skill_flows" && MIGRATIONS[26].1.trim_start().starts_with("CREATE TABLE skill_flows"));
     }
 
     #[test]
