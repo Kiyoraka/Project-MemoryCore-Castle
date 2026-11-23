@@ -102,7 +102,7 @@ onMounted(() => {
   </SettingGroup>
 
   <SettingGroup id="comfy-starting" title="Starting ComfyUI" tip="Castle can start ComfyUI for you when it is not running, and closes it again only if Castle started it. Choose the file you start ComfyUI with (on Windows, the .bat in its folder); Castle runs it hidden, from its own folder. ComfyUI's usual start file opens a browser tab every time it starts: use a copy with --disable-auto-launch added to stop that. Other flags, such as --disable-smart-memory, depend on your graphics card and your model.">
-    <SettingRow id="comfy-start" label="Start file" :description="startLine(gear, status)">
+    <SettingRow id="comfy-start" label="Start file" :description="startLine(gear)" tip="Castle runs this only when ComfyUI is not already running, and closes ComfyUI when Castle closes, but only if Castle started it. Without a start file, you start ComfyUI yourself before drawing.">
       <SettingText :model-value="gear.start" label="Start file" placeholder="Not set" :maxlength="1000" :disabled="busy" @save="(start) => save('comfy-start', { start })" />
       <button :disabled="busy" @click="choose('start', 'comfy-start', 'start')">Choose…</button>
     </SettingRow>

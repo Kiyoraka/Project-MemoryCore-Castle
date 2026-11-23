@@ -51,9 +51,11 @@ describe('Settings > ComfyUI, the pure parts', () => {
     expect(fileName('')).toBe('')
   })
 
-  it('says what the start file does, and whether Castle started the running ComfyUI', () => {
-    expect(startLine({ start: '' }, null)).toContain('you start ComfyUI yourself')
-    expect(startLine({ start: 'a.bat' }, { startedByCastle: true })).toContain('Castle closes it')
-    expect(startLine({ start: 'a.bat' }, { startedByCastle: false })).toContain('only when ComfyUI is not already running')
+  it('names the start file that is set, or says there is none', () => {
+    expect(startLine({ start: '' })).toContain('You start ComfyUI yourself')
+    expect(startLine({ start: '   ' })).toContain('Not set')
+    expect(startLine({ start: 'W:\\ComfyUI_windows_portable\\run_amd_gpu_castle.bat' })).toBe('run_amd_gpu_castle.bat')
+    expect(startLine({ start: '"W:\\My Comfy\\start it.bat"' })).toBe('start it.bat')
+    expect(startLine({ start: 'python main.py' })).toBe('python main.py')
   })
 })

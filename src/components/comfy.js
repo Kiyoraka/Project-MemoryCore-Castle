@@ -65,9 +65,8 @@ export function fileName(path = '') {
   return String(path).split(/[\\/]/).filter(Boolean).pop() ?? ''
 }
 
-/** The line under the Start file row. */
-export function startLine(comfy, status) {
-  if (!comfy.start.trim()) return 'Without one, you start ComfyUI yourself before drawing.'
-  if (status?.startedByCastle) return 'ComfyUI is running because Castle started it. Castle closes it when it closes.'
-  return 'Castle runs it only when ComfyUI is not already running.'
+/** The line under the Start file row: which file is set (the box is too narrow for a whole path). */
+export function startLine(comfy) {
+  const name = fileName(comfy.start.trim().replace(/^"|"$/g, ''))
+  return name || 'Not set. You start ComfyUI yourself before drawing.'
 }
