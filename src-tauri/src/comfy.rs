@@ -39,18 +39,37 @@ pub struct ComfySettings {
     /// What starts ComfyUI: the path of a start file (.bat, .cmd, .sh) or a command line. Castle
     /// runs it only when nothing answers at the address. Empty means the member starts ComfyUI.
     pub start: String,
-    /// The checkpoint to draw with; empty means the first one ComfyUI lists.
+    /// The checkpoint to draw with; empty means the first one ComfyUI lists. Ignored with a
+    /// workflow of the member's own, which names its own models.
     pub model: String,
+    /// The member's own workflow: a file saved from ComfyUI as "API format" with `{{prompt}}` (and
+    /// optionally `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`) where Castle's values go.
+    /// Empty means Castle's plain built-in workflow.
+    pub workflow: String,
+    /// How long one drawing may take before Castle stops waiting; 0 means the usual
+    /// `DEFAULT_LIMIT_MINUTES`. A big model on a modest card can take minutes.
+    pub limit_minutes: u32,
 }
+
+/// How long a drawing may take when the member has not said.
+pub const DEFAULT_LIMIT_MINUTES: u32 = 15;
+/// The longest limit a member may set.
+const LIMIT_MINUTES_MAX: u32 = 240;
 
 impl ComfySettings {
     pub fn server(&self) -> Result<Server, String> {
         parse_address(&self.address)
     }
+
+    /// How long one drawing may take.
+    pub fn limit(&self) -> Duration {
+        Duration::from_secs(60 * u64::from(if self.limit_minutes == 0 { DEFAULT_LIMIT_MINUTES } else { self.limit_minutes }))
+    }
 }
 
-/// The member's choices, checked and tidied before they are kept.
-pub fn clean(on: bool, address: &str, start: &str, model: &str) -> Result<ComfySettings, String> {
+/// The member's choices, checked and tidied before they are kept. (The workflow file itself is
+/// read and checked by `comfy_save`, which has the disk.)
+pub fn clean(on: bool, address: &str, start: &str, model: &str, workflow: &str, limit_minutes: u32) -> Result<ComfySettings, String> {
     let address = match address.trim() {
         "" => String::new(),
         text => parse_address(text)?.address().to_string(),
@@ -65,7 +84,111 @@ pub fn clean(on: bool, address: &str, start: &str, model: &str) -> Result<ComfyS
         }
         Ok(text.to_string())
     };
-    Ok(ComfySettings { on, address, start: one_line(start, "start command", 1000)?, model: one_line(model, "checkpoint name", 300)? })
+    if limit_minutes > LIMIT_MINUTES_MAX {
+        return Err(format!("The time limit can be at most {LIMIT_MINUTES_MAX} minutes."));
+    }
+    Ok(ComfySettings {
+        on,
+        address,
+        start: one_line(start, "start command", 1000)?,
+        model: one_line(model, "checkpoint name", 300)?,
+        workflow: one_line(workflow, "workflow file path", 1000)?,
+        limit_minutes,
+    })
+}
+
+/// The most a workflow file may weigh (a workflow is a few kilobytes; this is only a guard).
+const WORKFLOW_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Reads the member's workflow file and checks it is something Castle can fill and ComfyUI can run.
+/// Nothing here knows ComfyUI's node names: a custom node of the member's own is welcome.
+pub fn read_workflow(path: &str) -> Result<Value, String> {
+    let path = path.trim().trim_matches('"');
+    if path.is_empty() {
+        return Err("No workflow file is chosen.".into());
+    }
+    let file = Path::new(path);
+    let size = std::fs::metadata(file).map_err(|_| format!("The workflow file {path} could not be found."))?.len();
+    if size > WORKFLOW_MAX_BYTES {
+        return Err("The workflow file is too big to be a ComfyUI workflow.".into());
+    }
+    let text = std::fs::read_to_string(file).map_err(|_| format!("The workflow file {path} could not be read."))?;
+    parse_workflow(&text)
+}
+
+/// A workflow's text as the graph ComfyUI takes, or why it is not one.
+pub fn parse_workflow(text: &str) -> Result<Value, String> {
+    let mut graph: Value = serde_json::from_str(text).map_err(|_| "The workflow file is not valid JSON.".to_string())?;
+    if graph.get("nodes").is_some_and(Value::is_array) {
+        return Err("This workflow was saved for ComfyUI's editor. In ComfyUI choose Workflow > Export (API) (older versions: Save (API Format)) and use that file.".into());
+    }
+    // some tools wrap the graph in {"prompt": {...}}
+    if let Some(inner) = graph.get("prompt").filter(|inner| inner.is_object() && inner.get("class_type").is_none()).cloned() {
+        graph = inner;
+    }
+    let nodes = graph.as_object().filter(|nodes| !nodes.is_empty()).ok_or("The workflow file is empty or is not a ComfyUI workflow.")?;
+    if !nodes.values().all(|node| node.get("class_type").is_some_and(Value::is_string)) {
+        return Err("The workflow file is not in ComfyUI's API format (every node needs a class_type). Use Workflow > Export (API).".into());
+    }
+    if !nodes.values().any(|node| node.get("class_type").and_then(Value::as_str).is_some_and(|class| class.contains("Save"))) {
+        return Err("The workflow has no Save Image node, so ComfyUI would not keep a picture.".into());
+    }
+    if !placeholder_pattern().captures_iter(&graph.to_string()).any(|found| &found[1] == "prompt") {
+        return Err("Put {{prompt}} in the workflow where the words to draw go (the text of your prompt node), then save it again.".into());
+    }
+    Ok(graph)
+}
+
+/// What Castle puts into a member's workflow.
+pub struct Values<'a> {
+    pub prompt: &'a str,
+    pub width: u32,
+    pub height: u32,
+    pub seed: u64,
+    pub steps: u32,
+}
+
+/// `{{prompt}}`, `{{ width }}` and so on.
+fn placeholder_pattern() -> &'static regex::Regex {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| regex::Regex::new(r"\{\{\s*(prompt|width|height|seed|steps)\s*\}\}").expect("a fixed pattern"))
+}
+
+/// The workflow with Castle's values put in. A value that is only a placeholder becomes the number
+/// (or the words) itself; a placeholder inside longer text becomes text. One pass, so a prompt that
+/// happens to contain `{{width}}` is never filled again; other `{{...}}` are left alone.
+pub fn fill(graph: &Value, values: &Values) -> Value {
+    match graph {
+        Value::String(text) => fill_text(text, values),
+        Value::Array(items) => Value::Array(items.iter().map(|item| fill(item, values)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), fill(item, values))).collect()),
+        other => other.clone(),
+    }
+}
+
+fn fill_text(text: &str, values: &Values) -> Value {
+    let pattern = placeholder_pattern();
+    let whole = pattern.captures(text).filter(|c| c.get(0).is_some_and(|m| m.as_str() == text.trim()));
+    if let Some(found) = whole {
+        return match &found[1] {
+            "width" => json!(values.width),
+            "height" => json!(values.height),
+            "seed" => json!(values.seed),
+            "steps" => json!(values.steps),
+            _ => json!(values.prompt),
+        };
+    }
+    Value::String(
+        pattern
+            .replace_all(text, |c: &regex::Captures| match &c[1] {
+                "width" => values.width.to_string(),
+                "height" => values.height.to_string(),
+                "seed" => values.seed.to_string(),
+                "steps" => values.steps.to_string(),
+                _ => values.prompt.to_string(),
+            })
+            .into_owned(),
+    )
 }
 
 /// A ComfyUI server, by its address.
@@ -439,13 +562,19 @@ fn fresh_number() -> u64 {
 /// and keeps the first saved picture. `stop` is asked all the while; a Stop cancels the workflow.
 pub fn draw(settings: &ComfySettings, launcher: &Launcher, log: &Path, brief: &Brief, output: &Path, limit: Duration, stop: &dyn Fn() -> bool) -> Result<(), String> {
     let server = settings.server()?;
+    // the member's own workflow is read first: a wrong file is said so before ComfyUI is started
+    let own = if settings.workflow.trim().is_empty() { None } else { Some(read_workflow(&settings.workflow)?) };
     ensure_up(&server, &settings.start, launcher, log, START_LIMIT, Duration::from_secs(1), stop)?;
-    let checkpoint = choose_checkpoint(&settings.model, &server.checkpoints()?)?;
     let (width, height) = dimensions(brief.size);
-    let graph = txt2img_graph(&checkpoint, brief.prompt, width, height, fresh_number(), steps_for(brief.quality));
+    let (seed, steps) = (fresh_number(), steps_for(brief.quality));
+    let graph = match &own {
+        Some(workflow) => fill(workflow, &Values { prompt: brief.prompt, width, height, seed, steps }),
+        // the built-in workflow needs a checkpoint; a workflow of the member's own names its models itself
+        None => txt2img_graph(&choose_checkpoint(&settings.model, &server.checkpoints()?)?, brief.prompt, width, height, seed, steps),
+    };
     let id = server.submit(&graph, &format!("castle-{}", fresh_number()))?;
     let pictures = server.wait(&id, limit, Duration::from_secs(1), stop)?;
-    let bytes = server.fetch(&pictures[0])?;
+    let bytes = as_png(server.fetch(&pictures[0])?)?;
     if let Some(folder) = output.parent() {
         std::fs::create_dir_all(folder).map_err(|_| "The picture's folder could not be made.".to_string())?;
     }
@@ -456,6 +585,18 @@ pub fn draw(settings: &ComfySettings, launcher: &Launcher, log: &Path, brief: &B
         let _ = std::fs::remove_file(&part);
         "The picture could not be saved.".to_string()
     })
+}
+
+/// The picture as PNG bytes: a PNG stays as it is; a JPEG or WebP (a member's own saver node may
+/// make one) is turned into a PNG, since the file Castle keeps is named .png.
+fn as_png(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Ok(bytes);
+    }
+    let picture = image::load_from_memory(&bytes).map_err(|_| "ComfyUI made a file that is not a picture Castle can read.".to_string())?;
+    let mut png = std::io::Cursor::new(Vec::new());
+    picture.write_to(&mut png, image::ImageFormat::Png).map_err(|_| "The picture could not be turned into a PNG.".to_string())?;
+    Ok(png.into_inner())
 }
 
 fn start_log(store: &SettingsStore) -> std::path::PathBuf {
@@ -469,8 +610,12 @@ pub fn comfy_get(store: State<SettingsStore>) -> ComfySettings {
 
 /// Keeps the member's choices (after checking them). The Settings page never overwrites them.
 #[tauri::command]
-pub fn comfy_save(store: State<SettingsStore>, on: bool, address: String, start: String, model: String) -> Result<ComfySettings, String> {
-    let comfy = clean(on, &address, &start, &model)?;
+pub fn comfy_save(store: State<SettingsStore>, on: bool, address: String, start: String, model: String, workflow: String, limit_minutes: u32) -> Result<ComfySettings, String> {
+    let comfy = clean(on, &address, &start, &model, &workflow, limit_minutes)?;
+    // a workflow file that is not one is told now, not at the first drawing
+    if !comfy.workflow.is_empty() {
+        read_workflow(&comfy.workflow)?;
+    }
     let mut next = store.get();
     next.comfy = comfy.clone();
     crate::settings::save(&store.path, &next).map_err(|_| "The ComfyUI settings could not be saved.".to_string())?;
@@ -489,10 +634,13 @@ pub struct Status {
     pub started_by_castle: bool,
     /// one plain line for the member
     pub message: String,
+    /// why the member's own workflow file cannot be used, when one is set and is not right
+    pub workflow_problem: Option<String>,
 }
 
-fn status_of(server: &Server, launcher: &Launcher) -> Status {
+fn status_of(server: &Server, launcher: &Launcher, workflow: &str) -> Status {
     let started_by_castle = launcher.running();
+    let workflow_problem = if workflow.trim().is_empty() { None } else { read_workflow(workflow).err() };
     match server.ping().and_then(|_| server.checkpoints()) {
         Ok(checkpoints) => {
             let message = match checkpoints.len() {
@@ -500,17 +648,18 @@ fn status_of(server: &Server, launcher: &Launcher) -> Status {
                 1 => format!("ComfyUI answers at {} with 1 checkpoint.", server.address()),
                 n => format!("ComfyUI answers at {} with {n} checkpoints.", server.address()),
             };
-            Status { up: true, address: server.address().into(), checkpoints, started_by_castle, message }
+            Status { up: true, address: server.address().into(), checkpoints, started_by_castle, message, workflow_problem }
         }
-        Err(message) => Status { up: false, address: server.address().into(), checkpoints: Vec::new(), started_by_castle, message },
+        Err(message) => Status { up: false, address: server.address().into(), checkpoints: Vec::new(), started_by_castle, message, workflow_problem },
     }
 }
 
 /// Asks the saved address whether ComfyUI is there and which checkpoints it has. Never starts it.
 #[tauri::command]
 pub async fn comfy_check(app: AppHandle) -> Result<Status, String> {
-    let server = app.state::<SettingsStore>().get().comfy.server()?;
-    tauri::async_runtime::spawn_blocking(move || status_of(&server, &app.state::<Launcher>())).await.map_err(|_| "The check stopped before it finished.".to_string())
+    let comfy = app.state::<SettingsStore>().get().comfy;
+    let server = comfy.server()?;
+    tauri::async_runtime::spawn_blocking(move || status_of(&server, &app.state::<Launcher>(), &comfy.workflow)).await.map_err(|_| "The check stopped before it finished.".to_string())
 }
 
 /// Runs the start command if nothing answers (waiting for ComfyUI to come up), then checks.
@@ -522,7 +671,7 @@ pub async fn comfy_start(app: AppHandle) -> Result<Status, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let launcher = app.state::<Launcher>();
         ensure_up(&server, &comfy.start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &|| false)?;
-        Ok(status_of(&server, &launcher))
+        Ok(status_of(&server, &launcher, &comfy.workflow))
     })
     .await
     .map_err(|_| "The start stopped before it finished.".to_string())?
@@ -878,14 +1027,20 @@ mod tests {
 
     #[test]
     fn the_members_choices_are_checked_and_tidied() {
-        let kept = clean(true, " 192.168.1.20:8188/ ", "  W:\\Comfy\\start.bat ", " model.safetensors ").unwrap();
-        assert_eq!(kept, ComfySettings { on: true, address: "http://192.168.1.20:8188".into(), start: "W:\\Comfy\\start.bat".into(), model: "model.safetensors".into() });
-        assert_eq!(clean(false, "", "", "").unwrap(), ComfySettings::default());
-        assert!(clean(true, "http://127.0.0.1:8188/prompt", "", "").unwrap_err().contains("nothing after it"));
-        assert!(clean(true, "", "a\nb", "").unwrap_err().contains("one line"));
-        assert!(clean(true, "", "", "a\0b").unwrap_err().contains("one line"));
-        assert!(clean(true, "", &"x".repeat(1001), "").unwrap_err().contains("too long"));
-        assert!(clean(true, "", "", &"x".repeat(301)).unwrap_err().contains("too long"));
+        let kept = clean(true, " 192.168.1.20:8188/ ", "  W:\\Comfy\\start.bat ", " model.safetensors ", " W:\\Comfy\\qwen.json ", 30).unwrap();
+        assert_eq!(
+            kept,
+            ComfySettings { on: true, address: "http://192.168.1.20:8188".into(), start: "W:\\Comfy\\start.bat".into(), model: "model.safetensors".into(), workflow: "W:\\Comfy\\qwen.json".into(), limit_minutes: 30 }
+        );
+        assert_eq!(clean(false, "", "", "", "", 0).unwrap(), ComfySettings::default());
+        assert!(clean(true, "http://127.0.0.1:8188/prompt", "", "", "", 0).unwrap_err().contains("nothing after it"));
+        assert!(clean(true, "", "a\nb", "", "", 0).unwrap_err().contains("one line"));
+        assert!(clean(true, "", "", "a\0b", "", 0).unwrap_err().contains("one line"));
+        assert!(clean(true, "", "", "", "a\nb.json", 0).unwrap_err().contains("one line"));
+        assert!(clean(true, "", &"x".repeat(1001), "", "", 0).unwrap_err().contains("too long"));
+        assert!(clean(true, "", "", &"x".repeat(301), "", 0).unwrap_err().contains("too long"));
+        assert!(clean(true, "", "", "", &"x".repeat(1001), 0).unwrap_err().contains("too long"));
+        assert!(clean(true, "", "", "", "", 241).unwrap_err().contains("at most 240"));
     }
 
     #[test]
@@ -896,7 +1051,7 @@ mod tests {
         let read: ComfySettings = serde_json::from_str(r#"{"on":true,"start":"x.bat"}"#).unwrap();
         assert!(read.on && read.address.is_empty() && read.start == "x.bat");
         let mut settings = crate::settings::Settings::default();
-        settings.comfy = clean(true, "localhost:9000", "start.cmd", "m.safetensors").unwrap();
+        settings.comfy = clean(true, "localhost:9000", "start.cmd", "m.safetensors", "qwen.json", 20).unwrap();
         let again: crate::settings::Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert_eq!(again.comfy, settings.comfy);
         assert_eq!(again.comfy.server().unwrap().address(), "http://localhost:9000");
@@ -997,7 +1152,7 @@ mod tests {
     }
 
     fn settings_for(fake: &Fake, model: &str) -> ComfySettings {
-        ComfySettings { on: true, address: fake.server.address().into(), start: String::new(), model: model.into() }
+        ComfySettings { on: true, address: fake.server.address().into(), model: model.into(), ..Default::default() }
     }
 
     fn sent_graph(fake: &Fake) -> Value {
@@ -1081,7 +1236,7 @@ mod tests {
 
     #[test]
     fn a_comfyui_that_is_not_there_and_cannot_be_started_draws_nothing() {
-        let settings = ComfySettings { on: true, address: nothing_listens().address().into(), start: String::new(), model: String::new() };
+        let settings = ComfySettings { on: true, address: nothing_listens().address().into(), ..Default::default() };
         let out = temp("down").join("p.png");
         let brief = Brief { prompt: "x", size: None, quality: None };
         let said = draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err();
@@ -1114,9 +1269,141 @@ mod tests {
         assert!(comfy.asked().iter().any(|r| r.starts_with("POST /interrupt ")));
     }
 
+    /// A member's own workflow in API format, with nodes only their ComfyUI has (like a Qwen one).
+    fn own_workflow() -> Value {
+        json!({
+            "unet": { "class_type": "UNETLoader", "inputs": { "unet_name": "qwen_image.safetensors" } },
+            "text": { "class_type": "TextEncodeQwenImage21", "inputs": { "prompt": "{{prompt}}", "negative_prompt": "", "resolution": 1024 } },
+            "latent": { "class_type": "EmptyLatentImage", "inputs": { "width": "{{width}}", "height": "{{height}}", "batch_size": 1 } },
+            "sample": { "class_type": "KSampler", "inputs": { "seed": "{{seed}}", "steps": "{{steps}}", "cfg": 1.0 } },
+            "save": { "class_type": "SaveImage", "inputs": { "filename_prefix": "own_{{width}}x{{height}}" } }
+        })
+    }
+
+    fn own_file(name: &str, graph: &Value) -> String {
+        let file = temp(name).join("workflow.json");
+        std::fs::write(&file, graph.to_string()).unwrap();
+        file.display().to_string()
+    }
+
+    #[test]
+    fn a_members_own_workflow_is_accepted_with_custom_nodes_and_refused_in_plain_words_when_not_right() {
+        assert!(parse_workflow(&own_workflow().to_string()).is_ok(), "a node only the member's ComfyUI has is welcome");
+        // spaces inside the braces are fine
+        assert!(parse_workflow(&own_workflow().to_string().replace("{{prompt}}", "{{ prompt }}")).is_ok());
+        // some tools wrap the graph in {"prompt": ...}
+        let wrapped = json!({ "prompt": own_workflow(), "client_id": "x" });
+        assert_eq!(parse_workflow(&wrapped.to_string()).unwrap(), own_workflow());
+
+        let editor = json!({ "nodes": [{ "id": 1, "type": "KSampler" }], "links": [] });
+        assert!(parse_workflow(&editor.to_string()).unwrap_err().contains("Export (API)"));
+        assert!(parse_workflow("not json").unwrap_err().contains("not valid JSON"));
+        assert!(parse_workflow("{}").unwrap_err().contains("empty"));
+        assert!(parse_workflow("[1,2]").unwrap_err().contains("empty or is not"));
+        assert!(parse_workflow(r#"{"1":{"inputs":{}}}"#).unwrap_err().contains("API format"));
+
+        let mut no_save = own_workflow();
+        no_save.as_object_mut().unwrap().remove("save");
+        assert!(parse_workflow(&no_save.to_string()).unwrap_err().contains("no Save Image"));
+        let no_prompt = own_workflow().to_string().replace("{{prompt}}", "a fixed text");
+        assert!(parse_workflow(&no_prompt).unwrap_err().contains("{{prompt}}"));
+    }
+
+    #[test]
+    fn castles_values_go_into_a_members_workflow_with_their_types_in_one_pass() {
+        let values = Values { prompt: "a \"quoted\"\nline with {{width}} in it", width: 1024, height: 1536, seed: 99, steps: 28 };
+        let filled = fill(&own_workflow(), &values);
+        // a value that is only a placeholder keeps its type
+        assert_eq!(filled["latent"]["inputs"]["width"], json!(1024));
+        assert_eq!(filled["latent"]["inputs"]["height"], json!(1536));
+        assert_eq!(filled["sample"]["inputs"]["seed"], json!(99));
+        assert_eq!(filled["sample"]["inputs"]["steps"], json!(28));
+        // quotes and newlines in the prompt survive, and a placeholder written inside the prompt is not filled again
+        assert_eq!(filled["text"]["inputs"]["prompt"], json!("a \"quoted\"\nline with {{width}} in it"));
+        // inside longer text a placeholder becomes text
+        assert_eq!(filled["save"]["inputs"]["filename_prefix"], json!("own_1024x1536"));
+        // what is not ours is left alone: other braces, other values, the keys
+        let other = json!({ "n": { "class_type": "X", "inputs": { "a": "{{other}}", "b": 7, "c": ["n", 0], "{{width}}": true, "t": " {{steps}} " } } });
+        let kept = fill(&other, &values);
+        assert_eq!(kept["n"]["inputs"]["a"], json!("{{other}}"));
+        assert_eq!(kept["n"]["inputs"]["b"], json!(7));
+        assert_eq!(kept["n"]["inputs"]["c"], json!(["n", 0]));
+        assert_eq!(kept["n"]["inputs"]["{{width}}"], json!(true));
+        assert_eq!(kept["n"]["inputs"]["t"], json!(28));
+    }
+
+    #[test]
+    fn a_workflow_file_is_read_with_its_problems_said_before_anything_runs() {
+        let good = own_file("wf-good", &own_workflow());
+        assert!(read_workflow(&good).is_ok());
+        assert!(read_workflow(&format!("  \"{good}\"  ")).is_ok(), "a pasted path in quotes works");
+        assert!(read_workflow("").unwrap_err().contains("No workflow file"));
+        assert!(read_workflow("W:\\nowhere\\none.json").unwrap_err().contains("could not be found"));
+        let big = temp("wf-big").join("big.json");
+        std::fs::write(&big, vec![b' '; (WORKFLOW_MAX_BYTES + 1) as usize]).unwrap();
+        assert!(read_workflow(&big.display().to_string()).unwrap_err().contains("too big"));
+        let bad = temp("wf-bad").join("bad.json");
+        std::fs::write(&bad, "{ not json").unwrap();
+        assert!(read_workflow(&bad.display().to_string()).unwrap_err().contains("not valid JSON"));
+    }
+
+    #[test]
+    fn the_time_limit_is_the_members_or_fifteen_minutes() {
+        assert_eq!(ComfySettings::default().limit(), Duration::from_secs(15 * 60));
+        assert_eq!(ComfySettings { limit_minutes: 45, ..Default::default() }.limit(), Duration::from_secs(45 * 60));
+    }
+
+    #[test]
+    fn a_picture_is_drawn_with_the_members_workflow_without_asking_for_checkpoints() {
+        let png = vec![0x89, b'P', b'N', b'G', 9, 9];
+        let comfy = comfy_that_draws(&[], png.clone());
+        let settings = ComfySettings { workflow: own_file("wf-draw", &own_workflow()), ..settings_for(&comfy, "ignored.safetensors") };
+        let out = temp("wf-out").join("p.png");
+        let brief = Brief { prompt: "a myvi in hotwheel style", size: Some("1024x1536"), quality: Some("low") };
+        draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), png);
+        let asked = comfy.asked();
+        assert!(!asked.iter().any(|r| r.contains("/object_info")), "a workflow of the member's own needs no checkpoint list");
+        let graph = sent_graph(&comfy);
+        assert_eq!(graph["text"]["inputs"]["prompt"], "a myvi in hotwheel style");
+        assert_eq!(graph["latent"]["inputs"]["width"], json!(1024));
+        assert_eq!(graph["latent"]["inputs"]["height"], json!(1536));
+        assert_eq!(graph["sample"]["inputs"]["steps"], json!(12));
+        assert!(graph["sample"]["inputs"]["seed"].is_u64());
+        assert_eq!(graph["unet"]["inputs"]["unet_name"], "qwen_image.safetensors", "the member's own model names are kept");
+    }
+
+    #[test]
+    fn a_wrong_workflow_file_stops_the_drawing_before_comfyui_is_even_asked() {
+        let comfy = comfy_that_draws(&["a.safetensors"], vec![0x89, b'P', b'N', b'G']);
+        let editor = json!({ "nodes": [], "links": [] });
+        let settings = ComfySettings { workflow: own_file("wf-editor", &editor), ..settings_for(&comfy, "") };
+        let out = temp("wf-wrong").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        let said = draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err();
+        assert!(said.contains("Export (API)"), "{said}");
+        assert!(comfy.asked().is_empty(), "ComfyUI must not be contacted, nor started, for a workflow that cannot run");
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn a_jpeg_from_a_members_saver_is_kept_as_a_png() {
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(4, 4, image::Rgb([200, 30, 30]))).write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let comfy = comfy_that_draws(&["a.safetensors"], jpeg.into_inner());
+        let out = temp("jpeg").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        draw(&settings_for(&comfy, ""), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        let kept = std::fs::read(&out).unwrap();
+        assert!(kept.starts_with(&[0x89, b'P', b'N', b'G']));
+        assert!(image::load_from_memory(&kept).is_ok());
+        assert!(as_png(b"not a picture".to_vec()).unwrap_err().contains("not a picture"));
+    }
+
     /// The whole drawing path against the member's real ComfyUI, as Castle's worker runs it: starts
     /// it when it is not running (CASTLE_COMFY_START), draws a plain picture with the checkpoint
-    /// (CASTLE_COMFY_MODEL, default the first) and saves it; ends ComfyUI again only if Castle started it:
+    /// (CASTLE_COMFY_MODEL, default the first) or with the member's own workflow file
+    /// (CASTLE_COMFY_WORKFLOW) and saves it; ends ComfyUI again only if Castle started it:
     /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live_draw -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -1126,6 +1413,8 @@ mod tests {
             address: std::env::var("CASTLE_COMFY_ADDRESS").unwrap_or_default(),
             start: std::env::var("CASTLE_COMFY_START").unwrap_or_default(),
             model: std::env::var("CASTLE_COMFY_MODEL").unwrap_or_default(),
+            workflow: std::env::var("CASTLE_COMFY_WORKFLOW").unwrap_or_default(),
+            limit_minutes: 0,
         };
         let launcher = Launcher::default();
         let out = std::env::temp_dir().join(format!("castle-comfy-draw-{}.png", std::process::id()));
@@ -1155,7 +1444,7 @@ mod tests {
         let began = Instant::now();
         ensure_up(&server, &start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &no_stop).unwrap();
         println!("answered {:.0} s after the start command; running by Castle: {}", began.elapsed().as_secs_f32(), launcher.running());
-        let status = status_of(&server, &launcher);
+        let status = status_of(&server, &launcher, "");
         println!("{status:?}");
         assert!(status.up && status.started_by_castle);
         stop_started(&launcher);

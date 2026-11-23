@@ -736,7 +736,7 @@ fn run_with_comfy(job: &ImageJob, app: &AppHandle, stop_asked: &dyn Fn() -> bool
     let before = keep_previous(job)?;
     let brief = crate::comfy::Brief { prompt: &job.brief, size: job.size.as_deref(), quality: job.quality.as_deref() };
     let log = store.folder().join("comfy-start.log");
-    crate::comfy::draw(&settings, &app.state::<crate::comfy::Launcher>(), &log, &brief, Path::new(&job.output), IMAGE_TIME_LIMIT, stop_asked).map_err(|said| {
+    crate::comfy::draw(&settings, &app.state::<crate::comfy::Launcher>(), &log, &brief, Path::new(&job.output), settings.limit(), stop_asked).map_err(|said| {
         if said == "Stopped." {
             "Stopped. The prompt is saved; retry when you are ready.".to_string()
         } else {
