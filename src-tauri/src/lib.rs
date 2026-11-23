@@ -416,6 +416,8 @@ pub fn run() {
             comfy::comfy_check,
             comfy::comfy_start,
             comfy::comfy_choose_file,
+            comfy::comfy_scan,
+            comfy::comfy_bind,
             weather::weather_get,
             weather::weather_search,
             weather::weather_save,

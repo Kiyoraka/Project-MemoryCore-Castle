@@ -44,13 +44,37 @@ pub struct ComfySettings {
     /// The checkpoint to draw with; empty means the first one ComfyUI lists. Ignored with a
     /// workflow of the member's own, which names its own models.
     pub model: String,
-    /// The member's own workflow: a file saved from ComfyUI as "API format" with `{{prompt}}` (and
-    /// optionally `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`) where Castle's values go.
+    /// The member's own workflow: a file saved from ComfyUI as "API format". Castle puts the words to
+    /// draw (and optionally the size, seed and steps) where `{{prompt}}`, `{{width}}`, `{{height}}`,
+    /// `{{seed}}` and `{{steps}}` stand in the file, or in the inputs the member chose (`bindings`).
     /// Empty means Castle's plain built-in workflow.
     pub workflow: String,
     /// How long one drawing may take before Castle stops waiting; 0 means the usual
     /// `DEFAULT_LIMIT_MINUTES`. A big model on a modest card can take minutes.
     pub limit_minutes: u32,
+    /// The inputs of the member's workflow that Castle's values go into, chosen on the Settings page
+    /// after reading the file, so the file itself never needs a placeholder or an edit. Belong to
+    /// `workflow`: choosing another file clears them.
+    pub bindings: Bindings,
+}
+
+/// One input of one node in the member's workflow, as ComfyUI's API format names it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Target {
+    pub node: String,
+    pub input: String,
+}
+
+/// Which inputs of the member's workflow take Castle's values. The prompt may go into several
+/// (a main and a refiner prompt); an input left out keeps the member's own value.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Bindings {
+    pub prompt: Vec<Target>,
+    pub width: Vec<Target>,
+    pub height: Vec<Target>,
+    pub seed: Vec<Target>,
+    pub steps: Vec<Target>,
 }
 
 /// How long a drawing may take when the member has not said.
@@ -96,15 +120,28 @@ pub fn clean(on: bool, address: &str, start: &str, model: &str, workflow: &str, 
         model: one_line(model, "checkpoint name", 300)?,
         workflow: one_line(workflow, "workflow file path", 1000)?,
         limit_minutes,
+        // the chosen inputs are kept by their own command (comfy_bind) and follow the file (comfy_save)
+        bindings: Bindings::default(),
     })
 }
 
 /// The most a workflow file may weigh (a workflow is a few kilobytes; this is only a guard).
 const WORKFLOW_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
-/// Reads the member's workflow file and checks it is something Castle can fill and ComfyUI can run.
-/// Nothing here knows ComfyUI's node names: a custom node of the member's own is welcome.
-pub fn read_workflow(path: &str) -> Result<Value, String> {
+/// The member's workflow file, ready to draw with: a real API-format workflow, with somewhere for
+/// the words to go (a `{{prompt}}` in it, or a prompt input they chose) and every input they chose
+/// still there. Said in plain words when not.
+pub fn read_workflow(path: &str, bindings: &Bindings) -> Result<Value, String> {
+    let graph = load_workflow(path)?;
+    needs_prompt(&graph, bindings)?;
+    validate_bindings(&graph, bindings)?;
+    Ok(graph)
+}
+
+/// Reads the member's workflow file and checks it is a ComfyUI workflow in API format. Nothing here
+/// knows ComfyUI's node names: a custom node of the member's own is welcome. It does not ask where
+/// the words go: the member chooses that after the file is saved, on the Settings page.
+pub fn load_workflow(path: &str) -> Result<Value, String> {
     let path = path.trim().trim_matches('"');
     if path.is_empty() {
         return Err("No workflow file is chosen.".into());
@@ -135,10 +172,202 @@ pub fn parse_workflow(text: &str) -> Result<Value, String> {
     if !nodes.values().any(|node| node.get("class_type").and_then(Value::as_str).is_some_and(|class| class.contains("Save"))) {
         return Err("The workflow has no Save Image node, so ComfyUI would not keep a picture.".into());
     }
-    if !placeholder_pattern().captures_iter(&graph.to_string()).any(|found| &found[1] == "prompt") {
-        return Err("Put {{prompt}} in the workflow where the words to draw go (the text of your prompt node), then save it again.".into());
-    }
     Ok(graph)
+}
+
+/// Somewhere for the words to go: a `{{prompt}}` in the workflow, or a prompt input the member chose.
+pub fn needs_prompt(graph: &Value, bindings: &Bindings) -> Result<(), String> {
+    if !bindings.prompt.is_empty() || placeholder_pattern().captures_iter(&graph.to_string()).any(|found| &found[1] == "prompt") {
+        return Ok(());
+    }
+    Err("Tell Castle where the words to draw go: press Import and choose the prompt, or put {{prompt}} in the workflow.".into())
+}
+
+/// A link to another node's output, as the API format writes it: ["node id", output number].
+fn is_link(value: &Value) -> bool {
+    value.as_array().is_some_and(|parts| parts.len() == 2 && parts[0].is_string() && parts[1].is_number())
+}
+
+fn input_of<'a>(graph: &'a Value, target: &Target) -> Option<&'a Value> {
+    graph.get(&target.node)?.get("inputs")?.get(&target.input)
+}
+
+/// Every input the member chose is still in their workflow and is still a plain value (not wired to
+/// another node): said in plain words when the file changed since they chose.
+pub fn validate_bindings(graph: &Value, bindings: &Bindings) -> Result<(), String> {
+    let groups: [(&[Target], bool); 5] = [(&bindings.prompt, false), (&bindings.width, true), (&bindings.height, true), (&bindings.seed, true), (&bindings.steps, true)];
+    for (targets, number) in groups {
+        for target in targets {
+            let said = |what: &str| format!("Your workflow changed: node {} {what}. Press Import and choose its fields again.", target.node);
+            match input_of(graph, target) {
+                None => return Err(said(&format!("no longer has the input {}", target.input))),
+                Some(value) if is_link(value) => return Err(said(&format!("now takes {} from another node", target.input))),
+                Some(value) if number && !value.is_number() => return Err(said(&format!("has {} that is no longer a number", target.input))),
+                Some(value) if !number && !value.is_string() => return Err(said(&format!("has {} that is no longer text", target.input))),
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The workflow with Castle's values written into the inputs the member chose. After the
+/// placeholders (`fill`), so a prompt that contains placeholder text is never filled again.
+pub fn apply_bindings(graph: &mut Value, bindings: &Bindings, values: &Values) -> Result<(), String> {
+    validate_bindings(graph, bindings)?;
+    let groups: [(&[Target], Value); 5] = [
+        (&bindings.prompt, json!(values.prompt)),
+        (&bindings.width, json!(values.width)),
+        (&bindings.height, json!(values.height)),
+        (&bindings.seed, json!(values.seed)),
+        (&bindings.steps, json!(values.steps)),
+    ];
+    for (targets, value) in groups {
+        for target in targets {
+            graph[&target.node]["inputs"][&target.input] = value.clone();
+        }
+    }
+    Ok(())
+}
+
+/// The member's workflow ready to queue: placeholders filled, then the chosen inputs written.
+pub fn build_own(workflow: &Value, bindings: &Bindings, values: &Values) -> Result<Value, String> {
+    let mut graph = fill(workflow, values);
+    apply_bindings(&mut graph, bindings, values)?;
+    Ok(graph)
+}
+
+/// One input the member may choose, as the Settings page lists it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Field {
+    pub node: String,
+    pub input: String,
+    pub class_type: String,
+    /// the node's own title in ComfyUI, or its class
+    pub title: String,
+    /// the current value on one short line
+    pub preview: String,
+    /// "positive" or "negative" when a sampler says which; "" when it does not
+    pub role: String,
+    /// Castle would tick it on its own
+    pub suggested: bool,
+}
+
+/// How many times each placeholder stands in the file.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct Placeholders {
+    pub prompt: usize,
+    pub width: usize,
+    pub height: usize,
+    pub seed: usize,
+    pub steps: usize,
+}
+
+/// What Castle found in the member's workflow, for the Import list.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scan {
+    pub file: String,
+    pub prompt: Vec<Field>,
+    pub width: Vec<Field>,
+    pub height: Vec<Field>,
+    pub seed: Vec<Field>,
+    pub steps: Vec<Field>,
+    pub placeholders: Placeholders,
+    /// what the member chose before (still valid, or the scan would have said why not)
+    pub bindings: Bindings,
+}
+
+/// Inputs that hold a name or a setting, never words to draw.
+fn is_setting_name(name: &str) -> bool {
+    name.ends_with("_name") || name.ends_with("_prefix") || name.ends_with("_path") || matches!(name, "scheduler" | "type" | "device" | "dtype" | "weight_dtype" | "mode" | "method" | "format" | "image" | "mask" | "crop" | "upscale_method")
+}
+
+/// A value that is only `{{width}}`, `{{height}}`, `{{seed}}` or `{{steps}}`.
+fn is_number_placeholder(text: &str) -> bool {
+    placeholder_pattern().captures(text).is_some_and(|found| found.get(0).is_some_and(|m| m.as_str() == text.trim()) && &found[1] != "prompt")
+}
+
+fn one_line(text: &str) -> String {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > 70 {
+        format!("{}…", flat.chars().take(70).collect::<String>())
+    } else if flat.is_empty() {
+        "(empty)".into()
+    } else {
+        flat
+    }
+}
+
+/// A node id's order on the page: ComfyUI's ids are numbers written as text ("10" after "9").
+fn node_order(id: &str) -> (u64, String) {
+    (id.parse::<u64>().unwrap_or(u64::MAX), id.to_string())
+}
+
+/// Which nodes a sampler takes as its positive and as its negative: the way to tell the two prompts apart.
+fn sampler_roles(graph: &Value) -> (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>) {
+    let (mut positive, mut negative) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+    for node in graph.as_object().into_iter().flat_map(|nodes| nodes.values()) {
+        for (name, set) in [("positive", &mut positive), ("negative", &mut negative)] {
+            if let Some(link) = node.pointer(&format!("/inputs/{name}")).filter(|v| is_link(v)) {
+                if let Some(id) = link[0].as_str() {
+                    set.insert(id.to_string());
+                }
+            }
+        }
+    }
+    (positive, negative)
+}
+
+/// Reads a workflow and lists what Castle could put its values into: every text input (the likely
+/// prompt first, a negative prompt marked) and the number inputs for the size, the seed and the steps.
+pub fn scan_workflow(graph: &Value, file: &str, bindings: &Bindings) -> Scan {
+    let (positive, negative) = sampler_roles(graph);
+    let mut nodes: Vec<(&String, &Value)> = graph.as_object().into_iter().flat_map(|m| m.iter()).collect();
+    nodes.sort_by_key(|(id, _)| node_order(id));
+    let (mut prompt, mut width, mut height, mut seed, mut steps) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (id, node) in nodes {
+        let class = node.get("class_type").and_then(Value::as_str).unwrap_or("").to_string();
+        let title = node.pointer("/_meta/title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).unwrap_or(&class).to_string();
+        let role = if positive.contains(id.as_str()) { "positive" } else if negative.contains(id.as_str()) { "negative" } else { "" };
+        for (input, value) in node.get("inputs").and_then(Value::as_object).into_iter().flatten() {
+            let field = |preview: String, suggested: bool| Field { node: id.clone(), input: input.clone(), class_type: class.clone(), title: title.clone(), preview, role: role.into(), suggested };
+            match value {
+                // a number field that already holds its placeholder is handled; it is not words to draw
+                Value::String(text) if !is_setting_name(input) && !is_number_placeholder(text) => {
+                    let likely = matches!(input.to_lowercase().as_str(), "text" | "prompt" | "positive" | "positive_prompt" | "text_g" | "text_l");
+                    prompt.push(field(one_line(text), likely && role != "negative"));
+                }
+                Value::Number(number) => {
+                    let latent = class.contains("Latent");
+                    match input.as_str() {
+                        "width" => width.push(field(number.to_string(), latent)),
+                        "height" => height.push(field(number.to_string(), latent)),
+                        "seed" | "noise_seed" => seed.push(field(number.to_string(), true)),
+                        // the member's own step count is usually the recipe: never ticked on its own
+                        "steps" => steps.push(field(number.to_string(), false)),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // the likely prompt first, then the rest in page order
+    prompt.sort_by_key(|f| !f.suggested);
+    let text = graph.to_string();
+    let mut placeholders = Placeholders::default();
+    for found in placeholder_pattern().captures_iter(&text) {
+        match &found[1] {
+            "prompt" => placeholders.prompt += 1,
+            "width" => placeholders.width += 1,
+            "height" => placeholders.height += 1,
+            "seed" => placeholders.seed += 1,
+            _ => placeholders.steps += 1,
+        }
+    }
+    Scan { file: file.into(), prompt, width, height, seed, steps, placeholders, bindings: bindings.clone() }
 }
 
 /// What Castle puts into a member's workflow.
@@ -621,13 +850,13 @@ fn fresh_number() -> u64 {
 pub fn draw(settings: &ComfySettings, launcher: &Launcher, log: &Path, brief: &Brief, output: &Path, limit: Duration, stop: &dyn Fn() -> bool) -> Result<(), String> {
     let server = settings.server()?;
     // the member's own workflow is read first: a wrong file is said so before ComfyUI is started
-    let own = if settings.workflow.trim().is_empty() { None } else { Some(read_workflow(&settings.workflow)?) };
+    let own = if settings.workflow.trim().is_empty() { None } else { Some(read_workflow(&settings.workflow, &settings.bindings)?) };
     ensure_up(&server, &settings.start, launcher, log, START_LIMIT, Duration::from_secs(1), stop)?;
     let (width, height) = dimensions(brief.size);
     let (seed, steps) = (fresh_number(), steps_for(brief.quality));
     let words = words_of(brief.prompt, brief.size, brief.quality);
     let graph = match &own {
-        Some(workflow) => fill(workflow, &Values { prompt: words, width, height, seed, steps }),
+        Some(workflow) => build_own(workflow, &settings.bindings, &Values { prompt: words, width, height, seed, steps })?,
         // the built-in workflow needs a checkpoint; a workflow of the member's own names its models itself
         None => txt2img_graph(&choose_checkpoint(&settings.model, &server.checkpoints()?)?, words, width, height, seed, steps),
     };
@@ -689,14 +918,52 @@ pub fn comfy_get(store: State<SettingsStore>) -> ComfySettings {
 /// Keeps the member's choices (after checking them). The Settings page never overwrites them.
 #[tauri::command]
 pub fn comfy_save(store: State<SettingsStore>, on: bool, address: String, start: String, model: String, workflow: String, limit_minutes: u32) -> Result<ComfySettings, String> {
-    let comfy = clean(on, &address, &start, &model, &workflow, limit_minutes)?;
-    // a workflow file that is not one is told now, not at the first drawing
+    let mut comfy = clean(on, &address, &start, &model, &workflow, limit_minutes)?;
+    // a file that is not a ComfyUI workflow is told now, not at the first drawing. Where the words go
+    // is not asked yet: the member chooses that with Import, after the file is kept
     if !comfy.workflow.is_empty() {
-        read_workflow(&comfy.workflow)?;
+        load_workflow(&comfy.workflow)?;
     }
     let mut next = store.get();
+    comfy.bindings = bindings_after(&next.comfy, &comfy.workflow);
     next.comfy = comfy.clone();
     crate::settings::save(&store.path, &next).map_err(|_| "The ComfyUI settings could not be saved.".to_string())?;
+    *store.current.lock().unwrap() = next;
+    Ok(comfy)
+}
+
+/// The inputs the member chose belong to the workflow file: saving the same file keeps them, another
+/// file starts clean.
+fn bindings_after(current: &ComfySettings, workflow: &str) -> Bindings {
+    if current.workflow == workflow { current.bindings.clone() } else { Bindings::default() }
+}
+
+/// Reads the saved workflow and lists what the member may choose for the prompt, the size, the seed
+/// and the steps (the Import list). Changes nothing.
+#[tauri::command]
+pub fn comfy_scan(store: State<SettingsStore>) -> Result<Scan, String> {
+    let comfy = store.get().comfy;
+    if comfy.workflow.trim().is_empty() {
+        return Err("Choose your workflow file first.".into());
+    }
+    let graph = load_workflow(&comfy.workflow)?;
+    // a choice that no longer fits the file is not offered back as if it did: the list is the file's own
+    let kept = if validate_bindings(&graph, &comfy.bindings).is_ok() { comfy.bindings.clone() } else { Bindings::default() };
+    Ok(scan_workflow(&graph, comfy.workflow.trim().trim_matches('"'), &kept))
+}
+
+/// Keeps the inputs the member chose in the Import list, after checking each is still in the file.
+#[tauri::command]
+pub fn comfy_bind(store: State<SettingsStore>, bindings: Bindings) -> Result<ComfySettings, String> {
+    let mut next = store.get();
+    if next.comfy.workflow.trim().is_empty() {
+        return Err("Choose your workflow file first.".into());
+    }
+    let graph = load_workflow(&next.comfy.workflow)?;
+    validate_bindings(&graph, &bindings)?;
+    next.comfy.bindings = bindings;
+    crate::settings::save(&store.path, &next).map_err(|_| "The choice could not be saved.".to_string())?;
+    let comfy = next.comfy.clone();
     *store.current.lock().unwrap() = next;
     Ok(comfy)
 }
@@ -716,9 +983,9 @@ pub struct Status {
     pub workflow_problem: Option<String>,
 }
 
-fn status_of(server: &Server, launcher: &Launcher, workflow: &str) -> Status {
+fn status_of(server: &Server, launcher: &Launcher, comfy: &ComfySettings) -> Status {
     let started_by_castle = launcher.running();
-    let workflow_problem = if workflow.trim().is_empty() { None } else { read_workflow(workflow).err() };
+    let workflow_problem = if comfy.workflow.trim().is_empty() { None } else { read_workflow(&comfy.workflow, &comfy.bindings).err() };
     match server.ping().and_then(|_| server.checkpoints()) {
         Ok(checkpoints) => {
             let message = match checkpoints.len() {
@@ -737,7 +1004,7 @@ fn status_of(server: &Server, launcher: &Launcher, workflow: &str) -> Status {
 pub async fn comfy_check(app: AppHandle) -> Result<Status, String> {
     let comfy = app.state::<SettingsStore>().get().comfy;
     let server = comfy.server()?;
-    tauri::async_runtime::spawn_blocking(move || status_of(&server, &app.state::<Launcher>(), &comfy.workflow)).await.map_err(|_| "The check stopped before it finished.".to_string())
+    tauri::async_runtime::spawn_blocking(move || status_of(&server, &app.state::<Launcher>(), &comfy)).await.map_err(|_| "The check stopped before it finished.".to_string())
 }
 
 /// Runs the start command if nothing answers (waiting for ComfyUI to come up), then checks.
@@ -749,7 +1016,7 @@ pub async fn comfy_start(app: AppHandle) -> Result<Status, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let launcher = app.state::<Launcher>();
         ensure_up(&server, &comfy.start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &|| false)?;
-        Ok(status_of(&server, &launcher, &comfy.workflow))
+        Ok(status_of(&server, &launcher, &comfy))
     })
     .await
     .map_err(|_| "The start stopped before it finished.".to_string())?
@@ -1223,7 +1490,7 @@ mod tests {
         let kept = clean(true, " 192.168.1.20:8188/ ", "  W:\\Comfy\\start.bat ", " model.safetensors ", " W:\\Comfy\\qwen.json ", 30).unwrap();
         assert_eq!(
             kept,
-            ComfySettings { on: true, address: "http://192.168.1.20:8188".into(), start: "W:\\Comfy\\start.bat".into(), model: "model.safetensors".into(), workflow: "W:\\Comfy\\qwen.json".into(), limit_minutes: 30 }
+            ComfySettings { on: true, address: "http://192.168.1.20:8188".into(), start: "W:\\Comfy\\start.bat".into(), model: "model.safetensors".into(), workflow: "W:\\Comfy\\qwen.json".into(), limit_minutes: 30, ..Default::default() }
         );
         assert_eq!(clean(false, "", "", "", "", 0).unwrap(), ComfySettings::default());
         assert!(clean(true, "http://127.0.0.1:8188/prompt", "", "", "", 0).unwrap_err().contains("nothing after it"));
@@ -1498,8 +1765,11 @@ mod tests {
         let mut no_save = own_workflow();
         no_save.as_object_mut().unwrap().remove("save");
         assert!(parse_workflow(&no_save.to_string()).unwrap_err().contains("no Save Image"));
-        let no_prompt = own_workflow().to_string().replace("{{prompt}}", "a fixed text");
-        assert!(parse_workflow(&no_prompt).unwrap_err().contains("{{prompt}}"));
+        // a file with no {{prompt}} is a real workflow; where the words go is asked separately
+        let no_prompt = parse_workflow(&own_workflow().to_string().replace("{{prompt}}", "a fixed text")).unwrap();
+        assert!(needs_prompt(&no_prompt, &Bindings::default()).unwrap_err().contains("Import"));
+        let chosen = Bindings { prompt: vec![Target { node: "text".into(), input: "prompt".into() }], ..Default::default() };
+        assert!(needs_prompt(&no_prompt, &chosen).is_ok(), "a chosen prompt input is somewhere for the words to go");
     }
 
     #[test]
@@ -1544,16 +1814,16 @@ mod tests {
     #[test]
     fn a_workflow_file_is_read_with_its_problems_said_before_anything_runs() {
         let good = own_file("wf-good", &own_workflow());
-        assert!(read_workflow(&good).is_ok());
-        assert!(read_workflow(&format!("  \"{good}\"  ")).is_ok(), "a pasted path in quotes works");
-        assert!(read_workflow("").unwrap_err().contains("No workflow file"));
-        assert!(read_workflow("W:\\nowhere\\none.json").unwrap_err().contains("could not be found"));
+        assert!(read_workflow(&good, &Bindings::default()).is_ok());
+        assert!(load_workflow(&format!("  \"{good}\"  ")).is_ok(), "a pasted path in quotes works");
+        assert!(load_workflow("").unwrap_err().contains("No workflow file"));
+        assert!(load_workflow("W:\\nowhere\\none.json").unwrap_err().contains("could not be found"));
         let big = temp("wf-big").join("big.json");
         std::fs::write(&big, vec![b' '; (WORKFLOW_MAX_BYTES + 1) as usize]).unwrap();
-        assert!(read_workflow(&big.display().to_string()).unwrap_err().contains("too big"));
+        assert!(load_workflow(&big.display().to_string()).unwrap_err().contains("too big"));
         let bad = temp("wf-bad").join("bad.json");
         std::fs::write(&bad, "{ not json").unwrap();
-        assert!(read_workflow(&bad.display().to_string()).unwrap_err().contains("not valid JSON"));
+        assert!(load_workflow(&bad.display().to_string()).unwrap_err().contains("not valid JSON"));
     }
 
     #[test]
@@ -1689,6 +1959,158 @@ mod tests {
         assert!(std::fs::read_to_string(&log).unwrap().contains("second run printed that"));
     }
 
+    fn pick(node: &str, input: &str) -> Target {
+        Target { node: node.into(), input: input.into() }
+    }
+
+    #[test]
+    fn the_import_list_finds_the_prompt_tells_the_negative_apart_and_leaves_names_out() {
+        // Castle's own plain workflow stands for any SDXL-style one: a sampler says which prompt is which
+        let graph = txt2img_graph("m.safetensors", "a lantern", 1024, 1024, 5, 20);
+        let scan = scan_workflow(&graph, "f.json", &Bindings::default());
+        let nodes: Vec<(&str, &str, bool)> = scan.prompt.iter().map(|f| (f.node.as_str(), f.role.as_str(), f.suggested)).collect();
+        assert_eq!(nodes, vec![("2", "positive", true), ("3", "negative", false)], "the checkpoint name and the file prefix are not words to draw");
+        assert_eq!(scan.prompt[0].title, "CLIPTextEncode");
+        assert_eq!(scan.prompt[0].preview, "a lantern");
+        assert_eq!((scan.width[0].node.as_str(), scan.width[0].preview.as_str(), scan.width[0].suggested), ("4", "1024", true));
+        assert_eq!((scan.height.len(), scan.seed[0].node.as_str(), scan.seed[0].suggested), (1, "5", true));
+        assert_eq!((scan.steps[0].preview.as_str(), scan.steps[0].suggested), ("20", false), "the member's own steps are never ticked on their own");
+        assert_eq!(scan.placeholders, Placeholders::default());
+    }
+
+    #[test]
+    fn a_node_that_is_both_the_positive_and_the_negative_counts_as_the_positive_and_placeholders_are_counted() {
+        // a Qwen-style encoder feeds the sampler's positive and negative from one node
+        let graph = json!({
+            "9": { "class_type": "TextEncodeQwenImage21", "_meta": { "title": "Qwen prompt" }, "inputs": { "prompt": "{{prompt}}", "negative_prompt": "", "resolution": 1024 } },
+            "10": { "class_type": "KSampler", "inputs": { "positive": ["9", 0], "negative": ["9", 1], "seed": "{{seed}}", "steps": 28 } },
+            "2": { "class_type": "EmptySD3LatentImage", "inputs": { "width": "{{width}}", "height": 1024 } },
+            "11": { "class_type": "ImageScale", "inputs": { "width": 512, "height": 512, "upscale_method": "lanczos" } },
+            "12": { "class_type": "SaveImage", "inputs": { "filename_prefix": "x_{{width}}" } }
+        });
+        let scan = scan_workflow(&graph, "q.json", &Bindings::default());
+        assert_eq!(scan.prompt.iter().map(|f| (f.input.as_str(), f.role.as_str(), f.suggested, f.preview.as_str())).collect::<Vec<_>>(), vec![("prompt", "positive", true, "{{prompt}}"), ("negative_prompt", "positive", false, "(empty)")]);
+        assert_eq!(scan.prompt[0].title, "Qwen prompt");
+        // the size in the latent node is the likely one; the one in an upscale node is listed, not ticked
+        assert_eq!(scan.height.iter().map(|f| (f.node.as_str(), f.suggested)).collect::<Vec<_>>(), vec![("2", true), ("11", false)]);
+        assert_eq!(scan.placeholders, Placeholders { prompt: 1, width: 2, height: 0, seed: 1, steps: 0 });
+    }
+
+    #[test]
+    fn nodes_are_listed_in_number_order_not_text_order() {
+        let graph = json!({
+            "10": { "class_type": "CLIPTextEncode", "inputs": { "text": "ten" } },
+            "9": { "class_type": "CLIPTextEncode", "inputs": { "text": "nine" } },
+            "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "two" } }
+        });
+        let scan = scan_workflow(&graph, "f.json", &Bindings::default());
+        assert_eq!(scan.prompt.iter().map(|f| f.node.as_str()).collect::<Vec<_>>(), vec!["2", "9", "10"]);
+    }
+
+    #[test]
+    fn a_chosen_input_that_went_away_or_changed_kind_is_said_not_skipped() {
+        let graph = txt2img_graph("m.safetensors", "a lantern", 1024, 1024, 5, 20);
+        let good = Bindings { prompt: vec![pick("2", "text")], width: vec![pick("4", "width")], seed: vec![pick("5", "seed")], ..Default::default() };
+        assert!(validate_bindings(&graph, &good).is_ok());
+        assert!(validate_bindings(&graph, &Bindings::default()).is_ok());
+        let gone = Bindings { prompt: vec![pick("99", "text")], ..Default::default() };
+        assert!(validate_bindings(&graph, &gone).unwrap_err().contains("node 99 no longer has the input text"));
+        let renamed = Bindings { width: vec![pick("4", "w")], ..Default::default() };
+        assert!(validate_bindings(&graph, &renamed).unwrap_err().contains("Import"));
+        // the prompt input was wired to another node since
+        let mut wired = graph.clone();
+        wired["2"]["inputs"]["text"] = json!(["1", 0]);
+        assert!(validate_bindings(&wired, &good).unwrap_err().contains("from another node"));
+        // a number input that holds words, and a text input that holds a number
+        let wrong_kind = Bindings { prompt: vec![pick("4", "width")], ..Default::default() };
+        assert!(validate_bindings(&graph, &wrong_kind).unwrap_err().contains("no longer text"));
+        let wrong_number = Bindings { seed: vec![pick("2", "text")], ..Default::default() };
+        assert!(validate_bindings(&graph, &wrong_number).unwrap_err().contains("no longer a number"));
+    }
+
+    #[test]
+    fn castles_values_go_into_the_chosen_inputs_and_the_rest_keep_the_members_own() {
+        let graph = txt2img_graph("m.safetensors", "the old words", 640, 480, 5, 20);
+        let bindings = Bindings { prompt: vec![pick("2", "text")], width: vec![pick("4", "width")], height: vec![pick("4", "height")], seed: vec![pick("5", "seed")], steps: Vec::new() };
+        let values = Values { prompt: "a red car", width: 1024, height: 1536, seed: 77, steps: 30 };
+        let built = build_own(&graph, &bindings, &values).unwrap();
+        assert_eq!(built["2"]["inputs"]["text"], "a red car");
+        assert_eq!((built["4"]["inputs"]["width"].clone(), built["4"]["inputs"]["height"].clone()), (json!(1024), json!(1536)));
+        assert_eq!(built["5"]["inputs"]["seed"], json!(77));
+        assert_eq!(built["5"]["inputs"]["steps"], json!(20), "steps were not chosen, so the member's own stay");
+        assert_eq!(built["3"]["inputs"]["text"], "blurry, low quality, deformed, watermark, text", "the negative prompt was not chosen");
+        assert_eq!(graph["2"]["inputs"]["text"], "the old words", "the member's workflow itself is never changed");
+        // the prompt may go into several inputs
+        let two = Bindings { prompt: vec![pick("2", "text"), pick("3", "text")], ..Default::default() };
+        let both = build_own(&graph, &two, &values).unwrap();
+        assert_eq!((both["2"]["inputs"]["text"].clone(), both["3"]["inputs"]["text"].clone()), (json!("a red car"), json!("a red car")));
+    }
+
+    #[test]
+    fn placeholders_are_filled_first_so_a_chosen_prompt_is_never_filled_again() {
+        let mut graph = own_workflow();
+        graph["latent"]["inputs"]["width"] = json!("{{width}}");
+        let bindings = Bindings { prompt: vec![pick("text", "prompt")], ..Default::default() };
+        let values = Values { prompt: "a sign that says {{width}} and {{prompt}}", width: 1024, height: 1024, seed: 1, steps: 20 };
+        let built = build_own(&graph, &bindings, &values).unwrap();
+        assert_eq!(built["text"]["inputs"]["prompt"], "a sign that says {{width}} and {{prompt}}");
+        assert_eq!(built["latent"]["inputs"]["width"], json!(1024));
+        // a chosen input that is not there stops it, before anything is queued
+        assert!(build_own(&graph, &Bindings { prompt: vec![pick("gone", "prompt")], ..Default::default() }, &values).unwrap_err().contains("Your workflow changed"));
+    }
+
+    #[test]
+    fn the_chosen_inputs_stay_with_their_file_and_older_settings_have_none() {
+        let with = ComfySettings { workflow: "a.json".into(), bindings: Bindings { prompt: vec![pick("6", "text")], ..Default::default() }, ..Default::default() };
+        assert_eq!(bindings_after(&with, "a.json"), with.bindings, "the same file keeps its choices");
+        assert_eq!(bindings_after(&with, "b.json"), Bindings::default(), "another file starts clean");
+        assert_eq!(bindings_after(&with, ""), Bindings::default());
+        let old: ComfySettings = serde_json::from_str(r#"{"on":true,"workflow":"x.json"}"#).unwrap();
+        assert_eq!(old.bindings, Bindings::default());
+        // what the Settings page sends
+        let sent: Bindings = serde_json::from_str(r#"{"prompt":[{"node":"6","input":"text"}],"width":[]}"#).unwrap();
+        assert_eq!(sent, Bindings { prompt: vec![pick("6", "text")], ..Default::default() });
+    }
+
+    #[test]
+    fn a_workflow_with_no_placeholder_draws_through_the_chosen_prompt_input() {
+        let mut graph = own_workflow();
+        graph["text"]["inputs"]["prompt"] = json!("old words");
+        graph["latent"]["inputs"]["width"] = json!(512);
+        graph["latent"]["inputs"]["height"] = json!(512);
+        graph["sample"]["inputs"]["seed"] = json!(1);
+        graph["sample"]["inputs"]["steps"] = json!(28);
+        graph["save"]["inputs"]["filename_prefix"] = json!("own");
+        let bindings = Bindings { prompt: vec![pick("text", "prompt")], width: vec![pick("latent", "width")], height: vec![pick("latent", "height")], seed: vec![pick("sample", "seed")], steps: Vec::new() };
+        let comfy = comfy_that_draws(&[], vec![0x89, b'P', b'N', b'G', 3]);
+        let settings = ComfySettings { workflow: own_file("wf-bound", &graph), bindings, ..settings_for(&comfy, "") };
+        let out = temp("wf-bound-out").join("p.png");
+        let brief = Brief { prompt: "a myvi in hotwheel style", size: Some("1536x1024"), quality: Some("high") };
+        draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        let sent = sent_graph(&comfy);
+        assert_eq!(sent["text"]["inputs"]["prompt"], "a myvi in hotwheel style");
+        assert_eq!((sent["latent"]["inputs"]["width"].clone(), sent["latent"]["inputs"]["height"].clone()), (json!(1536), json!(1024)));
+        assert!(sent["sample"]["inputs"]["seed"].as_u64().is_some_and(|seed| seed > 1), "a fresh seed went in");
+        assert_eq!(sent["sample"]["inputs"]["steps"], json!(28), "the member's own steps stayed: they did not choose them");
+    }
+
+    #[test]
+    fn a_workflow_that_changed_since_the_choice_stops_the_drawing_before_comfyui_is_asked() {
+        let comfy = comfy_that_draws(&[], vec![0x89, b'P', b'N', b'G']);
+        let mut graph = own_workflow();
+        graph["text"]["inputs"]["prompt"] = json!("fixed words");
+        let bindings = Bindings { prompt: vec![pick("text", "gone_input")], ..Default::default() };
+        let settings = ComfySettings { workflow: own_file("wf-changed", &graph), bindings, ..settings_for(&comfy, "") };
+        let out = temp("wf-changed-out").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        let said = draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err();
+        assert!(said.contains("Your workflow changed") && said.contains("Import"), "{said}");
+        assert!(comfy.asked().is_empty(), "ComfyUI must not be contacted for a workflow that cannot be filled");
+        // and with no placeholder and nothing chosen it says where the words go
+        let none = ComfySettings { bindings: Bindings::default(), ..settings.clone() };
+        assert!(draw(&none, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err().contains("Tell Castle where the words"));
+    }
+
     /// The whole drawing path against the member's real ComfyUI, as Castle's worker runs it: starts
     /// it when it is not running (CASTLE_COMFY_START), draws a plain picture with the checkpoint
     /// (CASTLE_COMFY_MODEL, default the first) or with the member's own workflow file
@@ -1704,6 +2126,7 @@ mod tests {
             model: std::env::var("CASTLE_COMFY_MODEL").unwrap_or_default(),
             workflow: std::env::var("CASTLE_COMFY_WORKFLOW").unwrap_or_default(),
             limit_minutes: 0,
+            bindings: Bindings::default(),
         };
         let launcher = Launcher::default();
         let out = std::env::temp_dir().join(format!("castle-comfy-draw-{}.png", std::process::id()));
@@ -1733,7 +2156,7 @@ mod tests {
         let began = Instant::now();
         ensure_up(&server, &start, &launcher, &log, START_LIMIT, Duration::from_secs(1), &no_stop).unwrap();
         println!("answered {:.0} s after the start command; running by Castle: {}", began.elapsed().as_secs_f32(), launcher.running());
-        let status = status_of(&server, &launcher, "");
+        let status = status_of(&server, &launcher, &ComfySettings::default());
         println!("{status:?}");
         assert!(status.up && status.started_by_castle);
         stop_started(&launcher);

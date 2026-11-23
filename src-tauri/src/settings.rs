@@ -1088,7 +1088,7 @@ mod tests {
             sweep: crate::sweep::SweepSettings { look: Some("broom".into()), recycle_bin: true },
             sentinel: crate::sentinel::SentinelSettings { on: true, model: Some("opus".into()), patrol_minutes: 30 },
             credits: crate::credits::CreditsSaved { seedance_budget: Some(20.0), suno_peak: Some(800.0), ..Default::default() },
-            comfy: crate::comfy::ComfySettings { on: true, address: "http://127.0.0.1:8188".into(), start: "start.bat".into(), model: "m.safetensors".into(), workflow: "qwen.json".into(), limit_minutes: 20 },
+            comfy: crate::comfy::ComfySettings { on: true, address: "http://127.0.0.1:8188".into(), start: "start.bat".into(), model: "m.safetensors".into(), workflow: "qwen.json".into(), limit_minutes: 20, bindings: crate::comfy::Bindings { prompt: vec![crate::comfy::Target { node: "6".into(), input: "text".into() }], ..Default::default() } },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings, None));
