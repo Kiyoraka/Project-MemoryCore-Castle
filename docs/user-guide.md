@@ -59,6 +59,8 @@ If the download cannot happen (no internet, for example), Castle still opens and
 
 The panel on the left belongs to your companion. When the session is not running you see **Wake** with your companion's name. Press it to start Claude Code or Codex in your MemoryCore folder.
 
+**Continue or start fresh.** Your companion wakes with its full memory either way; the difference is the conversation. Picking the last talk up reads all of it back on the first turn, which costs many tokens once a talk is long, while a fresh session wakes from memory alone. **Settings > Companion > When Castle starts** chooses: **Continue** always picks the last talk up, **After a rest** (the default) picks it up within six hours and starts fresh after that, and **Fresh** always starts new. Beside **Wake**, **Start fresh** starts a new talk once, whatever the setting says. What was said but not saved stays in the old talk. To start fresh while your companion is awake, type `/clear` in the Log: Chat follows the new talk, and the next start picks that one up, not the one before it.
+
 If Castle cannot start the session, the panel says why in one sentence and offers the fix:
 
 | What the panel says | What to do |

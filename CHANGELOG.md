@@ -4,6 +4,10 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Fixed: after /clear, your companion's replies stayed in the Log and never reached Chat, and reopening Castle went back to the talk from before the /clear. Chat now follows the new talk, and the next start picks that one up.
+
+- Choose how your companion's session starts in Settings > Companion > When Castle starts: Continue, After a rest (new default: picks the talk up within six hours, fresh after that) or Fresh. A fresh session wakes with its full memory and uses far fewer tokens than reading a long talk back. Start fresh beside Wake does it once.
+
 - Fixed: HOME's widgets and the chat panel now stay exactly where they are. There is one arrangement for every theme: a theme only decides where a widget first appears, and after that changing theme or restarting Castle never moves it (the chat panel no longer jumps to the right in Sunset Shore). The AUTOMATIONS and CALENDAR cards were also forgetting their place, size and off switch at every restart, which piled them over the other cards; they are kept now. "Back to the theme's places" is now "Reset the layout".
 
 ## 0.3.0 - 2026-11-23
