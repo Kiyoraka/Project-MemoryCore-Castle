@@ -1333,6 +1333,22 @@ mod tests {
     }
 
     #[test]
+    fn the_prompt_may_go_in_as_many_places_as_the_workflow_wants_and_a_negative_keeps_its_own_words() {
+        // two positive prompt nodes (say, a main and a refiner) and a negative one the member wrote themselves
+        let graph = json!({
+            "a": { "class_type": "CLIPTextEncode", "inputs": { "text": "{{prompt}}" } },
+            "b": { "class_type": "CLIPTextEncode", "inputs": { "text": "masterpiece, {{prompt}}, sharp" } },
+            "c": { "class_type": "CLIPTextEncode", "inputs": { "text": "blurry, watermark" } },
+            "save": { "class_type": "SaveImage", "inputs": { "images": ["a", 0] } }
+        });
+        assert!(parse_workflow(&graph.to_string()).is_ok());
+        let filled = fill(&graph, &Values { prompt: "a red car", width: 1024, height: 1024, seed: 1, steps: 20 });
+        assert_eq!(filled["a"]["inputs"]["text"], "a red car");
+        assert_eq!(filled["b"]["inputs"]["text"], "masterpiece, a red car, sharp");
+        assert_eq!(filled["c"]["inputs"]["text"], "blurry, watermark", "a node without the placeholder is the member's own and stays");
+    }
+
+    #[test]
     fn a_workflow_file_is_read_with_its_problems_said_before_anything_runs() {
         let good = own_file("wf-good", &own_workflow());
         assert!(read_workflow(&good).is_ok());
