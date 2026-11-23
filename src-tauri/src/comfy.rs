@@ -501,4 +501,37 @@ mod tests {
         let empty = Fake::new(|_| (200, Vec::new()));
         assert!(empty.server.fetch(&Picture { filename: "x.png".into(), subfolder: String::new(), kind: "output".into() }).unwrap_err().contains("empty"));
     }
+
+    /// Against a real ComfyUI with at least one checkpoint, started by hand:
+    /// `cargo test --manifest-path src-tauri/Cargo.toml comfy::tests::live -- --ignored --nocapture`
+    /// CASTLE_COMFY_ADDRESS sets the address (default http://127.0.0.1:8188); the picture lands in
+    /// the temp folder and its path is printed. Draws one small picture with the first checkpoint.
+    #[test]
+    #[ignore]
+    fn live_a_real_comfyui_draws_one_small_picture() {
+        let server = parse_address(&std::env::var("CASTLE_COMFY_ADDRESS").unwrap_or_default()).unwrap();
+        server.ping().unwrap();
+        let checkpoints = server.checkpoints().unwrap();
+        println!("checkpoints: {checkpoints:?}");
+        let checkpoint = checkpoints.first().expect("this ComfyUI has no checkpoint to draw with").clone();
+        let graph = json!({
+            "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": checkpoint } },
+            "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "a small red lantern on a wooden table, soft light, photo", "clip": ["1", 1] } },
+            "3": { "class_type": "CLIPTextEncode", "inputs": { "text": "blurry, text, watermark", "clip": ["1", 1] } },
+            "4": { "class_type": "EmptyLatentImage", "inputs": { "width": 768, "height": 768, "batch_size": 1 } },
+            "5": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": 7, "steps": 12, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0 } },
+            "6": { "class_type": "VAEDecode", "inputs": { "samples": ["5", 0], "vae": ["1", 2] } },
+            "7": { "class_type": "SaveImage", "inputs": { "images": ["6", 0], "filename_prefix": "castle-live-test" } }
+        });
+        let started = Instant::now();
+        let id = server.submit(&graph, "castle-live-test").unwrap();
+        println!("queued as {id}");
+        let pictures = server.wait(&id, Duration::from_secs(600), Duration::from_secs(1), &no_stop).unwrap();
+        println!("drawn in {:.0} s: {pictures:?}", started.elapsed().as_secs_f32());
+        let bytes = server.fetch(&pictures[0]).unwrap();
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']), "not a PNG");
+        let out = std::env::temp_dir().join(format!("castle-comfy-live-{}.png", std::process::id()));
+        std::fs::write(&out, &bytes).unwrap();
+        println!("saved {} ({} bytes)", out.display(), bytes.len());
+    }
 }
