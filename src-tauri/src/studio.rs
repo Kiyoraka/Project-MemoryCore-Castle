@@ -201,8 +201,11 @@ pub async fn picture_way() -> Result<&'static str, String> {
 
 #[tauri::command]
 pub async fn studio_powers(store: State<'_, SettingsStore>) -> Result<Powers, String> {
-    let mut available = powers(store.get().cli, &|name| key::load(name).is_some());
-    available.image = picture_state(current_picture_way().await);
+    let settings = store.get();
+    let mut available = powers(settings.cli, &|name| key::load(name).is_some());
+    // the member's own ComfyUI, once turned on, is a way to draw too (a plain picture; see
+    // env::drawing_way for the ones it leaves to Codex or the key)
+    available.image = if settings.comfy.on { "ready" } else { picture_state(current_picture_way().await) };
     Ok(available)
 }
 

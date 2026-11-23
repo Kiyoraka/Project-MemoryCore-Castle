@@ -368,6 +368,96 @@ pub fn ensure_up(server: &Server, start: &str, launcher: &Launcher, log: &Path, 
     }
 }
 
+/// What to draw: the member's words, and the size and quality a STUDIO workflow asked for.
+pub struct Brief<'a> {
+    pub prompt: &'a str,
+    /// "1024x1024", "1024x1536" or "1536x1024"; anything else (or none) is the square one
+    pub size: Option<&'a str>,
+    /// "low", "medium" or "high"; anything else (or none) is medium
+    pub quality: Option<&'a str>,
+}
+
+/// Said to a checkpoint that does not know our words: keeps the plainest faults out.
+const NEGATIVE: &str = "blurry, low quality, deformed, watermark, text";
+
+/// Width and height in pixels. Castle's three sizes are all comfortable for an SDXL-class checkpoint.
+pub fn dimensions(size: Option<&str>) -> (u32, u32) {
+    match size {
+        Some("1024x1536") => (1024, 1536),
+        Some("1536x1024") => (1536, 1024),
+        _ => (1024, 1024),
+    }
+}
+
+/// How many sampling steps a quality stands for: ComfyUI draws for free, so quality is time.
+pub fn steps_for(quality: Option<&str>) -> u32 {
+    match quality {
+        Some("low") => 12,
+        Some("high") => 30,
+        _ => 20,
+    }
+}
+
+/// The plain text-to-picture workflow every ComfyUI can run: load the checkpoint, encode the words
+/// and the faults to avoid, sample, decode, save. Only core nodes, so no custom node is needed.
+pub fn txt2img_graph(checkpoint: &str, prompt: &str, width: u32, height: u32, seed: u64, steps: u32) -> Value {
+    json!({
+        "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": checkpoint } },
+        "2": { "class_type": "CLIPTextEncode", "inputs": { "text": prompt, "clip": ["1", 1] } },
+        "3": { "class_type": "CLIPTextEncode", "inputs": { "text": NEGATIVE, "clip": ["1", 1] } },
+        "4": { "class_type": "EmptyLatentImage", "inputs": { "width": width, "height": height, "batch_size": 1 } },
+        "5": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": seed, "steps": steps, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0 } },
+        "6": { "class_type": "VAEDecode", "inputs": { "samples": ["5", 0], "vae": ["1", 2] } },
+        "7": { "class_type": "SaveImage", "inputs": { "images": ["6", 0], "filename_prefix": "castle" } }
+    })
+}
+
+/// The checkpoint to draw with: the one the member named, else the first ComfyUI lists. A name
+/// ComfyUI does not have is said so, with what it does have.
+pub fn choose_checkpoint(wanted: &str, have: &[String]) -> Result<String, String> {
+    let wanted = wanted.trim();
+    if have.is_empty() {
+        return Err("This ComfyUI lists no checkpoint to draw with. Put one in its checkpoints folder.".into());
+    }
+    if wanted.is_empty() {
+        return Ok(have[0].clone());
+    }
+    if have.iter().any(|name| name == wanted) {
+        return Ok(wanted.to_string());
+    }
+    let shown: Vec<&str> = have.iter().take(5).map(String::as_str).collect();
+    Err(format!("ComfyUI does not have the checkpoint {wanted}. It has: {}{}.", shown.join(", "), if have.len() > 5 { ", ..." } else { "" }))
+}
+
+/// A number that differs every time, for the sampler's seed and the request's name.
+fn fresh_number() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1)
+}
+
+/// Draws one picture with the member's own ComfyUI and saves it at `output`: makes sure ComfyUI is
+/// there (running the start command if it is not), queues the plain workflow, waits up to `limit`
+/// and keeps the first saved picture. `stop` is asked all the while; a Stop cancels the workflow.
+pub fn draw(settings: &ComfySettings, launcher: &Launcher, log: &Path, brief: &Brief, output: &Path, limit: Duration, stop: &dyn Fn() -> bool) -> Result<(), String> {
+    let server = settings.server()?;
+    ensure_up(&server, &settings.start, launcher, log, START_LIMIT, Duration::from_secs(1), stop)?;
+    let checkpoint = choose_checkpoint(&settings.model, &server.checkpoints()?)?;
+    let (width, height) = dimensions(brief.size);
+    let graph = txt2img_graph(&checkpoint, brief.prompt, width, height, fresh_number(), steps_for(brief.quality));
+    let id = server.submit(&graph, &format!("castle-{}", fresh_number()))?;
+    let pictures = server.wait(&id, limit, Duration::from_secs(1), stop)?;
+    let bytes = server.fetch(&pictures[0])?;
+    if let Some(folder) = output.parent() {
+        std::fs::create_dir_all(folder).map_err(|_| "The picture's folder could not be made.".to_string())?;
+    }
+    // whole or not at all: a half-written picture must never look like a drawing
+    let part = output.with_extension("png.part");
+    std::fs::write(&part, &bytes).map_err(|_| "The picture could not be saved.".to_string())?;
+    std::fs::rename(&part, output).map_err(|_| {
+        let _ = std::fs::remove_file(&part);
+        "The picture could not be saved.".to_string()
+    })
+}
+
 fn start_log(store: &SettingsStore) -> std::path::PathBuf {
     store.folder().join("comfy-start.log")
 }
@@ -884,6 +974,144 @@ mod tests {
         // quitting Castle ends what Castle started, and only that
         stop_started(&launcher);
         assert!(!launcher.running());
+    }
+
+    /// A ComfyUI that holds `checkpoints` and draws `picture` for whatever it is asked.
+    fn comfy_that_draws(checkpoints: &[&str], picture: Vec<u8>) -> Fake {
+        let names: Vec<String> = checkpoints.iter().map(|c| c.to_string()).collect();
+        Fake::new(move |request| {
+            if request.starts_with("GET /system_stats ") {
+                ok(json!({ "system": {} }))
+            } else if request.starts_with("GET /object_info/CheckpointLoaderSimple ") {
+                ok(json!({ "CheckpointLoaderSimple": { "input": { "required": { "ckpt_name": [names, {}] } } } }))
+            } else if request.starts_with("POST /prompt ") {
+                ok(json!({ "prompt_id": "p1", "node_errors": {} }))
+            } else if request.starts_with("GET /history/p1 ") {
+                ok(done("p1", json!({ "7": { "images": [{ "filename": "castle_00001_.png", "subfolder": "", "type": "output" }] } })))
+            } else if request.starts_with("GET /view?") {
+                (200, picture.clone())
+            } else {
+                ok(json!({}))
+            }
+        })
+    }
+
+    fn settings_for(fake: &Fake, model: &str) -> ComfySettings {
+        ComfySettings { on: true, address: fake.server.address().into(), start: String::new(), model: model.into() }
+    }
+
+    fn sent_graph(fake: &Fake) -> Value {
+        let body = fake.asked().into_iter().find(|r| r.starts_with("POST /prompt ")).expect("nothing was queued");
+        serde_json::from_str::<Value>(body.split("\r\n\r\n").nth(1).unwrap()).unwrap()["prompt"].clone()
+    }
+
+    #[test]
+    fn sizes_and_quality_become_pixels_and_steps() {
+        assert_eq!(dimensions(None), (1024, 1024));
+        assert_eq!(dimensions(Some("1024x1024")), (1024, 1024));
+        assert_eq!(dimensions(Some("1024x1536")), (1024, 1536));
+        assert_eq!(dimensions(Some("1536x1024")), (1536, 1024));
+        assert_eq!(dimensions(Some("99x99")), (1024, 1024));
+        assert_eq!((steps_for(Some("low")), steps_for(Some("medium")), steps_for(Some("high")), steps_for(None), steps_for(Some("odd"))), (12, 20, 30, 20, 20));
+    }
+
+    #[test]
+    fn the_plain_workflow_holds_the_choices_and_every_link_points_at_a_real_node() {
+        let graph = txt2img_graph("m.safetensors", "a lantern", 1024, 1536, 42, 30);
+        assert_eq!(graph["1"]["inputs"]["ckpt_name"], "m.safetensors");
+        assert_eq!(graph["2"]["inputs"]["text"], "a lantern");
+        assert_eq!(graph["4"]["inputs"]["width"], 1024);
+        assert_eq!(graph["4"]["inputs"]["height"], 1536);
+        assert_eq!(graph["5"]["inputs"]["seed"], 42);
+        assert_eq!(graph["5"]["inputs"]["steps"], 30);
+        assert_eq!(graph["7"]["class_type"], "SaveImage");
+        // every ["node", slot] in the graph names a node that exists
+        for (_, node) in graph.as_object().unwrap() {
+            for (_, input) in node["inputs"].as_object().unwrap() {
+                if let Some([target, _]) = input.as_array().map(Vec::as_slice) {
+                    assert!(graph.get(target.as_str().unwrap()).is_some(), "a link to a missing node: {target}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_checkpoint_is_the_named_one_else_the_first_and_a_wrong_name_lists_what_there_is() {
+        let have: Vec<String> = ["a.safetensors", "b.ckpt"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(choose_checkpoint("", &have).unwrap(), "a.safetensors");
+        assert_eq!(choose_checkpoint(" b.ckpt ", &have).unwrap(), "b.ckpt");
+        let said = choose_checkpoint("c.ckpt", &have).unwrap_err();
+        assert!(said.contains("does not have the checkpoint c.ckpt") && said.contains("a.safetensors, b.ckpt"), "{said}");
+        assert!(choose_checkpoint("", &[]).unwrap_err().contains("no checkpoint"));
+        let many: Vec<String> = (0..8).map(|n| format!("m{n}.safetensors")).collect();
+        assert!(choose_checkpoint("x", &many).unwrap_err().ends_with("m4.safetensors, ...."));
+    }
+
+    #[test]
+    fn a_picture_is_drawn_and_saved_where_it_was_asked() {
+        let png = vec![0x89, b'P', b'N', b'G', 1, 2, 3];
+        let comfy = comfy_that_draws(&["a.safetensors"], png.clone());
+        let out = temp("draw").join("deep").join("castle-1.png");
+        let brief = Brief { prompt: "a red lantern", size: Some("1536x1024"), quality: Some("high") };
+        draw(&settings_for(&comfy, ""), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), png);
+        assert!(!out.with_extension("png.part").exists());
+        let graph = sent_graph(&comfy);
+        assert_eq!(graph["1"]["inputs"]["ckpt_name"], "a.safetensors");
+        assert_eq!(graph["2"]["inputs"]["text"], "a red lantern");
+        assert_eq!((graph["4"]["inputs"]["width"].clone(), graph["4"]["inputs"]["height"].clone()), (json!(1536), json!(1024)));
+        assert_eq!(graph["5"]["inputs"]["steps"], 30);
+    }
+
+    #[test]
+    fn the_members_checkpoint_is_used_and_a_missing_one_draws_nothing() {
+        let comfy = comfy_that_draws(&["a.safetensors", "b.safetensors"], vec![0x89, b'P', b'N', b'G']);
+        let out = temp("model").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        draw(&settings_for(&comfy, "b.safetensors"), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap();
+        assert_eq!(sent_graph(&comfy)["1"]["inputs"]["ckpt_name"], "b.safetensors");
+
+        let other = comfy_that_draws(&["a.safetensors"], vec![1]);
+        let out = temp("model2").join("p.png");
+        let said = draw(&settings_for(&other, "zzz"), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err();
+        assert!(said.contains("does not have the checkpoint zzz"));
+        assert!(!out.exists());
+        assert!(!other.asked().iter().any(|r| r.starts_with("POST /prompt ")), "nothing may be queued with a wrong checkpoint");
+    }
+
+    #[test]
+    fn a_comfyui_that_is_not_there_and_cannot_be_started_draws_nothing() {
+        let settings = ComfySettings { on: true, address: nothing_listens().address().into(), start: String::new(), model: String::new() };
+        let out = temp("down").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        let said = draw(&settings, &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(5), &no_stop).unwrap_err();
+        assert!(said.contains("Is it running?") && said.contains("start command"), "{said}");
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn stop_while_it_draws_cancels_the_job_and_saves_nothing() {
+        let comfy = Fake::new(|request| {
+            if request.starts_with("GET /system_stats ") {
+                ok(json!({ "system": {} }))
+            } else if request.starts_with("GET /object_info/") {
+                ok(json!({ "CheckpointLoaderSimple": { "input": { "required": { "ckpt_name": [["a.safetensors"], {}] } } } }))
+            } else if request.starts_with("POST /prompt ") {
+                ok(json!({ "prompt_id": "p1" }))
+            } else if request.starts_with("GET /queue ") {
+                ok(json!({ "queue_running": [[0, "p1", {}, {}, []]] }))
+            } else {
+                ok(json!({}))
+            }
+        });
+        let out = temp("stop").join("p.png");
+        let brief = Brief { prompt: "x", size: None, quality: None };
+        let looks = AtomicUsize::new(0);
+        let stop = || looks.fetch_add(1, Ordering::SeqCst) >= 4;
+        let said = draw(&settings_for(&comfy, ""), &Launcher::default(), &out.with_extension("log"), &brief, &out, Duration::from_secs(60), &stop).unwrap_err();
+        assert_eq!(said, "Stopped.");
+        assert!(!out.exists());
+        assert!(comfy.asked().iter().any(|r| r.starts_with("POST /interrupt ")));
     }
 
     /// Needs the member's own start file: CASTLE_COMFY_START (a path or command) with ComfyUI not
