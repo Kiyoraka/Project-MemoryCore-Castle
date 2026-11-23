@@ -66,6 +66,17 @@ pub(crate) fn newest_record(cli: Cli, folder: &Path, started: SystemTime) -> Opt
     }
 }
 
+/// Claude Code's /clear goes on in a new record: moves Castle's pin there when this session's
+/// own turn started it (Codex's Chat already follows the newest rollout).
+fn follow_a_clear(cli: Cli, folder: &Path, host: &crate::pty::PtyHost) {
+    if cli != Cli::Claude {
+        return;
+    }
+    if let Some(records) = claude::projects_root().map(|root| root.join(claude::project_folder_name(&folder.display().to_string()))) {
+        claude::follow_clear(&records, &host.recent_enters());
+    }
+}
+
 /// A DEV tab's Chat: the newest record of that project's session, followed like the main room's
 /// (a fresh record after /clear is picked up), without the main room's journal.
 pub fn follow_folder(chat: &ChatState, host: &crate::pty::PtyHost, cli: Cli, folder: &Path) -> ChatPoll {
@@ -74,6 +85,7 @@ pub fn follow_folder(chat: &ChatState, host: &crate::pty::PtyHost, cli: Cli, fol
         return empty("asleep");
     };
     let cli = host.provider().unwrap_or(cli);
+    follow_a_clear(cli, folder, host);
     let Some((newest, follow)) = newest_record(cli, folder, started) else {
         return empty("waiting");
     };
@@ -122,6 +134,7 @@ pub fn chat_poll(
     let Some(folder) = room.folder(&settings) else {
         return empty("waiting");
     };
+    follow_a_clear(settings.cli, &folder, host);
     let Some((newest, follow)) = newest_record(settings.cli, &folder, started) else {
         return empty("waiting");
     };

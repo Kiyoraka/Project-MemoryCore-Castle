@@ -126,6 +126,52 @@ pub fn set_own_session(records_folder: PathBuf, id: String) {
     }
 }
 
+/// How long after a turn Castle sent a record born in the folder counts as that turn's.
+pub const CLEAR_GRACE: Duration = Duration::from_secs(20);
+
+/// After a /clear Claude Code goes on under a new id, in a new record, and Chat pinned to the
+/// old one would never see another line. The pin moves to a record Castle caused: born within
+/// CLEAR_GRACE after a turn Castle sent (`enters`), and after the pinned record's last write (the
+/// old talk went quiet). A conversation the member starts in a terminal of their own in the same
+/// folder is not born of Castle's turn, and Castle's own record keeps growing beside it, so the
+/// pin stays. Returns the new id when the pin moved.
+pub fn follow_clear(folder: &Path, enters: &[SystemTime]) -> Option<String> {
+    let (dir, id) = OWN_SESSION.lock().ok()?.clone()?;
+    if dir != folder || enters.is_empty() {
+        return None;
+    }
+    let pinned = dir.join(format!("{id}.jsonl"));
+    let quiet_since = pinned.metadata().and_then(|m| m.modified()).ok()?;
+    let candidates: Vec<(PathBuf, SystemTime, u64)> = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl"))
+        .filter_map(|p| {
+            let meta = p.metadata().ok()?;
+            Some((p, meta.created().ok()?, meta.len()))
+        })
+        .collect();
+    let found = pick_cleared(candidates, &pinned, quiet_since, enters)?;
+    let new_id = found.file_stem()?.to_str()?.to_string();
+    set_own_session(dir, new_id.clone());
+    Some(new_id)
+}
+
+fn pick_cleared(candidates: Vec<(PathBuf, SystemTime, u64)>, pinned: &Path, quiet_since: SystemTime, enters: &[SystemTime]) -> Option<PathBuf> {
+    let after_a_turn = |born: SystemTime| {
+        enters.iter().any(|sent| {
+            let early = sent.checked_sub(Duration::from_secs(2)).unwrap_or(*sent);
+            born >= early && born <= *sent + CLEAR_GRACE
+        })
+    };
+    candidates
+        .into_iter()
+        .filter(|(path, born, len)| path != pinned && *born > quiet_since && *len <= FALLBACK_LIMIT && after_a_turn(*born))
+        .max_by_key(|(_, born, _)| *born)
+        .map(|(path, _, _)| path)
+}
+
 pub fn newest_record(folder: &Path, since: SystemTime) -> Option<PathBuf> {
     let own = OWN_SESSION.lock().ok().and_then(|own| own.clone());
     if let Some((dir, id)) = own.filter(|(dir, _)| dir == folder) {
@@ -378,6 +424,28 @@ mod tests {
 
         assert_eq!(newest_record(&folder, SystemTime::now()), Some(path));
         assert_eq!(newest_record(&folder, SystemTime::now() + Duration::from_secs(3600)), None);
+    }
+
+    #[test]
+    fn the_pin_moves_only_to_a_record_a_sent_turn_started_after_the_old_talk_went_quiet() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let pinned = PathBuf::from("old.jsonl");
+        let cleared = (PathBuf::from("new.jsonl"), at(105), 10);
+        // Castle sent "/clear" at 100 and the next line at 104; the old record last grew at 90
+        assert_eq!(pick_cleared(vec![cleared.clone()], &pinned, at(90), &[at(100), at(104)]), Some(PathBuf::from("new.jsonl")));
+        // no turn of Castle's near its birth: the member's own terminal
+        assert_eq!(pick_cleared(vec![cleared.clone()], &pinned, at(90), &[at(10)]), None);
+        // the old record kept growing after it was born: both talks are alive, the pin stays
+        assert_eq!(pick_cleared(vec![cleared.clone()], &pinned, at(110), &[at(100)]), None);
+        // the pinned record itself is never "a new one", and an outsized record is never taken
+        assert_eq!(pick_cleared(vec![(pinned.clone(), at(105), 10)], &pinned, at(90), &[at(100)]), None);
+        assert_eq!(pick_cleared(vec![(PathBuf::from("big.jsonl"), at(105), FALLBACK_LIMIT + 1)], &pinned, at(90), &[at(100)]), None);
+        // born past the grace after the last turn
+        assert_eq!(pick_cleared(vec![(PathBuf::from("late.jsonl"), at(100 + 21), 10)], &pinned, at(90), &[at(100)]), None);
+        // two cleared records (two /clear in a row): the newest is the talk now
+        let second = (PathBuf::from("newer.jsonl"), at(130), 10);
+        assert_eq!(pick_cleared(vec![cleared, second], &pinned, at(90), &[at(100), at(125)]), Some(PathBuf::from("newer.jsonl")));
     }
 
     #[test]

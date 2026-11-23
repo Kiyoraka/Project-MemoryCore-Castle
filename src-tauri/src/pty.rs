@@ -155,10 +155,29 @@ pub struct PtyHost {
     last_output: Arc<Mutex<Option<std::time::Instant>>>,
     /// When the member last typed into it.
     last_input: Mutex<Option<std::time::Instant>>,
+    /// When the session's recent turns were sent (Enter), newest last: a record the CLI starts
+    /// right after one of them is this session's own (a /clear goes on in a new record).
+    enters: Mutex<std::collections::VecDeque<std::time::SystemTime>>,
 }
+
+/// How many sent turns the host remembers for finding a record a /clear started.
+const ENTERS_KEPT: usize = 32;
 
 impl PtyHost {
     pub fn last_input_time(&self) -> Option<std::time::SystemTime> { *self.input_time.lock().unwrap() }
+
+    /// When this session's recent turns were sent, oldest first.
+    pub fn recent_enters(&self) -> Vec<std::time::SystemTime> {
+        self.enters.lock().unwrap().iter().copied().collect()
+    }
+
+    fn note_enter(&self) {
+        let mut enters = self.enters.lock().unwrap();
+        enters.push_back(std::time::SystemTime::now());
+        while enters.len() > ENTERS_KEPT {
+            enters.pop_front();
+        }
+    }
     pub fn provider(&self) -> Option<crate::settings::Cli> {
         if self.is_running() { *self.provider.lock().unwrap() } else { None }
     }
@@ -203,6 +222,7 @@ impl PtyHost {
             *next
         };
         self.scrollback.lock().unwrap().clear();
+        self.enters.lock().unwrap().clear();
         let scrollback = Arc::clone(&self.scrollback);
         let last_output = Arc::clone(&self.last_output);
         *last_output.lock().unwrap() = Some(std::time::Instant::now());
@@ -240,6 +260,9 @@ impl PtyHost {
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
         *self.input_time.lock().unwrap() = Some(std::time::SystemTime::now());
         *self.last_input.lock().unwrap() = Some(std::time::Instant::now());
+        if data.contains(&b'\r') {
+            self.note_enter();
+        }
         self.write_quietly(data)
     }
 
@@ -279,6 +302,7 @@ impl PtyHost {
         self.mark_input();
         self.write_quietly(word.as_bytes())?;
         std::thread::sleep(std::time::Duration::from_millis(150));
+        self.note_enter();
         self.write_quietly(b"\r")
     }
 
