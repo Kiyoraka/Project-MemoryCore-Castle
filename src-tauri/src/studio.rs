@@ -119,10 +119,14 @@ pub fn library_of(folder: &Path, shelves: &[&str]) -> Library {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Powers {
+    /// How a picture with a reference or an APPEARANCE look would be drawn: Codex or the key.
     pub image: &'static str,
     pub video: &'static str,
     pub song: &'static str,
     pub voice: &'static str,
+    /// The member's own ComfyUI is on: it draws a plain text picture first. Kept apart from
+    /// `image` because ComfyUI cannot draw a reference or an APPEARANCE look.
+    pub comfy: bool,
 }
 
 pub fn powers(cli: Cli, has: &dyn Fn(&str) -> bool) -> Powers {
@@ -132,6 +136,7 @@ pub fn powers(cli: Cli, has: &dyn Fn(&str) -> bool) -> Powers {
         video: state("seedance"),
         song: state("suno"),
         voice: state("elevenlabs"),
+        comfy: false,
     }
 }
 
@@ -203,9 +208,10 @@ pub async fn picture_way() -> Result<&'static str, String> {
 pub async fn studio_powers(store: State<'_, SettingsStore>) -> Result<Powers, String> {
     let settings = store.get();
     let mut available = powers(settings.cli, &|name| key::load(name).is_some());
-    // the member's own ComfyUI, once turned on, is a way to draw too (a plain picture; see
-    // env::drawing_way for the ones it leaves to Codex or the key)
-    available.image = if settings.comfy.on { "ready" } else { picture_state(current_picture_way().await) };
+    available.image = picture_state(current_picture_way().await);
+    // the member's own ComfyUI, once turned on, draws a plain picture first (env::drawing_way);
+    // `image` stays the honest state of the ways that draw the rest
+    available.comfy = settings.comfy.on;
     Ok(available)
 }
 
@@ -342,6 +348,8 @@ mod tests {
         let p = powers(Cli::Claude, &only_suno);
         assert_eq!((p.image, p.video, p.song, p.voice), ("prompt", "prompt", "ready", "prompt"));
         assert_eq!(powers(Cli::Codex, &only_suno).image, "builtin");
+        // ComfyUI is its own switch, set from the settings; the keys never turn it on
+        assert!(!p.comfy);
     }
 
     #[test]

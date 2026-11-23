@@ -599,6 +599,25 @@ fn as_png(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     Ok(png.into_inner())
 }
 
+/// A file picker for the Settings page: the member's workflow ("workflow": a .json) or the file
+/// that starts ComfyUI ("start": .bat, .cmd, .sh or .command). None when they close it.
+#[tauri::command]
+pub async fn comfy_choose_file(app: AppHandle, kind: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let dialog = app.dialog().file();
+        let dialog = if kind == "workflow" {
+            dialog.set_title("Choose your ComfyUI workflow").add_filter("ComfyUI workflow (API format)", &["json"])
+        } else {
+            dialog.set_title("Choose the file that starts ComfyUI").add_filter("Start files", &["bat", "cmd", "sh", "command"])
+        };
+        dialog.blocking_pick_file().and_then(|file| file.into_path().ok()).map(|path| path.display().to_string())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 fn start_log(store: &SettingsStore) -> std::path::PathBuf {
     store.folder().join("comfy-start.log")
 }

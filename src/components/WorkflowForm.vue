@@ -12,6 +12,8 @@ const props = defineProps({
   entry: { type: Object, required: true },
   /** the Pictures power: 'ready' (the key), 'builtin' (Codex), 'prompt' (none) */
   way: { type: String, default: 'prompt' },
+  /** the member's own ComfyUI is on: it draws a plain text picture first */
+  comfy: { type: Boolean, default: false },
   loaded: { type: Boolean, default: true },
 })
 const emit = defineEmits(['keys', 'queued'])
@@ -32,7 +34,7 @@ watch(
   },
 )
 
-const action = computed(() => createAction(workflow.value, values.value, props.way, props.loaded, running.value))
+const action = computed(() => createAction(workflow.value, values.value, props.way, props.loaded, running.value, props.comfy))
 const show = (path) => (path ? convertFileSrc(path) : '')
 
 async function pick(block) {

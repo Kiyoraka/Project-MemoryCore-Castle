@@ -152,6 +152,17 @@ export const weatherGet = () => invoke('weather_get')
 export const weatherSearch = (query) => invoke('weather_search', { query })
 export const weatherSave = (place, units) => invoke('weather_save', { place, units })
 export const weatherHere = (lat, lon) => invoke('weather_here', { lat, lon })
+
+// The member's own ComfyUI (Settings > ComfyUI). The choices are { on, address, start, model, workflow, limitMinutes };
+// saved only by comfySave, which checks them (and the workflow file) and says why in plain words when it cannot.
+export const comfyGet = () => invoke('comfy_get')
+export const comfySave = (on, address, start, model, workflow, limitMinutes) => invoke('comfy_save', { on, address, start, model, workflow, limitMinutes })
+// -> { up, address, checkpoints, startedByCastle, message, workflowProblem }. comfyCheck only asks; comfyStart
+// runs the start file first when nothing answers and waits for ComfyUI to come up.
+export const comfyCheck = () => invoke('comfy_check')
+export const comfyStart = () => invoke('comfy_start')
+// A file picker: kind 'workflow' (a .json) or 'start' (.bat, .cmd, .sh); null when the member closes it.
+export const comfyChooseFile = (kind) => invoke('comfy_choose_file', { kind })
 export const weatherRead = (force = false) => invoke('weather_read', { force })
 
 // DISKS, HOME's drive-space card. diskDrives -> [{ mount, label, total, free (bytes), removable, media }]; read only.

@@ -7,6 +7,7 @@
 import GlassSelect from '../components/GlassSelect.vue'
 import AlertsPane from './AlertsPane.vue'
 import SentinelSettings from './SentinelSettings.vue'
+import ComfySettings from './ComfySettings.vue'
 import WidgetsView from './WidgetsView.vue'
 import { DEFAULT_PINS, setPinned } from '../launcher.js'
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
@@ -149,6 +150,12 @@ const title = computed(() => pageOf(tab.value).label)
 
 async function sentinelChanged() {
   settings.value = (await getSettings()).settings
+}
+
+// the ComfyUI page saves its own choices; Studio reads them too, so the rest of Castle is told
+async function comfyChanged() {
+  settings.value = (await getSettings()).settings
+  emit('saved')
 }
 
 async function widgetsChanged() {
@@ -931,6 +938,9 @@ onMounted(async () => {
 
           <!-- ============ Sentinel ============ -->
           <SentinelSettings v-else-if="tab === 'sentinel'" :settings="settings" @saved="sentinelChanged" />
+
+          <!-- ============ ComfyUI ============ -->
+          <ComfySettings v-else-if="tab === 'comfy'" :settings="settings" @saved="comfyChanged" />
 
           <!-- ============ Keys ============ -->
           <template v-else-if="tab === 'keys'">

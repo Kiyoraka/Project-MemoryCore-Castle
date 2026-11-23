@@ -26,6 +26,7 @@ export const SETTINGS_GROUPS = [
     id: 'connect',
     label: 'Connect',
     pages: [{ id: 'keys', label: 'Keys', subtitle: 'The keys for pictures, voice, songs and video.' },
+      { id: 'comfy', label: 'ComfyUI', subtitle: 'Draw pictures with your own ComfyUI.' },
       { id: 'automations', label: 'Automations', subtitle: 'Programs your scheduled jobs may run.' }],
   },
   {

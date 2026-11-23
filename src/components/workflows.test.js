@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ICONS, addBlock, companionBrief, createAction, describeAction, draftOf, emptyValues, fieldsOf, iconOf, insertable, missing, moveBlock, newWorkflow, removeBlock, runValues, usedIds } from './workflows.js'
+import { ICONS, addBlock, companionBrief, createAction, describeAction, draftOf, emptyValues, fieldsOf, iconOf, insertable, missing, moveBlock, needsPictures, newWorkflow, removeBlock, runValues, usedIds } from './workflows.js'
 
 const twoCharacters = {
   name: 'Two characters',
@@ -61,6 +61,20 @@ describe('workflows', () => {
     Object.assign(v.a, { picture: 'a.png' })
     Object.assign(v.b, { picture: 'b.png' })
     expect(createAction(twoCharacters, v, 'builtin')).toEqual({ kind: 'ready', label: 'Create picture' })
+  })
+
+  it("ComfyUI opens the picture button for a workflow with no pictures to follow, and only for that", () => {
+    const plain = { blocks: [{ id: 'scene', type: 'text', label: 'Scene' }, { type: 'create', prompt: '{{scene}}', references: [] }] }
+    const v = emptyValues(plain)
+    v.scene.text = 'tea'
+    expect(needsPictures(plain)).toBe(false)
+    expect(needsPictures(twoCharacters)).toBe(true)
+    expect(createAction(plain, v, 'prompt')).toEqual({ kind: 'key', label: 'Add the OpenAI key' })
+    expect(createAction(plain, v, 'prompt', true, false, true)).toEqual({ kind: 'ready', label: 'Create picture' })
+    // a workflow that follows pictures still needs Codex or the key: ComfyUI cannot draw those
+    expect(createAction(twoCharacters, emptyValues(twoCharacters), 'prompt', true, false, true)).toEqual({ kind: 'key', label: 'Add the OpenAI key' })
+    // reading a picture is not drawing: ComfyUI never opens Write prompt from picture
+    expect(describeAction(fromAPicture.blocks[1], emptyValues(fromAPicture), 'prompt').kind).toBe('key')
   })
 
   it('Write prompt from picture waits for its picture', () => {

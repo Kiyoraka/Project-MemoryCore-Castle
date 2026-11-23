@@ -31,6 +31,18 @@ describe("STUDIO's Make bar", () => {
     // and once Picture's own state is in, it reads normally again
     expect(makeAction('image', { image: 'ready' }, false, 'Mira', true)).toEqual({ kind: 'image', label: 'Create picture' })
   })
+  it("draws a plain picture with the member's ComfyUI even with no key, and names it on the pill", () => {
+    expect(makeAction('image', { image: 'prompt', comfy: true })).toEqual({ kind: 'image', label: 'Create picture' })
+    expect(powerPill('image', { image: 'prompt', comfy: true })).toEqual({ text: 'ComfyUI', tone: 'ready' })
+    // ComfyUI first, even when Codex or the key could draw too
+    expect(powerPill('image', { image: 'builtin', comfy: true }).text).toBe('ComfyUI')
+    // it is the Picture power only: nothing else changes, and off it changes nothing
+    expect(makeAction('video', { video: 'prompt', comfy: true })).toEqual({ kind: 'key', label: 'Add the Seedance key' })
+    expect(powerPill('video', { comfy: true }).text).toBe('Add a key')
+    expect(powerPill('image', { image: 'builtin', comfy: false }).text).toBe('Codex')
+    // still held back while the real state is read
+    expect(makeAction('image', { comfy: true }, false, 'Mira', false).kind).toBe('checking')
+  })
   it('types the ask and the cost question', () => {
     expect(companionLines('Make a short video of', '  a lake at dawn ')).toEqual(['Make a short video of a lake at dawn', 'Tell me the cost first and ask before you make it.'])
   })
