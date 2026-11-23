@@ -365,10 +365,13 @@ export const dbRestore = () => invoke('db_restore')
 export const dbExport = (to) => invoke('db_export', { to })
 // the way back: the memory becomes files in its folder again and the database is emptied
 export const dbMoveOut = () => invoke('db_move_out')
-// the memory's skills -> [{ plugin, name, description, stubbed }]; a stubbed skill keeps a small
-// SKILL.md on disk and its instructions are loaded from the database when it fires
+// the memory's skills -> [{ plugin, name, description, stubbed, fullBytes, stubBytes, flows }]; a
+// stubbed skill keeps a small SKILL.md on disk and its instructions are loaded from the database
+// when it fires (by flow, when it has flows)
 export const dbSkills = () => invoke('db_skills')
 export const dbSkillStub = (plugin, name, on) => invoke('db_skill_stub', { plugin, name, on })
+// every skill at once: all from the database (on) or all whole files again
+export const dbSkillStubAll = (on) => invoke('db_skill_stub_all', { on })
 // The emotion engine (PROFILE). A trait: { number, name, line, body, audience, origin, why, status, updatedAt }.
 export const dbTraits = () => invoke('db_traits')
 // draft = { name, line, body, audience, why }; number given = new words for that trait, else a new active one

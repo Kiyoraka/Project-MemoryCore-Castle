@@ -707,13 +707,28 @@ pub struct SkillRow {
     pub description: Option<String>,
     /// served as a stub: a small SKILL.md on disk, the instructions loaded from the database
     pub stubbed: bool,
+    /// the whole SKILL.md and its stub, in bytes: what a session reads either way
+    pub full_bytes: usize,
+    pub stub_bytes: usize,
+    /// the skill's flows (`skill show --for <flow>`)
+    pub flows: Vec<String>,
 }
 
 fn skill_rows(conn: &mut mysql::Conn) -> Result<Vec<SkillRow>, String> {
     use mysql::prelude::Queryable;
-    let rows: Vec<(String, String, Option<String>, bool)> =
-        conn.query("SELECT plugin, name, description, stubbed FROM skills ORDER BY plugin, name").map_err(|_| "The skills could not be read.".to_string())?;
-    Ok(rows.into_iter().map(|(plugin, name, description, stubbed)| SkillRow { plugin, name, description, stubbed }).collect())
+    let rows: Vec<(String, String, Option<String>, bool, Option<String>)> = conn
+        .query("SELECT s.plugin, s.name, s.description, s.stubbed, f.body FROM skills s LEFT JOIN skill_files f ON f.plugin = s.plugin AND f.name = s.name AND f.path = 'SKILL.md' ORDER BY s.plugin, s.name")
+        .map_err(|_| "The skills could not be read.".to_string())?;
+    let mut flows = crate::mirror::flow_names(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(plugin, name, description, stubbed, body)| {
+            let flows = flows.remove(&(plugin.clone(), name.clone())).unwrap_or_default();
+            let body = body.unwrap_or_default();
+            let stub_bytes = crate::mirror::stub_of(&plugin, &name, &body, &flows).len();
+            SkillRow { full_bytes: body.len(), stub_bytes, flows, plugin, name, description, stubbed }
+        })
+        .collect())
 }
 
 /// The memory's skills (disk and database made the same first, so a skill just installed shows).
@@ -742,6 +757,24 @@ pub async fn db_skill_stub(app: AppHandle, plugin: String, name: String, on: boo
     })
     .await
     .map_err(|_| "Switching the skill stopped.".to_string())?
+}
+
+/// Every skill at once: all served from the database, or all whole files again.
+#[tauri::command]
+pub async fn db_skill_stub_all(app: AppHandle, on: bool) -> Result<Vec<SkillRow>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use mysql::prelude::Queryable;
+        let folder = memory_folder(&app.state::<SettingsStore>())?;
+        let mut conn = crate::memdb::open_for(&folder)?;
+        crate::mirror::sync_skills(&mut conn, &folder)?;
+        let names: Vec<(String, String)> = conn.query("SELECT plugin, name FROM skills ORDER BY plugin, name").map_err(|_| "The skills could not be read.".to_string())?;
+        for (plugin, name) in names {
+            crate::mirror::set_stub(&mut conn, &folder, &plugin, &name, on)?;
+        }
+        skill_rows(&mut conn)
+    })
+    .await
+    .map_err(|_| "Switching the skills stopped.".to_string())?
 }
 
 /// Stops Castle's own engine: over SQL once root has a password, else with mariadb-admin.

@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Every skill is now served from the memory database by default: its SKILL.md on disk becomes a short note that keeps the skill's own rules and loads the rest a flow or a section at a time, so each firing reads far less. Settings > Database > Skills shows the saving, switches one skill or all of them back to whole files, and lists each skill's flows.
+
 - Fixed: after /clear, your companion's replies stayed in the Log and never reached Chat, and reopening Castle went back to the talk from before the /clear. Chat now follows the new talk, and the next start picks that one up.
 
 - Choose how your companion's session starts in Settings > Companion > When Castle starts: Continue, After a rest (new default: picks the talk up within six hours, fresh after that) or Fresh. A fresh session wakes with its full memory and uses far fewer tokens than reading a long talk back. Start fresh beside Wake does it once.

@@ -160,6 +160,7 @@ Castle reads what your memory already holds, so you are never asked twice:
 
 - The names, in place of MemoryCore's `[AI_NAME]`, `[YOUR_NAME]` and `[RELATIONSHIP_STYLE]` placeholders (only when they are still there).
 - A short block in **CLAUDE.md** and **AGENTS.md** that tells Claude Code and Codex who your companion is and to load your memory first. Castle only rewrites the part between its two `castle` markers; anything you write outside them stays.
+- **Each skill's SKILL.md, as a short note**, once your memory is in the database. The skill's instructions are kept in the database; the note on disk keeps the skill's name and description (so it fires on the same words), the skill's own rules (they hold even when the database is stopped) and the one command that loads the rest, a flow or a section at a time. Each firing reads far less than the whole file. **Settings > Database > Skills** shows each skill's size as a note against the whole file, and its flows. Untick a skill to put its whole file back; **All from the database** and **All as full files** switch every skill at once and ask first. A skill your companion installs later becomes a note by itself. To give a long skill flows, ask your companion: it names the sections each kind of moment needs (`castle-memory skill flows`).
 
 ### Keys
 

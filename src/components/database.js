@@ -92,3 +92,19 @@ export function shouldOffer({ offerSeen, hadCastleBefore, hasFolder, setupOpen }
   if (!engine || engine.state !== 'notInstalled') return false
   return !memory?.name && !memory?.movedIn
 }
+
+// What a skill costs a session to read, beside its switch: the stub's size against the whole
+// file, and its flows when it has any ("1.2 KB of 9.8 KB · flows: write, read").
+export function skillSize(skill) {
+  const kb = (bytes) => `${((bytes ?? 0) / 1024).toFixed(1)} KB`
+  const size = skill?.stubbed ? `${kb(skill.stubBytes)} of ${kb(skill.fullBytes)}` : kb(skill?.fullBytes)
+  const flows = skill?.flows?.length ? ` · flows: ${skill.flows.join(', ')}` : ''
+  return `${size}${flows}`
+}
+
+// The line after "All from the database" / "All as full files".
+export function allSkillsLine(on, companion) {
+  return on
+    ? `Every skill is served from the database now. Start a new session with ${companion} to pick them up.`
+    : 'Every skill is a whole file again.'
+}

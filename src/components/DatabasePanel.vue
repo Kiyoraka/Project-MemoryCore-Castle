@@ -4,12 +4,13 @@
 // HOME card's sheet and setup's last step. Optional: a memory kept in files works as before.
 import { computed, onMounted, ref, watch } from 'vue'
 import {
-  chooseFolder, dbCreate, dbExport, dbMemory, dbMoveIn, dbMoveOut, dbMovePreview, dbRestore, dbSkills, dbSkillStub, dbStart, dbStatus, dbStop, dbUseExisting,
+  chooseFolder, dbCreate, dbExport, dbMemory, dbMoveIn, dbMoveOut, dbMovePreview, dbRestore, dbSkills, dbSkillStub, dbSkillStubAll, dbStart, dbStatus, dbStop, dbUseExisting,
   getSettings, saveSettings,
 } from '../api/castle.js'
 import { installState, runInstall, runningInstall } from '../composables/useDbInstall.js'
 import HelpTip from './HelpTip.vue'
-import { installLine, moveLine, nextStep, steps as stepsOf, thisComputer } from './database.js'
+import SettingConfirm from './settings/SettingConfirm.vue'
+import { allSkillsLine, installLine, moveLine, nextStep, skillSize, steps as stepsOf, thisComputer } from './database.js'
 
 const here = thisComputer()
 
@@ -163,6 +164,15 @@ async function toggleStub(skill) {
   }
 }
 
+// Every skill at once (each rewrites its SKILL.md on disk, so the button asks first).
+async function switchAllSkills(on) {
+  const rows = await attempt('Switching the skills…', () => dbSkillStubAll(on))
+  if (rows) {
+    skills.value = rows
+    done.value = allSkillsLine(on, props.companion)
+  }
+}
+
 async function toggleBoot() {
   if (!settings) return
   settings = { ...settings, dbBootAtWake: bootAtWake.value }
@@ -270,15 +280,19 @@ onMounted(async () => {
         </div>
       </details>
 
-      <h4 class="with-tip">Skills <HelpTip v-if="skills.length" :text="`Every skill is kept in the database and stays on disk as a file. Ticked, it is served from the database: its file becomes a short note telling ${companion} how to load it a section at a time (needs the database running); untick to put the whole file back.`" /></h4>
+      <h4 class="with-tip">Skills <HelpTip v-if="skills.length" :text="`Every skill is kept in the database and served from it by default: its file on disk becomes a short note that keeps the skill's own rules and tells ${companion} how to load the rest, a flow or a section at a time, so each firing reads far less. It needs the database running. Untick a skill to put its whole file back.`" /></h4>
       <p v-if="!skills.length" class="hint">No skills installed yet. Once {{ companion }} installs one, it shows here.</p>
       <template v-else>
+        <div class="row">
+          <SettingConfirm label="All from the database" sure="Switch all" :disabled="!!busy" @confirm="switchAllSkills(true)" />
+          <SettingConfirm label="All as full files" sure="Switch all" :disabled="!!busy" @confirm="switchAllSkills(false)" />
+        </div>
         <ul class="skills">
           <li v-for="skill in skills" :key="`${skill.plugin}/${skill.name}`">
             <label class="toggle" :title="skill.description ?? ''">
               <input type="checkbox" :checked="skill.stubbed" :disabled="!!busy" @change="toggleStub(skill)" />
               <span class="skill-name">{{ skill.name }}</span>
-              <span class="hint">{{ skill.plugin }}{{ skill.stubbed ? ' · from the database' : '' }}</span>
+              <span class="hint">{{ skill.plugin }}{{ skill.stubbed ? ' · from the database' : '' }} · {{ skillSize(skill) }}</span>
             </label>
           </li>
         </ul>

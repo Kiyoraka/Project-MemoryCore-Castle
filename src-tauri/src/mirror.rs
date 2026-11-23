@@ -275,7 +275,7 @@ pub fn parse_flows(master: &str, json: &str) -> Result<Vec<(String, Vec<String>,
 }
 
 /// The names of each skill's flows, for its stub.
-fn flow_names(conn: &mut impl Queryable) -> Result<BTreeMap<(String, String), Vec<String>>, String> {
+pub fn flow_names(conn: &mut impl Queryable) -> Result<BTreeMap<(String, String), Vec<String>>, String> {
     let rows: Vec<(String, String, String)> = conn.query("SELECT plugin, name, flow FROM skill_flows ORDER BY plugin, name, flow").map_err(sql("Reading the skill flows"))?;
     let mut out: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for (plugin, name, flow) in rows {

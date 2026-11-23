@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { card, thisComputer, installLine, megabytes, moveLine, nextStep, progressLine, setupStepLabel, shouldOffer, steps } from './database.js'
+import { allSkillsLine, card, thisComputer, installLine, megabytes, moveLine, nextStep, progressLine, setupStepLabel, shouldOffer, skillSize, steps } from './database.js'
 
 const none = { state: 'notInstalled', external: null }
 const stopped = { state: 'stopped', port: 3307 }
@@ -107,5 +107,18 @@ describe('the one-time offer after an update', () => {
     expect(setupStepLabel('install')).toBe('Downloading and installing the database')
     expect(setupStepLabel('check')).toBe('Checking what would move')
     expect(setupStepLabel('other')).toBe('other')
+  })
+})
+
+describe('a skill beside its switch', () => {
+  it('shows what a session reads, and the flows when there are any', () => {
+    expect(skillSize({ stubbed: true, stubBytes: 1229, fullBytes: 10035, flows: ['write', 'read'] })).toBe('1.2 KB of 9.8 KB · flows: write, read')
+    expect(skillSize({ stubbed: false, stubBytes: 1229, fullBytes: 10035, flows: [] })).toBe('9.8 KB')
+    expect(skillSize({})).toBe('0.0 KB')
+  })
+
+  it('says what switching every skill did', () => {
+    expect(allSkillsLine(true, 'Lyra')).toContain('new session with Lyra')
+    expect(allSkillsLine(false, 'Lyra')).toBe('Every skill is a whole file again.')
   })
 })

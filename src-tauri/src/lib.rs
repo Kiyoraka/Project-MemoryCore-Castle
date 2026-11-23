@@ -644,6 +644,7 @@ pub fn run() {
             db::db_export,
             db::db_skills,
             db::db_skill_stub,
+            db::db_skill_stub_all,
             emotion::db_traits,
             emotion::db_trait_save,
             emotion::db_trait_activate,
