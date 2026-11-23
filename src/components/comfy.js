@@ -5,7 +5,7 @@
 export const DEFAULT_ADDRESS = 'http://127.0.0.1:8188'
 
 /** Everything the member can set; ComfyUI is off until they switch it on. */
-export const EMPTY = { on: false, address: '', start: '', model: '', workflow: '', limitMinutes: 0 }
+export const EMPTY = { on: false, address: '', start: '', model: '', workflow: '', limitMinutes: 0, bindings: { prompt: [], width: [], height: [], seed: [], steps: [] } }
 
 /** The saved choices, with every missing one at its default (a settings file from before ComfyUI has none). */
 export const comfyOf = (settings) => ({ ...EMPTY, ...(settings?.comfy ?? {}) })
@@ -63,6 +63,75 @@ export function modelLine(comfy, status) {
 /** The last part of a path, for a line that names a file without printing the whole path. */
 export function fileName(path = '') {
   return String(path).split(/[\\/]/).filter(Boolean).pop() ?? ''
+}
+
+// ---- Import: choosing which inputs of the member's own workflow take Castle's values ----
+
+/** The groups the Import list offers, in the order it shows them. */
+export const FIELD_GROUPS = [
+  { id: 'prompt', title: 'The words to draw', note: 'Tick every field the prompt should go into.' },
+  { id: 'width', title: 'Width', note: "Tick it to use Studio's size." },
+  { id: 'height', title: 'Height', note: "Tick it to use Studio's size." },
+  { id: 'seed', title: 'Seed', note: 'Tick it for a new picture every time.' },
+  { id: 'steps', title: 'Steps', note: "Tick it to use Studio's quality as the number of steps." },
+]
+
+/** One input's identity: the node's id (written as text) and the input's name. */
+export const fieldKey = (field) => JSON.stringify([field.node, field.input])
+
+/**
+ * What is ticked when the Import list opens: what the member chose before, else what Castle would
+ * tick on its own, leaving out anything the file already handles with a {{placeholder}}.
+ */
+export function initialPicks(scan) {
+  const picks = {}
+  const chosen = scan?.bindings ?? {}
+  const hasChoice = FIELD_GROUPS.some((g) => (chosen[g.id] ?? []).length)
+  for (const group of FIELD_GROUPS) {
+    const fields = scan?.[group.id] ?? []
+    if (hasChoice) picks[group.id] = (chosen[group.id] ?? []).map(fieldKey)
+    else if ((scan?.placeholders?.[group.id] ?? 0) > 0) picks[group.id] = []
+    else picks[group.id] = fields.filter((f) => f.suggested).map(fieldKey)
+  }
+  return picks
+}
+
+/** The picks with one input switched on or off; the old picks are left as they were. */
+export function toggled(picks, group, field, on) {
+  const key = fieldKey(field)
+  const rest = (picks[group] ?? []).filter((k) => k !== key)
+  return { ...picks, [group]: on ? [...rest, key] : rest }
+}
+
+/** The picks as the core takes them: { prompt: [{ node, input }], ... }. */
+export function picksToBindings(scan, picks) {
+  const bindings = {}
+  for (const group of FIELD_GROUPS) {
+    const chosen = new Set(picks[group.id] ?? [])
+    bindings[group.id] = (scan?.[group.id] ?? []).filter((f) => chosen.has(fieldKey(f))).map((f) => ({ node: f.node, input: f.input }))
+  }
+  return bindings
+}
+
+/** One field in the list: what it is, and what it says now, on one line. */
+export function fieldLabel(field) {
+  return `${field.title} · ${field.input}`
+}
+export function fieldNote(field) {
+  const role = field.role === 'negative' ? 'negative prompt · ' : ''
+  return `${role}now: ${field.preview}`
+}
+
+/** The line under "Where the words go": what the member chose, or what to do. */
+export function bindingsLine(bindings = {}) {
+  const count = (group) => (bindings[group] ?? []).length
+  if (!FIELD_GROUPS.some((g) => count(g.id))) return 'Press Import to choose the fields, or put {{prompt}} in the file.'
+  const parts = []
+  if (count('prompt')) parts.push(count('prompt') === 1 ? 'prompt in 1 field' : `prompt in ${count('prompt')} fields`)
+  if (count('width') || count('height')) parts.push("Studio's size")
+  if (count('seed')) parts.push('new seed each time')
+  if (count('steps')) parts.push('Studio quality as steps')
+  return `Castle fills: ${parts.join(', ')}.`
 }
 
 /** The line under the Start file row: which file is set (the box is too narrow for a whole path). */
