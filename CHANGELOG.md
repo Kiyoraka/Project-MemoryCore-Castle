@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Telling Castle where its words go in your own ComfyUI workflow no longer needs a file edit: in Settings > ComfyUI press Import, tick the prompt field (and, if you like, width, height, seed and steps) and press Use these. Castle never changes your file, and says so in plain words if a field you chose is gone when the file changes.
+
 - STUDIO can draw its plain pictures with your own ComfyUI, with no key and no cost: turn it on in Settings > Connect > ComfyUI, say where it listens and which file starts it (Castle starts it hidden and closes only what it started), and pick a checkpoint or point Castle at a workflow you exported from ComfyUI, with its own model and nodes. Stop and Retry work as before; a picture that follows reference pictures, APPEARANCE's looks and Write prompt from picture still go to Codex or your OpenAI key.
 
 ## 0.4.0 - 2026-11-23
