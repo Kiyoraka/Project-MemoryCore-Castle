@@ -455,15 +455,24 @@ mod tests {
         // the child's id must be printed before the limit stops the script
         let f = Fixture::new();
         let s=f.shell(r#"$p=Start-Process -WindowStyle Hidden -FilePath "$env:SystemRoot\System32\ping.exe" -ArgumentList '127.0.0.1','-n','600' -PassThru;[Console]::WriteLine($p.Id);Start-Sleep -Seconds 600"#);
-        let r = run(
-            &s,
-            &allow(&s),
-            &serde_json::json!({}),
-            Duration::from_secs(60),
-        )
-        .unwrap();
-        assert!(r.timed_out);
-        let pid: u32 = r.stdout.trim().parse().unwrap();
+        // On a crowded runner a cold PowerShell may not reach the print before the limit; it is
+        // warm the second time, so one fresh try is allowed before the test gives up.
+        let mut pid = None;
+        for _ in 0..2 {
+            let r = run(
+                &s,
+                &allow(&s),
+                &serde_json::json!({}),
+                Duration::from_secs(60),
+            )
+            .unwrap();
+            assert!(r.timed_out);
+            if let Ok(id) = r.stdout.trim().parse::<u32>() {
+                pid = Some(id);
+                break;
+            }
+        }
+        let pid = pid.expect("PowerShell never printed the child's id before the limit, twice");
         use windows_sys::Win32::{
             Foundation::CloseHandle,
             System::Threading::{
