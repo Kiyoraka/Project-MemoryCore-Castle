@@ -84,7 +84,8 @@ export const sendMessage = (text, room) => {
 export const queuedMessages = () => invoke('queued_messages')
 export const queuedMessageAction = (id, retry = false) => invoke('queued_message_action', { id, retry })
 // `greet`: only the Wake button asks for it - Castle then opens the conversation so the companion greets.
-export const terminalStart = (cols, rows, room, greet = false) => invoke('terminal_start', { cols, rows, room, greet })
+// `fresh`: the member pressed "Start fresh" - a new talk whatever the start setting says
+export const terminalStart = (cols, rows, room, greet = false, fresh = false) => invoke('terminal_start', { cols, rows, room, greet, fresh })
 export const terminalWrite = (data, room) => invoke('terminal_write', { data, room })
 export const terminalResize = (cols, rows, room) => invoke('terminal_resize', { cols, rows, room })
 export const storyClose = () => invoke('story_close')

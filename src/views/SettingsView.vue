@@ -656,6 +656,14 @@ onMounted(async () => {
               >
                 <SettingSwitch :model-value="valueOf(settings, 'onlyThisCompanion')" :label="`Only ${companionLabel} in Castle`" :disabled="locked || settings.cli !== 'claude'" @update:model-value="(on) => saveRow('only-this', { onlyThisCompanion: on })" />
               </SettingRow>
+              <SettingRow
+                id="main-start"
+                label="When Castle starts"
+                description="Fresh sessions wake from memory and use fewer tokens; Continue keeps the talk."
+                tip="Continue picks the last talk up every time. After a rest picks it up within six hours and starts fresh after that, so the morning after does not read the whole old talk back. Fresh always starts new. A fresh session still wakes with its full memory; only what was said but not saved stays in the old talk. Type /clear in the Log to start fresh at any time."
+              >
+                <SettingChoice :model-value="valueOf(settings, 'mainStart')" :options="[{ value: 'continue', label: 'Continue' }, { value: 'rested', label: 'After a rest' }, { value: 'fresh', label: 'Fresh' }]" label="When Castle starts" :disabled="locked" @update:model-value="(v) => saveRow('main-start', { mainStart: v })" />
+              </SettingRow>
             </SettingGroup>
 
             <SettingGroup id="names" title="Name and picture" tip="Names already written in your memory files stay as they are - ask your companion to update the memory if you rename.">

@@ -105,6 +105,15 @@ pub struct TerminalView {
     running: bool,
     status: SessionStatus,
     snapshot: String,
+    /// The resting screen offers "Start fresh" beside Wake (the main session, unless every start
+    /// is fresh already).
+    offers_fresh_start: bool,
+}
+
+/// Whether the resting screen offers a one-off fresh start: only the main session picks a talk
+/// up, and a member whose every start is fresh needs no second button.
+pub fn offers_fresh_start(room: Room, main_start: &str) -> bool {
+    room == Room::Main && main_start != "fresh"
 }
 
 fn view(store: &SettingsStore, host: &PtyHost, room: Room) -> TerminalView {
@@ -116,6 +125,7 @@ fn view(store: &SettingsStore, host: &PtyHost, room: Room) -> TerminalView {
         running: host.is_running(),
         status: status(&settings, room, program.as_deref()),
         snapshot: host.snapshot(),
+        offers_fresh_start: offers_fresh_start(room, &settings.main_start),
     }
 }
 
@@ -388,6 +398,13 @@ pub(crate) fn wake(app: &AppHandle, store: &SettingsStore, host: &PtyHost, room:
 }
 
 pub(crate) fn wake_with_prompt(app: &AppHandle, store: &SettingsStore, host: &PtyHost, room: Room, cols: u16, rows: u16, prompt: Option<&str>) -> Result<(), String> {
+    wake_as(app, store, host, room, cols, rows, prompt, false)
+}
+
+/// `fresh`: the member pressed "Start fresh" - the main session starts a new talk whatever the
+/// start setting says.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, room: Room, cols: u16, rows: u16, prompt: Option<&str>, fresh: bool) -> Result<(), String> {
     let settings = store.get();
     let program = env::find_on_path(settings.cli.command());
     let ready = status(&settings, room, program.as_deref());
@@ -422,7 +439,7 @@ pub(crate) fn wake_with_prompt(app: &AppHandle, store: &SettingsStore, host: &Pt
     // The main session picks its own earlier conversation up again (never a provider switch's
     // handoff, which is a fresh session by design); the others always start fresh.
     let fresh_handoff = prompt.is_some_and(|p| p.starts_with(crate::providers::HANDOFF_PROMPT));
-    let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !fresh_handoff, &settings.main_start));
+    let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !(fresh_handoff || fresh), &settings.main_start));
     let resumed = plan.as_ref().is_some_and(|p| p.resumed);
     let mut args = Vec::new();
     // Codex's `resume <id>` is a subcommand, so it comes before any option
@@ -493,6 +510,7 @@ pub fn terminal_start(
     rows: u16,
     room: Option<String>,
     greet: Option<bool>,
+    fresh: Option<bool>,
     store: State<SettingsStore>,
     main: State<MainHost>,
     story: State<StoryHost>,
@@ -502,7 +520,7 @@ pub fn terminal_start(
         crate::rooms::need(&store, "story")?;
     }
     let host = host(room, &main, &story);
-    wake_with_prompt(&app, &store, host, room, cols, rows, opening_prompt(room, greet))?;
+    wake_as(&app, &store, host, room, cols, rows, opening_prompt(room, greet), fresh == Some(true))?;
     Ok(view(&store, host, room))
 }
 
@@ -839,6 +857,14 @@ MEMORY_DB_PASSWORD=x
         std::fs::write(&file, "old").unwrap();
         forget_boot_file(&store);
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn only_the_main_session_offers_a_fresh_start_and_not_when_every_start_is_fresh() {
+        assert!(offers_fresh_start(Room::Main, "rested"));
+        assert!(offers_fresh_start(Room::Main, "continue"));
+        assert!(!offers_fresh_start(Room::Main, "fresh"));
+        assert!(!offers_fresh_start(Room::Story, "continue"));
     }
 
     #[test]

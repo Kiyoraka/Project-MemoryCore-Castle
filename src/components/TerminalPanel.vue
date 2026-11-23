@@ -82,7 +82,7 @@ const session = isDev
   : {
       state: () => terminalState(props.room),
       snapshot: null,
-      start: (cols, rows, greet) => terminalStart(cols, rows, props.room, greet),
+      start: (cols, rows, greet, fresh) => terminalStart(cols, rows, props.room, greet, fresh),
       write: (data) => terminalWrite(data, props.room),
       resize: (cols, rows) => terminalResize(cols, rows, props.room),
       onOutput: props.room === 'story' ? onStoryOutput : onTerminalOutput,
@@ -103,6 +103,8 @@ let starting = false
 const activeProvider = ref(null)
 const ended = ref(false)
 const status = ref({ ready: false, message: '', fix: null })
+// the resting screen offers "Start fresh" beside Wake (the main session only)
+const offersFresh = ref(false)
 const problem = ref('')
 const width = ref(readWidth())
 // CHAT or LOG under the companion's portrait; the wide button gives the panel the whole screen.
@@ -179,6 +181,7 @@ function show(state) {
   activeProvider.value = state.provider ?? null
   running.value = state.running
   status.value = state.status
+  offersFresh.value = state.offersFreshStart === true
 }
 
 function fitNow() {
@@ -239,7 +242,8 @@ function onRightClick(event) {
 
 // `greet`: true only when the member pressed Wake, so Castle opens the conversation. A wake Castle
 // does itself (at launch, or on a request from elsewhere) starts a blank session as before.
-async function wake({ greet = false } = {}) {
+// `fresh`: "Start fresh" - a new talk instead of picking the last one up.
+async function wake({ greet = false, fresh = false } = {}) {
   if (running.value) {
     term.focus()
     return
@@ -250,7 +254,7 @@ async function wake({ greet = false } = {}) {
   // the session is running; the answer must still reach it or the CLI never begins.
   starting = true
   try {
-    show(await session.start(term.cols, term.rows, greet === true))
+    show(await session.start(term.cols, term.rows, greet === true, fresh === true))
     ended.value = false
     term.focus()
   } catch (reason) {
@@ -493,6 +497,7 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
       <p class="message">{{ problem || status.message }}</p>
       <div class="buttons">
         <button class="primary" :disabled="!status.ready" @click="wake({ greet: true })">Wake {{ companion === 'Your companion' ? 'your companion' : companion }}{{ isDev ? ' here' : '' }}</button>
+        <button v-if="!isDev && offersFresh" :disabled="!status.ready" title="A new talk: your companion wakes from its memory, and what was said but not saved stays in the last one" @click="wake({ greet: true, fresh: true })">Start fresh</button>
         <button v-if="status.fix === 'setup'" @click="emit('setup')">Open setup</button>
         <button v-if="status.fix === 'settings' || status.fix === 'install'" @click="emit('settings')">Settings</button>
       </div>
