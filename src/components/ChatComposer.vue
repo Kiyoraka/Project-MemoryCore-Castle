@@ -111,6 +111,18 @@ async function addPaths(paths) {
   box.value?.focus()
 }
 
+/** Words into the box at the cursor (a page's address from the BROWSER window's Put in chat). */
+async function addText(text) {
+  const el = box.value
+  const start = el?.selectionStart ?? draft.value.length
+  const end = el?.selectionEnd ?? draft.value.length
+  const before = draft.value.slice(0, start)
+  draft.value = before + (before && !/\s$/.test(before) ? ' ' : '') + text + ' ' + draft.value.slice(end)
+  await nextTick()
+  grow()
+  box.value?.focus()
+}
+
 function removeDraftPicture(path) {
   draft.value = draft.value.replace(`"${path}"`, '').replace(path, '').replace(/ {2,}/g, ' ')
 }
@@ -237,6 +249,7 @@ const micTitle = computed(() => (listening.value === 'listening' ? `Stop (${micK
 
 defineExpose({
   addPaths,
+  addText,
   focus: () => box.value?.focus(),
   hasText: () => !!draft.value.trim(),
   micToggle,

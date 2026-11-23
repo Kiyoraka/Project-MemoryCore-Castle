@@ -1,0 +1,262 @@
+//! The BROWSER window's plain rules, kept apart from the window itself so they are tested alone:
+//! its tabs, what the address bar turns words into, which pages a tab may load, where a link from
+//! a chat goes, and where the window sits on the screen (the right half).
+
+use serde::Serialize;
+
+/// The most tabs the window keeps open; one more replaces nothing and is refused.
+pub const MAX_TABS: usize = 12;
+
+/// One tab: `url` is None for a new tab (Castle's own new-tab page shows instead of a web page).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tab {
+    pub id: u32,
+    pub url: Option<String>,
+    pub title: String,
+}
+
+/// Every tab and the one in front.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tabs {
+    pub list: Vec<Tab>,
+    pub active: Option<u32>,
+    #[serde(skip)]
+    next: u32,
+}
+
+impl Tabs {
+    /// A new tab at the end, in front; its id, or None when MAX_TABS are open.
+    pub fn open(&mut self, url: Option<String>) -> Option<u32> {
+        if self.list.len() >= MAX_TABS {
+            return None;
+        }
+        self.next += 1;
+        let id = self.next;
+        let title = tab_title(url.as_deref(), None);
+        self.list.push(Tab { id, url, title });
+        self.active = Some(id);
+        Some(id)
+    }
+    /// The tab in front.
+    pub fn current(&self) -> Option<&Tab> {
+        self.active.and_then(|id| self.list.iter().find(|t| t.id == id))
+    }
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut Tab> {
+        self.list.iter_mut().find(|t| t.id == id)
+    }
+    /// Brings a tab to the front; false when there is no such tab.
+    pub fn switch(&mut self, id: u32) -> bool {
+        let there = self.list.iter().any(|t| t.id == id);
+        if there {
+            self.active = Some(id);
+        }
+        there
+    }
+    /// Closes a tab; the one beside it comes to the front. True when it was there.
+    pub fn close(&mut self, id: u32) -> bool {
+        let Some(at) = self.list.iter().position(|t| t.id == id) else { return false };
+        self.list.remove(at);
+        if self.active == Some(id) {
+            // the tab that took its place, else the one before it
+            self.active = self.list.get(at).or_else(|| self.list.last()).map(|t| t.id);
+        }
+        true
+    }
+}
+
+/// The page for what was typed in the address bar: an address as it is, a bare host gets https
+/// (a server on this computer gets http), anything else is a web search. None for nothing typed.
+pub fn address(input: &str) -> Option<String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+    if (input.starts_with("https://") || input.starts_with("http://")) && !input.contains(char::is_whitespace) {
+        return Some(input.to_string());
+    }
+    let local = input.starts_with("localhost:") || input.starts_with("127.0.0.1:");
+    let host_like = !input.contains(char::is_whitespace)
+        && !input.contains(':')
+        && input.split('/').next().is_some_and(|h| h.contains('.') && !h.starts_with('.') && !h.ends_with('.'));
+    if local && !input.contains(char::is_whitespace) {
+        return Some(format!("http://{input}"));
+    }
+    if host_like {
+        return Some(format!("https://{input}"));
+    }
+    Some(format!("https://duckduckgo.com/?q={}", search_words(input)))
+}
+
+/// Words for a search address: letters, digits and `-_.~` as they are, a space as `+`, the rest
+/// percent-encoded, so nothing typed can end the query or start another part of the address.
+fn search_words(words: &str) -> String {
+    let mut out = String::new();
+    for byte in words.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b' ' => out.push('+'),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+/// A tab only ever loads web pages: http(s) and the blank page, never file:, javascript: or a
+/// custom scheme that could reach the computer.
+pub fn may_load(url: &str) -> bool {
+    url == "about:blank" || ((url.starts_with("https://") || url.starts_with("http://")) && !url.contains(char::is_whitespace))
+}
+
+/// The title a tab shows: the page's own, else its host, else "New tab".
+pub fn tab_title(url: Option<&str>, page_title: Option<&str>) -> String {
+    if let Some(title) = page_title.map(str::trim).filter(|t| !t.is_empty()) {
+        return title.chars().take(120).collect();
+    }
+    url.and_then(|u| u.split("://").nth(1))
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .filter(|host| !host.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "New tab".to_string())
+}
+
+/// Where a link clicked in a chat goes, from Settings > Rooms > Browser (`link_open`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkWay {
+    /// a new tab in the BROWSER window
+    Castle,
+    /// the member's own browser
+    System,
+    /// the chat shows a small menu to choose
+    Ask,
+    /// not a link Castle opens
+    Refuse,
+}
+
+/// The way for one link: https pages and servers on this computer open, nothing else does.
+pub fn link_way(setting: &str, url: &str) -> LinkWay {
+    let web = url.starts_with("https://") && url.len() > "https://".len();
+    let local = ["http://localhost:", "http://127.0.0.1:"].iter().any(|p| {
+        url.strip_prefix(p).is_some_and(|rest| {
+            let port: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            !port.is_empty() && port.len() <= 5 && (rest.len() == port.len() || rest[port.len()..].starts_with('/'))
+        })
+    });
+    let clean = url.len() <= 2000 && !url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"' || c == '\'');
+    if !(clean && (web || local)) {
+        return LinkWay::Refuse;
+    }
+    match setting {
+        "system" => LinkWay::System,
+        "ask" => LinkWay::Ask,
+        _ => LinkWay::Castle,
+    }
+}
+
+/// The window's place: the right half of the screen's work area (x, y, width, height).
+pub fn right_half(area_x: i32, area_y: i32, area_w: u32, area_h: u32) -> (i32, i32, u32, u32) {
+    let left = area_w / 2;
+    (area_x + left as i32, area_y, area_w - left, area_h)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tabs_open_switch_and_close() {
+        let mut tabs = Tabs::default();
+        let a = tabs.open(Some("https://a.example/".into())).unwrap();
+        let b = tabs.open(None).unwrap();
+        assert_ne!(a, b);
+        assert_eq!(tabs.active, Some(b), "a new tab comes to the front");
+        assert!(tabs.switch(a));
+        assert_eq!(tabs.current().unwrap().url.as_deref(), Some("https://a.example/"));
+        assert!(!tabs.switch(99));
+        assert!(tabs.close(a));
+        assert_eq!(tabs.active, Some(b), "the tab beside the closed one comes to the front");
+        assert!(tabs.close(b));
+        assert_eq!(tabs.active, None);
+        assert!(tabs.list.is_empty());
+        assert!(!tabs.close(b));
+    }
+
+    #[test]
+    fn ids_are_never_reused() {
+        let mut tabs = Tabs::default();
+        let a = tabs.open(None).unwrap();
+        tabs.close(a);
+        assert_ne!(tabs.open(None).unwrap(), a, "a closed tab's id never names a new one");
+    }
+
+    #[test]
+    fn a_full_window_refuses_another_tab() {
+        let mut tabs = Tabs::default();
+        for _ in 0..MAX_TABS {
+            assert!(tabs.open(None).is_some());
+        }
+        assert!(tabs.open(None).is_none());
+        assert_eq!(tabs.list.len(), MAX_TABS);
+    }
+
+    #[test]
+    fn closing_the_last_in_the_row_brings_the_one_before() {
+        let mut tabs = Tabs::default();
+        let a = tabs.open(None).unwrap();
+        let b = tabs.open(None).unwrap();
+        tabs.close(b);
+        assert_eq!(tabs.active, Some(a));
+    }
+
+    #[test]
+    fn the_address_bar_turns_words_into_a_page() {
+        assert_eq!(address("https://github.com/x").as_deref(), Some("https://github.com/x"));
+        assert_eq!(address("github.com").as_deref(), Some("https://github.com"));
+        assert_eq!(address("  claude.ai/code/artifacts ").as_deref(), Some("https://claude.ai/code/artifacts"));
+        assert_eq!(address("localhost:5173").as_deref(), Some("http://localhost:5173"));
+        assert_eq!(address("127.0.0.1:3000/x").as_deref(), Some("http://127.0.0.1:3000/x"));
+        assert_eq!(address("tauri multiwebview").as_deref(), Some("https://duckduckgo.com/?q=tauri+multiwebview"));
+        assert_eq!(address("a&b").as_deref(), Some("https://duckduckgo.com/?q=a%26b"));
+        assert_eq!(address("   "), None);
+        assert_eq!(address("javascript:alert(1)").as_deref(), Some("https://duckduckgo.com/?q=javascript%3Aalert%281%29"), "never a script");
+        assert_eq!(address("file:///etc/passwd").as_deref(), Some("https://duckduckgo.com/?q=file%3A%2F%2F%2Fetc%2Fpasswd"));
+    }
+
+    #[test]
+    fn a_tab_loads_web_pages_only() {
+        assert!(may_load("https://claude.ai/code/artifacts"));
+        assert!(may_load("http://localhost:5173/"));
+        assert!(may_load("about:blank"));
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "ipc://x", "data:text/html,hi", "castle://x", ""] {
+            assert!(!may_load(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_tab_is_titled_by_its_page_then_its_host() {
+        assert_eq!(tab_title(Some("https://github.com/o/r"), Some("o/r: the repo")), "o/r: the repo");
+        assert_eq!(tab_title(Some("https://github.com/o/r"), Some("  ")), "github.com");
+        assert_eq!(tab_title(Some("http://localhost:5173/x"), None), "localhost:5173");
+        assert_eq!(tab_title(None, None), "New tab");
+    }
+
+    #[test]
+    fn a_chat_link_goes_where_settings_say() {
+        let page = "https://github.com/o/r/pull/7";
+        assert_eq!(link_way("castle", page), LinkWay::Castle);
+        assert_eq!(link_way("system", page), LinkWay::System);
+        assert_eq!(link_way("ask", page), LinkWay::Ask);
+        assert_eq!(link_way("castle", "http://localhost:5173/x"), LinkWay::Castle);
+        assert_eq!(link_way("something old", page), LinkWay::Castle, "an unknown setting is the default");
+        for bad in ["javascript:alert(1)", "http://example.com", "file:///x", "https://a b", ""] {
+            assert_eq!(link_way("castle", bad), LinkWay::Refuse, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_window_takes_the_right_half() {
+        assert_eq!(right_half(0, 25, 3440, 1415), (1720, 25, 1720, 1415));
+        assert_eq!(right_half(-1920, 0, 1921, 1080), (-960, 0, 961, 1080), "an odd width gives the extra pixel to the window");
+    }
+}

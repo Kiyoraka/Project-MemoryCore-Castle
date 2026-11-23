@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser",
+  "description": "The BROWSER window's own toolbar page only (browser-ui). Its web pages (browser-tab-*) are named by no capability, so a page can never reach Castle's core.",
+  "webviews": ["browser-ui"],
+  "permissions": ["core:default"]
+}

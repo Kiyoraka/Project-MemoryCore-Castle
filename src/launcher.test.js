@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS } from './launcher.js'
+import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
-const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar'].map((id) => room(id))
+const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'browser', 'artifacts'].map((id) => room(id))
 const ids = (groups) => groups.flatMap((g) => g.tabs.map((t) => t.id))
 
 describe('the launcher groups', () => {
@@ -38,6 +38,19 @@ describe('the launcher groups', () => {
   })
   it('has a hint for every room Castle has', () => {
     for (const t of all) expect(HINTS[t.id], t.id).toBeTruthy()
+  })
+})
+
+describe('window rooms', () => {
+  it('BROWSER opens the browser window on a new tab, ARTIFACTS on the artifacts page', () => {
+    expect(windowRoom('browser')).toEqual({ url: null })
+    expect(windowRoom('artifacts')).toEqual({ url: 'https://claude.ai/code/artifacts' })
+  })
+  it('every other room is a room', () => {
+    for (const id of ['home', 'dev', 'calendar', 'launcher', '', undefined]) expect(windowRoom(id)).toBe(null)
+  })
+  it('both sit in Work', () => {
+    expect(GROUPS.find((g) => g.id === 'work').rooms).toEqual(expect.arrayContaining(['browser', 'artifacts']))
   })
 })
 

@@ -63,6 +63,7 @@ import {
   setupCheckCli,
   setupInspect,
   voiceStudioStatus,
+  browserClear,
 } from '../api/castle.js'
 
 const props = defineProps({
@@ -861,6 +862,21 @@ onMounted(async () => {
               </SettingRow>
               <SettingRow id="pins-reset" label="First pins" description="CHAT, PROJECTS and DEV.">
                 <button :disabled="locked" @click="saveRow('pins-reset', { pinnedRooms: [...DEFAULT_PINS] })">Put back</button>
+              </SettingRow>
+            </SettingGroup>
+
+            <SettingGroup id="browser" title="Browser" tip="Castle's own browser window opens on the right half of your screen; its full-screen button makes it fill the screen. Web pages there get no Castle permissions: they cannot read your memory, chats or files.">
+              <SettingRow id="link-open" label="Open links from chats" description="HOME chat, DEV chats and the CHAT room. Right-click a link to choose once.">
+                <SettingChoice :model-value="valueOf(settings, 'linkOpen')" :options="[{ value: 'castle', label: 'Castle\'s browser' }, { value: 'system', label: 'Your browser' }, { value: 'ask', label: 'Ask each time' }]" label="Open links from chats" :disabled="locked" @update:model-value="(v) => saveRow('link-open', { linkOpen: v })" />
+              </SettingRow>
+              <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
+                <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
+              </SettingRow>
+              <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
+                <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
+              </SettingRow>
+              <SettingRow id="browser-clear" label="Clear browsing data" description="Signs you out of every site in the browser window and clears its history. Castle's memory is not touched. Works while the browser window has a page open.">
+                <SettingConfirm label="Clear…" :disabled="locked" @confirm="rows.run('browser-clear', () => browserClear()).catch(() => {})" />
               </SettingRow>
             </SettingGroup>
 

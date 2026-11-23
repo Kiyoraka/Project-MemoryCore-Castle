@@ -475,8 +475,9 @@ onBeforeUnmount(() => {
 
 /** Files dropped on Chat: their paths go into the box. */
 const addPaths = (paths) => composer.value?.addPaths(paths)
+const addText = (text) => composer.value?.addText(text)
 
-defineExpose({ poll, addPaths })
+defineExpose({ poll, addPaths, addText })
 </script>
 
 <template>
