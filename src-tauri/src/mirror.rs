@@ -126,10 +126,64 @@ pub fn front_matter(skill_md: &str) -> Option<&str> {
     matches!(rest[after..].chars().next(), None | Some('\n') | Some('\r')).then(|| &skill_md[..3 + after])
 }
 
+/// A heading that carries this keeps its section in the skill's stub (the rules that must hold
+/// with the database stopped).
+pub const KEEP_MARK: &str = "<!-- castle:keep -->";
+/// The most of a skill's own rules a stub carries.
+pub const KEEP_LIMIT: usize = 2500;
+/// Section names that are a skill's rules when none is marked to keep.
+const RULE_WORDS: [&str; 7] = ["rules", "rule", "mandatory", "invariants", "critical", "never", "always"];
+
+/// The skill's own rules for its stub: the sections whose heading carries KEEP_MARK, or else its
+/// first rules section (by name). Headings step down a level under the stub's own; over
+/// KEEP_LIMIT only the headings and list lines stay, cut at a line.
+pub fn kept_rules(master: &str) -> Option<String> {
+    let parts = skill_sections(master);
+    let marked: Vec<&str> = parts.iter().filter(|(_, heading, _)| heading.contains(KEEP_MARK)).map(|(_, _, body)| body.as_str()).collect();
+    let chosen = if marked.is_empty() {
+        parts
+            .iter()
+            .filter(|(key, _, _)| key != "top")
+            .find(|(key, _, _)| key.split('-').any(|word| RULE_WORDS.contains(&word)))
+            .map(|(_, _, body)| vec![body.as_str()])
+            .unwrap_or_default()
+    } else {
+        marked
+    };
+    let text: String = chosen
+        .iter()
+        .flat_map(|body| body.lines())
+        .map(|line| line.replace(KEEP_MARK, "").trim_end().to_string())
+        .map(|line| if let Some(title) = line.strip_prefix("## ") { format!("### {title}") } else { line })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if text.len() <= KEEP_LIMIT {
+        return Some(text.to_string());
+    }
+    let mut out = String::new();
+    for line in text.lines().filter(|l| {
+        let t = l.trim_start();
+        t.starts_with('#') || t.starts_with("- ") || t.starts_with("* ") || t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    }) {
+        if out.len() + line.len() + 1 > KEEP_LIMIT {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("(the rest loads with the skill)");
+    Some(out)
+}
+
 /// The stub written to disk for a skill served from the database: the same front matter (so
-/// it is listed and triggered exactly as before), the one command that loads the instructions,
-/// and the rules that hold even when they cannot be loaded.
-pub fn stub_of(plugin: &str, name: &str, master: &str) -> String {
+/// it is listed and triggered exactly as before), the one command that loads the instructions
+/// (by flow, when the skill has flows), the skill's own rules, and the rules that hold even
+/// when the instructions cannot be loaded.
+pub fn stub_of(plugin: &str, name: &str, master: &str, flows: &[String]) -> String {
     let front = front_matter(master).map(str::to_string).unwrap_or_else(|| format!("---\nname: {name}\n---"));
     // Windows: how to run the same command from PowerShell (on macOS castle-memory is on PATH)
     let powershell = if cfg!(windows) {
@@ -137,6 +191,15 @@ pub fn stub_of(plugin: &str, name: &str, master: &str) -> String {
     } else {
         String::new()
     };
+    let how = if flows.is_empty() {
+        "Then follow what it prints exactly as if it were written here. A long skill prints its opening and a list of its sections: load a section with `--section <key>` when you reach it, or everything with `--all`.".to_string()
+    } else {
+        format!(
+            "This skill has flows: add `--for <flow>` to load only what the moment needs - {}. Then follow what it prints exactly as if it were written here. Without `--for` it prints its opening and its sections (`--section <key>`, or `--all`).",
+            flows.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+        )
+    };
+    let own = kept_rules(master).map(|rules| format!("What always holds for this skill (its own rules):\n\n{rules}\n\n")).unwrap_or_default();
     format!(
         "{front}\n\
          {STUB_MARK} - written by MemoryCore Castle. This skill's instructions live in the memory database; change them there, never here. -->\n\
@@ -152,12 +215,100 @@ pub fn stub_of(plugin: &str, name: &str, master: &str) -> String {
          ```\n\
          \n\
          {powershell}\
-         Then follow what it prints exactly as if it were written here. A long skill prints its opening and a list of its sections: load a section with `--section <key>` when you reach it, or everything with `--all`.\n\
+         {how}\n\
          \n\
+         {own}\
          Rules that hold even when the instructions cannot be loaded:\n\
          - If the command says the database could not be reached, tell your person kindly that the memory database is stopped and that **Start** in Castle's Settings > Database brings it back. Do not guess the instructions, and do not act on this skill until they load.\n\
-         - Never write the instructions back into this file. To change this skill, prepare its folder and run `castle-memory skill save --plugin \"{plugin}\" --name \"{name}\" --dir <that folder>`.\n"
+         - Never write the instructions back into this file. To change this skill, prepare its folder and run `castle-memory skill save --plugin \"{plugin}\" --name \"{name}\" --dir <that folder>`. To name its flows: `castle-memory skill flows --plugin \"{plugin}\" --name \"{name}\" --set <file.json>`.\n"
     )
+}
+
+// ---------- a skill's flows ----------
+
+/// A flow's name: lowercase letters, digits and dashes, at most 64.
+pub fn flow_name_ok(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 64 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// What `skill show --for` prints: a count line, then the flow's sections in its order.
+pub fn flow_view(name: &str, master: &str, keys: &[String]) -> Result<String, String> {
+    let parts = skill_sections(master);
+    let mut bodies = Vec::new();
+    for key in keys {
+        let body = parts.iter().find(|(k, _, _)| k == key).map(|(_, _, body)| body.trim_end()).ok_or_else(|| format!("The flow names a section the skill no longer has: `{key}`. Set its flows again."))?;
+        bodies.push(body);
+    }
+    let text = bodies.join("\n\n");
+    Ok(format!("SKILL {name} {} sections, {} B (~{} tok)\n{text}", bodies.len(), text.len(), text.len().div_ceil(4)))
+}
+
+/// Reads a flows file - `{"flow": {"sections": ["key", ...], "note": "..."}}` - and checks every
+/// name and key against the skill's sections. Returns (flow, keys, note), sorted by flow.
+pub fn parse_flows(master: &str, json: &str) -> Result<Vec<(String, Vec<String>, Option<String>)>, String> {
+    let value: serde_json::Value = serde_json::from_str(json).map_err(|_| "The flows file is not JSON.".to_string())?;
+    let map = value.as_object().ok_or("The flows file must be one object: {\"flow\": {\"sections\": [...]}}.")?;
+    let known: Vec<String> = skill_sections(master).into_iter().map(|(key, _, _)| key).collect();
+    let mut flows = Vec::new();
+    for (flow, entry) in map {
+        if !flow_name_ok(flow) {
+            return Err(format!("`{flow}` is not a flow name (lowercase letters, digits and dashes)."));
+        }
+        let keys: Vec<String> = entry
+            .get("sections")
+            .and_then(|s| s.as_array())
+            .ok_or_else(|| format!("Flow `{flow}` needs a \"sections\" list."))?
+            .iter()
+            .map(|k| k.as_str().map(str::to_string).ok_or_else(|| format!("Flow `{flow}`: every section is a key in quotes.")))
+            .collect::<Result<_, _>>()?;
+        if keys.is_empty() {
+            return Err(format!("Flow `{flow}` names no section."));
+        }
+        if let Some(unknown) = keys.iter().find(|k| !known.contains(k)) {
+            return Err(format!("Flow `{flow}` names `{unknown}`, which is not a section of this skill. Sections: {}", known.join(", ")));
+        }
+        let note = entry.get("note").and_then(|n| n.as_str()).map(|n| n.chars().take(255).collect());
+        flows.push((flow.clone(), keys, note));
+    }
+    flows.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(flows)
+}
+
+/// The names of each skill's flows, for its stub.
+fn flow_names(conn: &mut impl Queryable) -> Result<BTreeMap<(String, String), Vec<String>>, String> {
+    let rows: Vec<(String, String, String)> = conn.query("SELECT plugin, name, flow FROM skill_flows ORDER BY plugin, name, flow").map_err(sql("Reading the skill flows"))?;
+    let mut out: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for (plugin, name, flow) in rows {
+        out.entry((plugin, name)).or_default().push(flow);
+    }
+    Ok(out)
+}
+
+/// One skill's flows: (flow, keys, note).
+pub fn flows_of(conn: &mut impl Queryable, plugin: &str, name: &str) -> Result<Vec<(String, Vec<String>, Option<String>)>, String> {
+    let rows: Vec<(String, String, Option<String>)> =
+        conn.exec("SELECT flow, sections, note FROM skill_flows WHERE plugin = ? AND name = ? ORDER BY flow", (plugin, name)).map_err(sql("Reading the skill flows"))?;
+    Ok(rows.into_iter().map(|(flow, sections, note)| (flow, sections.lines().map(str::to_string).collect(), note)).collect())
+}
+
+/// Replaces one skill's flows with those in `json`, and rewrites its stub so it names them.
+pub fn set_flows(conn: &mut impl Queryable, folder: &Path, plugin: &str, name: &str, json: &str) -> Result<usize, String> {
+    let master: Option<String> = conn
+        .exec_first("SELECT body FROM skill_files WHERE plugin = ? AND name = ? AND path = 'SKILL.md'", (plugin, name))
+        .map_err(sql("Reading the skill"))?;
+    let master = master.ok_or_else(|| format!("No skill {plugin}/{name} in the database. Run `castle-memory skill sync` first."))?;
+    let flows = parse_flows(&master, json)?;
+    conn.exec_drop("DELETE FROM skill_flows WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Replacing the skill flows"))?;
+    for (flow, keys, note) in &flows {
+        conn.exec_drop("INSERT INTO skill_flows (plugin, name, flow, sections, note) VALUES (?, ?, ?, ?, ?)", (plugin, name, flow, keys.join("\n"), note))
+            .map_err(sql("Saving the skill flows"))?;
+    }
+    let stubbed: Option<bool> = conn.exec_first("SELECT stubbed FROM skills WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Reading the skills"))?;
+    if stubbed == Some(true) {
+        let names: Vec<String> = flows.iter().map(|(flow, _, _)| flow.clone()).collect();
+        write_skill_file(folder, &(plugin.to_string(), name.to_string(), "SKILL.md".to_string()), &stub_of(plugin, name, &master, &names))?;
+    }
+    Ok(flows.len())
 }
 
 /// A section's key from its heading: lowercase letters, digits and dashes ("Step 2: Render" -> "step-2-render").
@@ -521,6 +672,8 @@ pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync
     let mut database: BTreeMap<SkillKey, (String, u64)> = rows.into_iter().map(|(p, n, f, body, at)| ((p, n, f), (body, at))).collect();
     let stubbed: Vec<(String, String)> = conn.query("SELECT plugin, name FROM skills WHERE stubbed = 1").map_err(sql("Reading the skills"))?;
     let is_stubbed = |key: &SkillKey| key.2 == "SKILL.md" && stubbed.iter().any(|(p, n)| *p == key.0 && *n == key.1);
+    let flows = flow_names(conn)?;
+    let flows_of_key = |key: &SkillKey| flows.get(&(key.0.clone(), key.1.clone())).cloned().unwrap_or_default();
     let mut report = SkillSync::default();
     for (key, (body, at)) in &disk {
         if is_stubbed(key) {
@@ -535,7 +688,7 @@ pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync
                 report.to_database += 1;
             }
             let Some((master, _)) = database.get(key) else { continue };
-            let stub = stub_of(&key.0, &key.1, master);
+            let stub = stub_of(&key.0, &key.1, master, &flows_of_key(key));
             if *body == stub {
                 report.same += 1;
             } else {
@@ -564,7 +717,7 @@ pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync
     }
     for (key, (body, _)) in &database {
         if !disk.contains_key(key) {
-            let text = if is_stubbed(key) { stub_of(&key.0, &key.1, body) } else { body.clone() };
+            let text = if is_stubbed(key) { stub_of(&key.0, &key.1, body, &flows_of_key(key)) } else { body.clone() };
             write_skill_file(folder, key, &text)?;
             report.to_disk += 1;
         }
@@ -594,7 +747,7 @@ pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync
             let key = (plugin.clone(), name.clone(), "SKILL.md".to_string());
             if let (Some(true), Some((master, _))) = (stubbed, database.get(&key).or_else(|| disk.get(&key))) {
                 if !is_stub(master) {
-                    write_skill_file(folder, &key, &stub_of(plugin, name, master))?;
+                    write_skill_file(folder, &key, &stub_of(plugin, name, master, &flows_of_key(&key)))?;
                     report.to_disk += 1;
                 }
             }
@@ -616,7 +769,8 @@ pub fn set_stub(conn: &mut impl Queryable, folder: &Path, plugin: &str, name: &s
     let master = master.ok_or_else(|| format!("No skill {plugin}/{name} in the database. Run `castle-memory skill sync` first."))?;
     conn.exec_drop("UPDATE skills SET stubbed = ? WHERE plugin = ? AND name = ?", (on, plugin, name)).map_err(sql("Switching the skill"))?;
     let key = (plugin.to_string(), name.to_string(), "SKILL.md".to_string());
-    let text = if on { stub_of(plugin, name, &master) } else { master };
+    let names: Vec<String> = flows_of(conn, plugin, name)?.into_iter().map(|(flow, _, _)| flow).collect();
+    let text = if on { stub_of(plugin, name, &master, &names) } else { master };
     write_skill_file(folder, &key, &text)
 }
 
@@ -634,6 +788,7 @@ pub fn remove_skill(conn: &mut impl Queryable, folder: &Path, plugin: &str, name
     let there = files.unwrap_or(0) > 0;
     conn.exec_drop("DELETE FROM skill_files WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Removing the skill"))?;
     conn.exec_drop("DELETE FROM skills WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Removing the skill"))?;
+    conn.exec_drop("DELETE FROM skill_flows WHERE plugin = ? AND name = ?", (plugin, name)).map_err(sql("Removing the skill"))?;
     let dir = skill_dir(folder, plugin, name);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|_| "The skill's folder could not be removed.".to_string())?;
@@ -723,7 +878,7 @@ mod tests {
         assert_eq!(front_matter(master), Some("---\nname: image-generation\ndescription: MUST use when the user wants an image. Triggers on \"render this\".\n---"));
         assert_eq!(front_matter("# no front matter\n"), None);
         assert_eq!(front_matter("---\nname: x\n---more\n"), None);
-        let stub = stub_of("lyra-skills", "image-generation", master);
+        let stub = stub_of("lyra-skills", "image-generation", master, &[]);
         assert!(stub.starts_with("---\nname: image-generation\ndescription: MUST use when the user wants an image. Triggers on \"render this\".\n---\n<!-- castle:skill-stub"));
         assert!(stub.contains("castle-memory skill show --plugin \"lyra-skills\" --name \"image-generation\""));
         assert_eq!(stub.contains("$env:CASTLE_TOOLS\\castle-memory.cmd"), cfg!(windows));
@@ -733,7 +888,42 @@ mod tests {
         // the CLI reads the same name and description from the stub
         assert_eq!(skill_description(&stub), skill_description(master));
         // a skill without front matter still gets a name
-        assert!(stub_of("p", "notes", "# Notes\n").starts_with("---\nname: notes\n---\n"));
+        assert!(stub_of("p", "notes", "# Notes\n", &[]).starts_with("---\nname: notes\n---\n"));
+        // a skill with no rules section carries only the generic lines
+        assert!(!stub.contains("its own rules"));
+    }
+
+    #[test]
+    fn a_stub_carries_the_skills_own_rules_and_names_its_flows() {
+        let master = "---\nname: diary\n---\n# Diary\n\n## Steps\nwrite it\n\n## Mandatory Rules\n- never invent a date\n- one entry per session\n";
+        let stub = stub_of("p", "diary", master, &["write".into(), "read".into()]);
+        assert!(stub.contains("its own rules):\n\n### Mandatory Rules\n- never invent a date\n- one entry per session"));
+        assert!(!stub.contains("write it"), "the steps stay in the database");
+        assert!(stub.contains("add `--for <flow>`") && stub.contains("`write`, `read`"));
+        // a marked section wins over a section named like rules
+        let marked = "# X\n\n## Rules\nloose\n\n## Privacy <!-- castle:keep -->\n- never share the address\n";
+        assert_eq!(kept_rules(marked).unwrap(), "### Privacy\n- never share the address");
+        // a long rules section keeps its headings and list lines, cut at a line
+        let long = format!("# X\n\n## Critical\n{}\n- keep this\n", "prose line\n".repeat(400));
+        let kept = kept_rules(&long).unwrap();
+        assert!(kept.len() <= KEEP_LIMIT + 40 && kept.contains("- keep this") && !kept.contains("prose line") && kept.ends_with("(the rest loads with the skill)"));
+        assert_eq!(kept_rules("# X\n\n## Steps\nx\n"), None);
+    }
+
+    #[test]
+    fn flows_are_checked_against_the_skills_sections_and_print_in_order() {
+        let master = "# X\nintro\n\n## Step 1: Gather\ngather\n\n## Step 2: Render\nrender\n";
+        let flows = parse_flows(master, r#"{"render":{"sections":["step-2-render","step-1-gather"],"note":"draw"},"all":{"sections":["top"]}}"#).unwrap();
+        assert_eq!(flows[0].0, "all");
+        assert_eq!(flows[1], ("render".to_string(), vec!["step-2-render".to_string(), "step-1-gather".to_string()], Some("draw".to_string())));
+        assert!(parse_flows(master, r#"{"render":{"sections":["step-9"]}}"#).unwrap_err().contains("not a section"));
+        assert!(parse_flows(master, r#"{"Render Now":{"sections":["top"]}}"#).unwrap_err().contains("not a flow name"));
+        assert!(parse_flows(master, r#"{"x":{"sections":[]}}"#).is_err());
+        assert!(parse_flows(master, "[1]").is_err());
+        let view = flow_view("x", master, &flows[1].1).unwrap();
+        assert!(view.starts_with("SKILL x 2 sections, "));
+        assert!(view.ends_with("## Step 2: Render\nrender\n\n## Step 1: Gather\ngather"));
+        assert!(flow_view("x", master, &["gone".into()]).unwrap_err().contains("`gone`"));
     }
 
     #[test]

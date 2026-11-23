@@ -20,7 +20,8 @@
 //!  castle-memory boot                         the memory to read at the start of a session
 //!  castle-memory memory list | memory show --path master-memory.md | memory save --path .. --file ..
 //!  castle-memory session show [--section "Open threads"] | session set --section ".." --file .. | session clear --section ".."
-//!  castle-memory skill list | skill show --plugin p --name n [--section key | --all] | skill sync
+//!  castle-memory skill list | skill show --plugin p --name n [--for flow | --section key | --all] | skill sync
+//!  castle-memory skill flows --plugin p --name n [--set <file.json>]   the flows a firing loads by name
 //!  castle-memory skill save --plugin p --name n --dir <folder> | skill remove --plugin p --name n
 //!  castle-memory skill stub --plugin p --name n      a small SKILL.md on disk, the instructions loaded from here
 //!  castle-memory skill full --plugin p --name n      back to the whole SKILL.md on disk
@@ -207,6 +208,7 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
         ["session", "clear"] => Ok(if mirror::clear_section(conn, ask.need("section")?)? { "SESSION section cleared".into() } else { "SESSION no such section".into() }),
         ["skill", "list"] => skill_list(conn),
         ["skill", "show"] => skill_show(conn, ask),
+        ["skill", "flows"] => skill_flows(conn, ask, memory),
         ["skill", "sync"] => skill_sync(conn, memory),
         ["skill", "save"] => skill_save(conn, ask, memory),
         ["skill", "stub"] | ["skill", "full"] => {
@@ -784,8 +786,39 @@ fn skill_show(conn: &mut Conn, ask: &Ask) -> Result<String, String> {
         .exec_first("SELECT body FROM skill_files WHERE plugin = ? AND name = ? AND path = ?", (ask.need("plugin")?, ask.need("name")?, path))
         .map_err(sql("Reading the skill"))?;
     let body = body.ok_or_else(|| "SKILL not found".to_string())?;
+    if let (Some(flow), "SKILL.md") = (ask.get("for"), path) {
+        let (plugin, name) = (ask.need("plugin")?, ask.need("name")?);
+        let flows = mirror::flows_of(conn, plugin, name)?;
+        let Some((_, keys, _)) = flows.iter().find(|(f, _, _)| f == flow) else {
+            return Err(if flows.is_empty() {
+                format!("SKILL {name} has no flows: load it without --for.")
+            } else {
+                format!("SKILL {name} has no flow `{flow}`. Flows: {}", flows.iter().map(|(f, _, _)| f.as_str()).collect::<Vec<_>>().join(", "))
+            });
+        };
+        return mirror::flow_view(name, &body, keys);
+    }
     // the skill's own instructions print by section when they are long; its other files print whole
     if path == "SKILL.md" { mirror::skill_view(&body, ask.get("section"), ask.get("all").is_some()) } else { Ok(body) }
+}
+
+/// A skill's flows: listed, or replaced from a JSON file (`{"flow": {"sections": [keys], "note": ".."}}`).
+fn skill_flows(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> {
+    let (plugin, name) = (ask.need("plugin")?, ask.need("name")?);
+    if let Some(file) = ask.get("set") {
+        let json = std::fs::read_to_string(file).map_err(|_| "The flows file could not be read.".to_string())?;
+        let n = mirror::set_flows(conn, memory, plugin, name, &json)?;
+        return Ok(format!("SKILL {name} has {n} flow(s) now; its stub names them. Start a new session to pick it up."));
+    }
+    let flows = mirror::flows_of(conn, plugin, name)?;
+    if flows.is_empty() {
+        return Ok(format!("FLOWS none for {name}: `skill show` prints its opening and sections"));
+    }
+    Ok(flows
+        .into_iter()
+        .map(|(flow, keys, note)| format!("FLOW {flow} · {}{}", keys.join(", "), note.map(|n| format!(" · {n}")).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn skill_sync(conn: &mut Conn, memory: &Path) -> Result<String, String> {
