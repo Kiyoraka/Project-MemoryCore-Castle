@@ -25,6 +25,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 17. [Market](#17-market)
 18. [The Sentinel](#18-the-sentinel)
 19. [Messaging](#19-messaging)
+20. [Finance](#20-finance)
 
 ---
 
@@ -60,6 +61,8 @@ If the download cannot happen (no internet, for example), Castle still opens and
 The panel on the left belongs to your companion. When the session is not running you see **Wake** with your companion's name. Press it to start Claude Code or Codex in your MemoryCore folder.
 
 **Continue or start fresh.** Your companion wakes with its full memory either way; the difference is the conversation. Picking the last talk up reads all of it back on the first turn, which costs many tokens once a talk is long, while a fresh session wakes from memory alone. **Settings > Companion > When Castle starts** chooses: **Continue** always picks the last talk up, **After a rest** (the default) picks it up within six hours and starts fresh after that, and **Fresh** always starts new. Beside **Wake**, **Start fresh** starts a new talk once, whatever the setting says. What was said but not saved stays in the old talk. To start fresh while your companion is awake, type `/clear` in the Log: Chat follows the new talk, and the next start picks that one up, not the one before it.
+
+**When a model's weekly share is spent.** Some Claude plans give a model its own weekly share. When the model your companion thinks with has used its share, Claude Code cannot go on with it, so Castle starts the next session on **Opus** (or **Sonnet**, when Opus has spent its share too) and a quiet line above Chat and Log says which share is spent and until when; press **×** to close it. After the reset, the next wake goes back to your own model by itself. A talk already running when the share runs out stops with Claude Code's own message in the Log: wake your companion again, or press **Start fresh**, and the new session starts on the other model. The same goes for a DEV tab and for the companion's background work. **Settings > Companion > When a model's weekly share is spent** turns it off; it is for Claude Code only.
 
 If Castle cannot start the session, the panel says why in one sentence and offers the fix:
 
@@ -861,9 +864,54 @@ nothing was). A guest gets at most one answer every ten seconds and twenty an ho
 can never talk to each other at full speed. A guest's picture or voice note reaches the run as
 a line ("sent a picture"); the file stays on WhatsApp.
 
+**Pictures you send.** A picture you send on Telegram or WhatsApp reaches your companion: Castle
+saves it in your memory folder (under `inbox/pictures`) and your companion sees it with your
+caption, so you can send a receipt, a screenshot or a photo to ask about. A guest's or a
+stranger's picture is never saved. Voice notes and videos still arrive as a line.
+
 **A new number for the Castle.** If the paired number is banned or logged out, press **Pair a
 new number** and scan the new QR code with another phone. You and every guest stay approved -
 only **Remove** and **Forget** ever take a person off the list.
+
+## 20. Finance
+
+Receipts your companion reads, kept on this computer only. Off to begin with; turn it on in
+**Settings > Rooms** and the **FINANCE** tab appears beside your companion's rooms.
+
+### Giving your companion receipts
+
+- **Drop them on FINANCE**: one picture or a whole pile (PNG, JPEG or WebP, up to 25 MB each).
+  Castle saves them in your memory folder and asks your companion to read them, up to 20 at a
+  time; FINANCE says how many it sent, which pictures are already filed, and how many to drop
+  again once these are read.
+- **Send them from your phone**: a receipt picture sent to your companion on Telegram or
+  WhatsApp (see Messaging) is read the same way.
+
+Your companion reads each receipt and proposes it: the shop, the total and its currency, the
+date, a category (food, groceries, transport, bills, shopping, health, home, fun or other) and
+at most the card's last four digits. It then says in one line what it proposed and what it could
+not read.
+
+### Waiting for your yes
+
+Nothing counts until you say so. Each proposal waits under **Waiting for your yes** with its
+picture (press it to open the picture). Correct any field, then press **Keep**; **Dismiss**
+throws the proposal away. Your companion has no way to keep, change or dismiss a receipt itself.
+A picture is filed once: the same receipt dropped again is named instead of read again.
+
+### The month
+
+**This month** adds up what you kept, one total per currency (never added across currencies),
+with a bar for each category. **‹** and **›** move between months. **Latest** lists the kept
+receipts, newest first; press one to open its picture. **Export month** and **Export all** save
+the kept receipts as a CSV file for a spreadsheet or your accountant.
+
+### What stays private
+
+Your receipts and their pictures stay in your own memory database and memory folder
+(`finance/receipts`). Nothing goes to the Portfolio, the Foundation or the chat room; they travel
+only inside your own backup. A full card or account number is never kept: only the last four
+digits, and any longer run of digits in a shop's name or a note is masked.
 
 ## Alerts
 

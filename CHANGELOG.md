@@ -4,6 +4,12 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- FINANCE: a new room (turn it on in Settings > Rooms) for your receipts. Drop receipt pictures on it, or send them to your companion on Telegram or WhatsApp; your companion reads each one and proposes it, and nothing counts until you press Keep. This month shows the total per currency with a bar per category, Latest lists what you kept, and Export saves a CSV. Everything stays on your computer, and only a card's last four digits are ever kept.
+
+- A picture you send your companion on Telegram or WhatsApp now reaches it: Castle saves it in your memory folder and your companion sees it with your caption. A guest's or a stranger's picture is never saved.
+
+- When the model your companion thinks with has spent its own weekly share (some Claude plans have one per model), the next session starts on Opus or Sonnet and a line above Chat says until when; after the reset your own model comes back. Settings > Companion can turn it off.
+
 ## 0.5.0 - 2026-11-24
 
 - A phone in DEV: a Flutter or Kotlin project's tab shows Phone, with Mobile setup (your companion installs whatever is missing, worded for your computer) and then a live Android phone beside the chat, with taps, typing, Run, Hot reload and Restart. On a Mac the iOS side is the real iPhone simulator; on Windows and Linux it is an iPhone-sized preview of the Flutter app.
