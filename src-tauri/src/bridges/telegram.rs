@@ -67,6 +67,60 @@ fn incoming(update: &Value) -> Option<(i64, String, String)> {
     Some((chat_id, text, name))
 }
 
+/// A photo from one `getUpdates` item: (chat id, the largest size's file id, its caption, the
+/// sender's name). A size over 25 MB is passed over (Castle takes receipts up to that).
+fn photo_of(update: &Value) -> Option<(i64, String, String, String)> {
+    let message = update.get("message")?;
+    let chat_id = message.pointer("/chat/id")?.as_i64()?;
+    let sizes = message.get("photo")?.as_array()?;
+    let largest = sizes
+        .iter()
+        .filter(|s| s.get("file_size").and_then(Value::as_u64).unwrap_or(0) <= crate::finance::companion::MAX_PICTURE)
+        .max_by_key(|s| s.get("width").and_then(Value::as_u64).unwrap_or(0) * s.get("height").and_then(Value::as_u64).unwrap_or(0))?;
+    let file_id = largest.get("file_id")?.as_str()?.to_string();
+    let caption = message.get("caption").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let name = message.pointer("/from/first_name").and_then(Value::as_str).unwrap_or("Someone").to_string();
+    Some((chat_id, file_id, caption, name))
+}
+
+/// Downloads a photo by its file id into Castle's own `telegram-media` folder (never the memory
+/// folder: only the member's is moved on, by `bridges::take_picture`). The token goes only into
+/// the request; it is never written down.
+fn download_photo(client: &reqwest::blocking::Client, token: &str, store: &SettingsStore, file_id: &str, name: &str) -> Option<std::path::PathBuf> {
+    let body: Value = client.get(format!("{}?file_id={file_id}", api(token, "getFile"))).send().ok()?.json().ok()?;
+    let path = body.pointer("/result/file_path")?.as_str()?;
+    if body.pointer("/result/file_size").and_then(Value::as_u64).unwrap_or(0) > crate::finance::companion::MAX_PICTURE {
+        return None;
+    }
+    let response = client.get(format!("https://api.telegram.org/file/bot{token}/{path}")).send().ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let bytes = response.bytes().ok()?;
+    if bytes.len() as u64 > crate::finance::companion::MAX_PICTURE {
+        return None;
+    }
+    let dir = store.folder().join("telegram-media");
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(format!("{}.img", name.chars().filter(char::is_ascii_alphanumeric).collect::<String>()));
+    std::fs::write(&file, &bytes).ok()?;
+    Some(file)
+}
+
+/// The words a photo becomes: for the approved chat, the picture moved into the memory folder and
+/// named with its caption; for anyone else nothing is downloaded and the line alone goes on (so a
+/// stranger is told to wait for approval as with words).
+fn photo_words(app: &AppHandle, client: &reqwest::blocking::Client, token: &str, chat_id: i64, file_id: &str, caption: &str, update_id: i64) -> String {
+    let line = if caption.is_empty() { "(sent a picture)".to_string() } else { format!("(sent a picture) {caption}") };
+    let store = app.state::<SettingsStore>();
+    let settings = store.get();
+    let approved = settings.telegram_bridge_chat_id.as_deref().and_then(|id| id.parse::<i64>().ok()) == Some(chat_id);
+    let (true, Some(memory)) = (approved, settings.memory_folder.as_deref()) else { return line };
+    download_photo(client, token, &store, file_id, &update_id.to_string())
+        .and_then(|saved| crate::bridges::take_picture(std::path::Path::new(memory), &saved, caption))
+        .unwrap_or(line)
+}
+
 /// A reaction from one `getUpdates` item: (chat id, the reacted message's id, the emoji). An
 /// empty emoji means the reaction was taken back; a custom or paid one counts as a star.
 fn reaction_of(update: &Value) -> Option<(i64, i64, String)> {
@@ -144,6 +198,9 @@ fn poll(app: &AppHandle, client: &reqwest::blocking::Client, token: &str, offset
         let Some(update_id) = update.get("update_id").and_then(Value::as_i64) else { continue };
         *offset = update_id + 1;
         if let Some((chat_id, text, name)) = incoming(&update) {
+            let _ = handle(app, client, token, chat_id, text, name, update_id.to_string());
+        } else if let Some((chat_id, file_id, caption, name)) = photo_of(&update) {
+            let text = photo_words(app, client, token, chat_id, &file_id, &caption, update_id);
             let _ = handle(app, client, token, chat_id, text, name, update_id.to_string());
         } else if let Some((chat_id, message_id, emoji)) = reaction_of(&update) {
             // only the approved chat's hearts are shown
@@ -263,6 +320,15 @@ mod tests {
         assert_eq!(anon.2, "Someone");
         // a reaction is not a message
         assert!(incoming(&json!({ "update_id": 6, "message_reaction": { "chat": { "id": 7 }, "message_id": 3 } })).is_none());
+        // a photo is not a text message; photo_of reads it
+        let photo = json!({ "update_id": 7, "message": { "chat": { "id": 42 }, "from": { "first_name": "Rin" }, "caption": " lunch ", "photo": [
+            { "file_id": "small", "width": 90, "height": 120, "file_size": 2000 },
+            { "file_id": "large", "width": 960, "height": 1280, "file_size": 180000 },
+            { "file_id": "huge", "width": 9000, "height": 12000, "file_size": 30000000 }
+        ] } });
+        assert!(incoming(&photo).is_none());
+        assert_eq!(photo_of(&photo), Some((42, "large".to_string(), "lunch".to_string(), "Rin".to_string())), "the largest under 25 MB");
+        assert!(photo_of(&update(8, 42, "Rin", "hello")).is_none());
     }
 
     #[test]
