@@ -181,7 +181,7 @@ export const sweepSettingsSave = (look, recycleBin) => invoke('sweep_settings_sa
 //      patrolling, unread, open: { alarm, look, note }, watchMinutes, problem }
 export const sentinelStatus = () => invoke('sentinel_status')
 export const sentinelPatrolNow = () => invoke('sentinel_patrol_now')
-export const sentinelSettingsSave = (on, model, patrolMinutes) => invoke('sentinel_settings_save', { on, model, patrolMinutes })
+export const sentinelSettingsSave = (on, model, patrolMinutes, network = null) => invoke('sentinel_settings_save', { on, model, patrolMinutes, network })
 export const onSentinelChanged = (handler) => listen('sentinel-changed', () => handler())
 // -> [{ id, kind, hint, title, detail, fixMove, fixArg, state, stateWhy, firstSeen, lastSeen, undoable }]
 export const sentinelFindings = (states) => invoke('sentinel_findings', { states })

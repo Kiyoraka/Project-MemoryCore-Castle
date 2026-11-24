@@ -1161,7 +1161,7 @@ mod tests {
             gpu_gauges: crate::gpu::GpuGauges { on: false },
             weather: crate::weather::WeatherSettings { place: Some(crate::weather::Place { name: "Ipoh".into(), region: "Perak, Malaysia".into(), lat: 4.6, lon: 101.08 }), units: "imperial".into() },
             sweep: crate::sweep::SweepSettings { look: Some("broom".into()), recycle_bin: true },
-            sentinel: crate::sentinel::SentinelSettings { on: true, model: Some("opus".into()), patrol_minutes: 30 },
+            sentinel: crate::sentinel::SentinelSettings { on: true, model: Some("opus".into()), patrol_minutes: 30, network: true },
             credits: crate::credits::CreditsSaved { seedance_budget: Some(20.0), suno_peak: Some(800.0), ..Default::default() },
             comfy: crate::comfy::ComfySettings { on: true, address: "http://127.0.0.1:8188".into(), start: "start.bat".into(), model: "m.safetensors".into(), workflow: "qwen.json".into(), limit_minutes: 20 },
         };

@@ -229,6 +229,8 @@ pub struct Setup {
     pub installed: hand::Installed,
     pub recommended: Option<String>,
     pub cli_label: String,
+    /// signed in to the Foundation, so the Aegis Network can be joined
+    pub signed_in: bool,
 }
 
 /// Writes the installer and the hand where the member's line points, and gives the lines. The
@@ -240,7 +242,7 @@ pub async fn sentinel_setup(app: AppHandle) -> Result<Setup, String> {
         let recommended = super::recommended_model(settings.cli).map(str::to_string);
         let cli_label = settings.cli.label().to_string();
         if !cfg!(windows) {
-            return Ok(Setup { supported: false, install_line: String::new(), uninstall_line: String::new(), installed: hand::installed(), recommended, cli_label });
+            return Ok(Setup { supported: false, install_line: String::new(), uninstall_line: String::new(), installed: hand::installed(), recommended, cli_label, signed_in: super::network::signed_in() });
         }
         let (install, hand_file) = hand::prepare_files(&hand::local_dir())?;
         let castle = std::env::current_exe().map_err(|_| "Castle could not find its own program.".to_string())?;
@@ -251,6 +253,7 @@ pub async fn sentinel_setup(app: AppHandle) -> Result<Setup, String> {
             installed: hand::installed(),
             recommended,
             cli_label,
+            signed_in: super::network::signed_in(),
         };
         changed(&app);
         Ok(setup)

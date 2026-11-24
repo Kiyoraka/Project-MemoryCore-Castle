@@ -24,7 +24,7 @@ const rows = inject(ROW_STATUS, null) ?? createRowStatus()
 const setup = ref(null)
 const busy = ref('')
 const said = ref('')
-const gear = computed(() => props.settings.sentinel || { on: false, model: null, patrolMinutes: 60 })
+const gear = computed(() => props.settings.sentinel || { on: false, model: null, patrolMinutes: 60, network: false })
 const modelChoice = ref(gear.value.model ? 'own' : 'recommended')
 const minutes = ref(gear.value.patrolMinutes || 60)
 const companion = computed(() => props.settings.companionName ?? 'your companion')
@@ -47,10 +47,10 @@ async function read(message = '') {
 async function save(row, patch) {
   busy.value = 'Saving…'
   said.value = ''
-  const next = { on: gear.value.on, model: gear.value.model, patrolMinutes: gear.value.patrolMinutes, ...patch }
+  const next = { on: gear.value.on, model: gear.value.model, patrolMinutes: gear.value.patrolMinutes, network: !!gear.value.network, ...patch }
   try {
     const ok = await rows.run(row, async () => {
-      await sentinelSettingsSave(next.on, next.model, next.patrolMinutes)
+      await sentinelSettingsSave(next.on, next.model, next.patrolMinutes, next.network)
       return true
     })
     if (ok) emit('saved')
@@ -94,6 +94,17 @@ onMounted(() => read())
       </SettingRow>
       <SettingRow id="sentinel-patrol" label="Patrol every" description="An alarm always starts a patrol at once.">
         <GlassSelect :model-value="minutes" :options="PATROLS" :disabled="!!busy" aria-label="Patrol every" @update:model-value="(m) => { minutes = m; save('sentinel-patrol', { patrolMinutes: m }) }" />
+      </SettingRow>
+    </SettingGroup>
+
+    <SettingGroup id="sentinel-network" title="The Aegis Network" tip="One castle's sighting protects every castle. When the Sentinel catches an attacker (a burst of failed sign-ins, an address it blocked) or the antivirus names a detection, it shares that one address or name with the Foundation, and nothing else. An address two castles reported within a day goes on a shared list; every castle that joined blocks it for a day, and you can undo any block. A detection on the list is only a warning.">
+      <SettingRow
+        id="sentinel-network"
+        label="Join the Aegis Network"
+        :disabled="!setup?.signedIn && !gear.network"
+        :description="setup?.signedIn || gear.network ? 'Shares only an attacker’s address or a detection’s name, never anything about you.' : 'Sign in to the Foundation first: the network is for its members.'"
+      >
+        <SettingSwitch :model-value="!!gear.network" label="Join the Aegis Network" :disabled="!!busy || (!setup?.signedIn && !gear.network)" @update:model-value="(network) => save('sentinel-network', { network })" />
       </SettingRow>
     </SettingGroup>
 

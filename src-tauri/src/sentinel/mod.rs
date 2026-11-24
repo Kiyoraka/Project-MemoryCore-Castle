@@ -17,6 +17,7 @@ pub mod commands;
 pub mod families;
 pub mod hand;
 pub mod look;
+pub mod network;
 pub mod officer;
 pub mod watch;
 
@@ -35,11 +36,14 @@ pub struct SentinelSettings {
     pub model: Option<String>,
     /// Minutes between two patrols.
     pub patrol_minutes: u32,
+    /// Joined the Aegis Network (network.rs): what is caught is shared, the shared list is read.
+    /// Off until the member joins; needs a Foundation sign-in.
+    pub network: bool,
 }
 
 impl Default for SentinelSettings {
     fn default() -> Self {
-        SentinelSettings { on: false, model: None, patrol_minutes: 60 }
+        SentinelSettings { on: false, model: None, patrol_minutes: 60, network: false }
     }
 }
 
@@ -51,6 +55,7 @@ impl SentinelSettings {
             on: self.on,
             model: self.model.as_deref().and_then(crate::oneshot::clean_model),
             patrol_minutes: self.patrol_minutes.clamp(*PATROL_MINUTES.start(), *PATROL_MINUTES.end()),
+            network: self.network,
         }
     }
 }
@@ -69,15 +74,20 @@ pub fn model_for(cli: crate::settings::Cli, gear: &SentinelSettings) -> Option<S
     gear.bounded().model.or_else(|| recommended_model(cli).map(str::to_string))
 }
 
-/// Saves the Sentinel's gear. A model name that could carry a flag is refused.
+/// Saves the Sentinel's gear. A model name that could carry a flag is refused; joining the Aegis
+/// Network needs a Foundation sign-in (`network` absent keeps what was chosen).
 #[tauri::command]
-pub fn sentinel_settings_save(store: tauri::State<'_, SettingsStore>, on: bool, model: Option<String>, patrol_minutes: u32) -> Result<SentinelSettings, String> {
+pub fn sentinel_settings_save(store: tauri::State<'_, SettingsStore>, on: bool, model: Option<String>, patrol_minutes: u32, network: Option<bool>) -> Result<SentinelSettings, String> {
+    let network = network.unwrap_or(store.get().sentinel.network);
+    if network && !network::signed_in() {
+        return Err("Sign in to the Foundation first: the Aegis Network is for its members.".into());
+    }
     let model = match model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         None => None,
         Some(m) => Some(crate::oneshot::clean_model(m).ok_or("A model name is letters, digits, dots, dashes, underscores or colons.")?),
     };
     let mut next = store.get();
-    next.sentinel = SentinelSettings { on, model, patrol_minutes }.bounded();
+    next.sentinel = SentinelSettings { on, model, patrol_minutes, network }.bounded();
     crate::settings::save(&store.path, &next).map_err(|_| "The Sentinel's settings could not be saved.".to_string())?;
     let saved = next.sentinel.clone();
     *store.current.lock().unwrap() = next;
@@ -163,8 +173,8 @@ mod tests {
 
     #[test]
     fn the_gear_is_kept_in_bounds() {
-        let wild = SentinelSettings { on: true, model: Some("--tools Bash".into()), patrol_minutes: 1 };
-        assert_eq!(wild.bounded(), SentinelSettings { on: true, model: None, patrol_minutes: 15 });
+        let wild = SentinelSettings { on: true, model: Some("--tools Bash".into()), patrol_minutes: 1, network: true };
+        assert_eq!(wild.bounded(), SentinelSettings { on: true, model: None, patrol_minutes: 15, network: true });
         assert_eq!(SentinelSettings { patrol_minutes: 99_999, ..SentinelSettings::default() }.bounded().patrol_minutes, 720);
     }
 }
