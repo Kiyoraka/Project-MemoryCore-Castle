@@ -503,6 +503,15 @@ export const phoneTouch = (slot, x, y, down) => invoke('phone_touch', { slot, x,
 // one of the phone's buttons ('back', 'home', 'recent', 'enter', 'backspace' ...) or typed text
 export const phoneKey = (slot, button = null, text = null) => invoke('phone_key', { slot, button, text })
 export const phoneRotate = (slot) => invoke('phone_rotate', { slot })
+// Run on the phone: ios = the iPhone preview of a Flutter app -> { running, kind, target, preview, tail }
+export const phoneRun = (slot, ios = false) => invoke('phone_run', { slot, ios })
+export const phoneReload = (slot) => invoke('phone_reload', { slot })
+export const phoneRestart = (slot) => invoke('phone_restart', { slot })
+export const phoneRunStop = (slot) => invoke('phone_run_stop', { slot })
+export const phoneRunInfo = (slot) => invoke('phone_run_info', { slot })
+// the run's text as it comes, and its end (exit code)
+export const onPhoneOutput = (slot) => (handler) => listen(`phone-output-${slot}`, (e) => handler(e.payload))
+export const onPhoneExit = (slot) => (handler) => listen(`phone-exit-${slot}`, (e) => handler(e.payload))
 export const devResize = (slot, cols, rows) => invoke('dev_resize', { slot, cols, rows })
 // the tab's screen so far, to draw the Log again
 export const devSnapshot = (slot) => invoke('dev_snapshot', { slot })

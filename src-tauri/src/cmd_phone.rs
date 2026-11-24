@@ -101,3 +101,40 @@ pub async fn phone_rotate(slot: u8, phones: State<'_, Phones>) -> Result<(), Str
     let phones = phones.inner().clone();
     blocking(move || emulator::rotate(&phones, s)).await?
 }
+
+// Run, Hot reload, Restart
+
+fn folder_of(store: &crate::settings::SettingsStore, slot: u8) -> Result<std::path::PathBuf, String> {
+    crate::dev::folder_of(&store.get(), slot as usize)
+}
+
+/// Runs the tab's app: on its phone, or (ios) as the iPhone preview for a Flutter app.
+#[tauri::command]
+pub async fn phone_run(slot: u8, ios: bool, app: tauri::AppHandle, store: State<'_, crate::settings::SettingsStore>) -> Result<crate::phone_run::RunInfo, String> {
+    let s = slot_of(slot)?;
+    let folder = folder_of(&store, slot)?;
+    blocking(move || crate::phone_run::run(&app, s, &folder, ios)).await?
+}
+
+#[tauri::command]
+pub fn phone_reload(slot: u8, app: tauri::AppHandle) -> Result<(), String> {
+    crate::phone_run::reload(&app, slot_of(slot)?)
+}
+
+#[tauri::command]
+pub async fn phone_restart(slot: u8, app: tauri::AppHandle, store: State<'_, crate::settings::SettingsStore>) -> Result<crate::phone_run::RunInfo, String> {
+    let s = slot_of(slot)?;
+    let folder = folder_of(&store, slot)?;
+    blocking(move || crate::phone_run::restart(&app, s, &folder)).await?
+}
+
+#[tauri::command]
+pub async fn phone_run_stop(slot: u8, app: tauri::AppHandle) -> Result<(), String> {
+    let s = slot_of(slot)?;
+    blocking(move || crate::phone_run::stop(&app, s)).await
+}
+
+#[tauri::command]
+pub fn phone_run_info(slot: u8, app: tauri::AppHandle) -> Result<crate::phone_run::RunInfo, String> {
+    Ok(crate::phone_run::info(&app, slot_of(slot)?))
+}

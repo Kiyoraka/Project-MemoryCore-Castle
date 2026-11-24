@@ -9,6 +9,7 @@ mod mobile;
 mod emulator_grpc;
 mod emulator;
 mod cmd_phone;
+mod phone_run;
 mod apps;
 mod shell;
 mod thumbs;
@@ -313,6 +314,7 @@ pub fn run() {
         .manage(automations::Running::default())
         .manage(emulator::Phones::default())
         .manage(cmd_phone::Screens::default())
+        .manage(phone_run::PhoneRuns::default())
         .manage(automations::health::Health::default())
         .manage(alerts::ActiveRoom::default())
         .manage(session::MainHost::default())
@@ -380,6 +382,11 @@ pub fn run() {
             cmd_phone::phone_touch,
             cmd_phone::phone_key,
             cmd_phone::phone_rotate,
+            cmd_phone::phone_run,
+            cmd_phone::phone_reload,
+            cmd_phone::phone_restart,
+            cmd_phone::phone_run_stop,
+            cmd_phone::phone_run_info,
             dev::dev_resize,
             dev::dev_snapshot,
             dev::dev_chat_poll,
@@ -824,6 +831,9 @@ pub fn run() {
                 db::stop_with_castle(app);
                 comfy::stop_with_castle(app);
                 // a phone has no window of its own: one left behind would run unseen
+                for run in app.state::<phone_run::PhoneRuns>().hosts.iter() {
+                    run.kill();
+                }
                 emulator::stop_all(&app.state::<emulator::Phones>());
             }
         });
