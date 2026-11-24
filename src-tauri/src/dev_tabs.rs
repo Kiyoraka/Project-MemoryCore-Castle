@@ -127,6 +127,22 @@ pub fn with_tab(tabs: &[Option<String>], slot: usize, folder: Option<String>) ->
     next
 }
 
+/// The project list with every open tab's folder on it: a session whose project fell off the
+/// list (an older build, two Castles saving at once) gets its project back, at the end, so the
+/// member can select it and see its files. None when nothing was missing.
+pub fn with_open_tabs(projects: &[String], tabs: &[Option<String>]) -> Option<Vec<String>> {
+    let mut next = projects.to_vec();
+    let mut keys: Vec<String> = next.iter().map(|f| same_folder_key(f)).collect();
+    for folder in tabs.iter().flatten() {
+        let key = same_folder_key(folder);
+        if !keys.contains(&key) {
+            keys.push(key);
+            next.push(folder.clone());
+        }
+    }
+    (next.len() != projects.len()).then_some(next)
+}
+
 /// The recent list with `folder` at the top (once), at most `RECENT` long.
 pub fn remembered(recent: &[String], folder: &str) -> Vec<String> {
     let key = same_folder_key(folder);
@@ -255,5 +271,17 @@ mod tests {
         #[cfg(not(windows))]
         assert_eq!(name_of("/Users/rin/Projects/shop/"), "shop");
         assert!(boot_file(Path::new("C:/castle"), 3).ends_with("boot/dev-3.md"));
+    }
+    #[test]
+    fn a_session_whose_project_fell_off_the_list_gets_it_back() {
+        let projects = vec!["/c/montee".to_string(), "/c/tnexflow".to_string()];
+        let tabs = vec![Some("/i/Sales Engineering".to_string()), None, Some("/c/montee/".to_string())];
+        assert_eq!(
+            with_open_tabs(&projects, &tabs),
+            Some(vec!["/c/montee".to_string(), "/c/tnexflow".to_string(), "/i/Sales Engineering".to_string()]),
+            "added once at the end; a trailing slash is the same folder"
+        );
+        assert_eq!(with_open_tabs(&projects, &[Some("/c/montee".into()), None]), None, "nothing missing: nothing to save");
+        assert_eq!(with_open_tabs(&[], &[Some("/a".into()), Some("/a".into())]), Some(vec!["/a".to_string()]), "two sessions of one project add it once");
     }
 }
