@@ -255,6 +255,19 @@ mod tests {
         assert_eq!(free_preview_port(|p| p == 7357), Some(7358));
     }
 
+    /// The iPhone preview is the Flutter app served on 127.0.0.1 in an iframe: the window's CSP must
+    /// allow exactly that, and nothing wider (no other host can be framed).
+    #[test]
+    fn the_preview_may_be_framed_from_this_computer_only() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = conf["app"]["security"]["csp"].as_str().unwrap();
+        let frame = csp.split(';').map(str::trim).find(|d| d.starts_with("frame-src")).expect("frame-src is missing: the iPhone preview cannot show");
+        let sources: Vec<&str> = frame.split_whitespace().skip(1).collect();
+        assert_eq!(sources, vec!["http://127.0.0.1:*"], "frame-src stays narrow: {frame}");
+        let port = free_preview_port(|_| false).unwrap();
+        assert!(flutter_args(&Target::Preview(port)).windows(2).any(|w| w == ["--web-hostname", "127.0.0.1"]), "the preview is served where the CSP lets it be framed");
+    }
+
     #[test]
     fn the_console_starts_the_program_the_way_this_platform_needs() {
         let args = vec!["installDebug".to_string()];
