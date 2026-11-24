@@ -41,6 +41,15 @@ export const PEOPLE = {
       'TODAY reminders that wrap',
     ],
   },
+  NecroSlav: {
+    name: 'NecroSlav',
+    built: [
+      'STUDIO pictures with your own ComfyUI',
+      'The database download that carries on where it stopped',
+      "The database install's progress kept when Settings reopens",
+      'Long project statuses moving into the database',
+    ],
+  },
 }
 
 export const THANKS = [{ name: 'Ashran Helmi', for: 'The Deep Space world', url: 'https://ashranhelmi.com' }]
