@@ -95,6 +95,7 @@ mod themes;
 mod workflows;
 mod automations;
 mod calendar;
+mod finance;
 mod describe;
 mod market_shop;
 mod keeper;
@@ -508,6 +509,9 @@ pub fn run() {
             calendar::calendar_link_jobs,
             calendar::calendar_proposals,
             calendar::calendar_proposal_decide,
+            finance::finance_month,
+            finance::finance_decide,
+            finance::finance_export,
             calendar::calendar_home,
             calendar::calendar_notice_dismiss,
             workflows::workflow_list,

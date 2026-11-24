@@ -19,7 +19,7 @@ pub const HOST: &str = "127.0.0.1";
 pub const ENV_KEYS: [&str; 5] = ["MEMORY_DB_HOST", "MEMORY_DB_PORT", "MEMORY_DB_NAME", "MEMORY_DB_USER", "MEMORY_DB_PASSWORD"];
 
 /// The migrations, in order. A released file is never edited; a change is a new entry.
-pub const MIGRATIONS: [(&str, &str); 27] = [
+pub const MIGRATIONS: [(&str, &str); 28] = [
     ("001_core", include_str!("../resources/schema/001_core.sql")),
     ("002_imported_files", include_str!("../resources/schema/002_imported_files.sql")),
     ("003_memory_skills", include_str!("../resources/schema/003_memory_skills.sql")),
@@ -47,6 +47,7 @@ pub const MIGRATIONS: [(&str, &str); 27] = [
     ("025_calendar_subscriptions", include_str!("../resources/schema/025_calendar_subscriptions.sql")),
     ("026_skills_by_default", include_str!("../resources/schema/026_skills_by_default.sql")),
     ("027_skill_flows", include_str!("../resources/schema/027_skill_flows.sql")),
+    ("028_finance", include_str!("../resources/schema/028_finance.sql")),
 ];
 
 /// How to reach one database.
@@ -288,6 +289,8 @@ mod tests {
         // every skill from the database by default, the existing ones switched once
         assert_eq!(statements(MIGRATIONS[25].1), vec!["ALTER TABLE skills ALTER COLUMN stubbed SET DEFAULT 1", "UPDATE skills SET stubbed = 1"]);
         assert!(MIGRATIONS[26].0 == "027_skill_flows" && MIGRATIONS[26].1.trim_start().starts_with("CREATE TABLE skill_flows"));
+        assert!(MIGRATIONS[27].0 == "028_finance" && MIGRATIONS[27].1.trim_start().starts_with("CREATE TABLE finance_receipts"));
+        assert!(MIGRATIONS[27].1.contains("UNIQUE KEY ux_finance_receipts_picture (picture_sha256)"), "one picture is filed once");
     }
 
     #[test]
