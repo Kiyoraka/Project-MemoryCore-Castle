@@ -97,6 +97,7 @@ mod themes;
 mod workflows;
 mod automations;
 mod calendar;
+mod castle_skills;
 mod finance;
 mod describe;
 mod market_shop;

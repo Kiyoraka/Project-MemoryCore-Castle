@@ -734,7 +734,12 @@ mod tests {
     #[test]
     #[ignore]
     fn live_move_in_then_export_gives_the_files_back() {
-        let spec = std::env::var("CASTLE_TEST_DB").expect("set CASTLE_TEST_DB");
+        let spec = std::env::var("CASTLE_TEST_DB").unwrap_or_else(|_| {
+            // platform: windows-only - an on-demand live test run on Windows, where Castle's settings live under APPDATA
+            let folder = std::env::var("APPDATA").unwrap() + "/com.memorycore.castle/settings.json";
+            let port = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(folder).unwrap()).unwrap()["dbPort"].as_u64().unwrap();
+            format!("{port}:root:{}", crate::key::db_root().unwrap_or_default())
+        });
         let mut parts = spec.splitn(3, ':');
         let port: u16 = parts.next().unwrap().parse().unwrap();
         let (admin, admin_pw) = (parts.next().unwrap().to_string(), parts.next().unwrap_or("").to_string());
@@ -750,7 +755,7 @@ mod tests {
         let mut backed_up = false;
         let counts = move_in(&mut conn, &root, || { backed_up = true; Ok(()) }).unwrap();
         assert!(backed_up);
-        assert_eq!(counts, Counts { skills: 1, ..before.counts() });
+        assert_eq!(counts, Counts { skills: 2, ..before.counts() });
         // the memory boots from the database now, in order, session memory last and exact
         let boot = crate::mirror::boot(&mut conn).unwrap();
         let at = |needle: &str| boot.find(needle).unwrap_or_else(|| panic!("missing {needle}"));
@@ -784,7 +789,7 @@ mod tests {
 
         // the skills: in the database, still on disk; a deleted file comes back, a hand edit is taken in
         let skill = root.join("plugins/rin-skills/skills/save-diary");
-        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap(), crate::mirror::SkillSync { to_database: 0, to_disk: 0, same: 2, skills: 1 });
+        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap(), crate::mirror::SkillSync { to_database: 0, to_disk: 0, same: 3, skills: 2 });
         std::fs::remove_file(skill.join("reference/flows.md")).unwrap();
         assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap().to_disk, 1);
         assert_eq!(std::fs::read_to_string(skill.join("reference/flows.md")).unwrap(), "flows\n");
@@ -805,9 +810,9 @@ mod tests {
         assert!(crate::mirror::is_stub(&on_disk) && on_disk.starts_with("---\nname: save-diary\ndescription: Edited by hand\n---\n"));
         assert!(on_disk.contains("castle-memory skill show --plugin \"rin-skills\" --name \"save-diary\"") && !on_disk.contains("# Save diary v2"));
         assert_eq!(door(&mut conn, &["skill", "show", "--plugin", "rin-skills", "--name", "save-diary"]).unwrap(), master.trim_end());
-        assert!(door(&mut conn, &["skill", "list"]).unwrap().starts_with("rin-skills/save-diary [stub] · Edited by hand"));
+        assert!(door(&mut conn, &["skill", "list"]).unwrap().contains("rin-skills/save-diary [stub] · Edited by hand"));
         // a sync leaves the stub alone and the instructions untouched
-        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap(), crate::mirror::SkillSync { to_database: 0, to_disk: 0, same: 2, skills: 1 });
+        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap(), crate::mirror::SkillSync { to_database: 0, to_disk: 0, same: 3, skills: 2 });
         let kept: Option<String> = conn.query_first("SELECT body FROM skill_files WHERE name = 'save-diary' AND path = 'SKILL.md'").unwrap();
         assert_eq!(kept.as_deref(), Some(master.as_str()));
         // a stub someone edited or deleted is written back; the other files still mirror
@@ -824,7 +829,7 @@ mod tests {
         // and back to a whole file
         assert!(door(&mut conn, &["skill", "full", "--plugin", "rin-skills", "--name", "save-diary"]).unwrap().starts_with("SKILL is a whole file again"));
         assert_eq!(std::fs::read_to_string(skill.join("SKILL.md")).unwrap(), "---\nname: save-diary\ndescription: Version three\n---\n# Save diary v3\n");
-        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap().same, 2);
+        assert_eq!(crate::mirror::sync_skills(&mut conn, &root).unwrap().same, 3);
         assert!(door(&mut conn, &["skill", "stub", "--plugin", "rin-skills", "--name", "nope"]).is_err());
 
         assert!(crate::mirror::remove_skill(&mut conn, &root, "rin-skills", "save-diary").unwrap());

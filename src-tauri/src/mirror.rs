@@ -665,6 +665,8 @@ fn put_skill_file(conn: &mut impl Queryable, key: &SkillKey, body: &str, at: u64
 /// on disk: a whole SKILL.md found there is taken in as the new instructions, then the stub is
 /// written back.
 pub fn sync_skills(conn: &mut impl Queryable, folder: &Path) -> Result<SkillSync, String> {
+    // Castle's own skills are in the database first, so this sync writes their stubs like any other
+    crate::castle_skills::seed(conn)?;
     let disk = skills_on_disk(folder);
     let rows: Vec<(String, String, String, String, u64)> = conn
         .query("SELECT plugin, name, path, body, UNIX_TIMESTAMP(updated_at) FROM skill_files")
