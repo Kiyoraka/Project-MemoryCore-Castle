@@ -178,7 +178,10 @@ pub fn dev_block(companion: &str, member: &str, project: &str, memory_loaded: bo
          ## Plans\n\
          When {member} approves a plan, run `castle-memory plan copy` so it is kept in your memory, then walk it one \
          item at a time: `castle-memory plan next` -> do that item -> `castle-memory plan mark --next`. \
-         `castle-memory plan status` shows where you are; {member} sees the same plan in Castle's Plan panel.\n"
+         `castle-memory plan status` shows where you are; {member} sees the same plan in Castle's Plan panel.\n\n\
+         ## Long files\n\
+         When a code file you edit passes 1,000 lines, run `castle-memory skill show --plugin castle --name shard` \
+         and follow it: you propose how to split it, {member} decides, and nothing is split before their yes.\n"
     )
 }
 
@@ -266,6 +269,7 @@ mod tests {
         let block = dev_block("Lyra", "Rin", "shop", true);
         assert!(block.contains("You are Lyra") && block.contains("**shop**") && block.contains("castle-memory plan copy"));
         assert!(dev_block("Lyra", "Rin", "shop", false).contains("castle-memory boot"));
+        assert!(block.contains("castle-memory skill show --plugin castle --name shard") && block.contains("Rin decides"), "a long file is Shard's, on the member's yes");
         #[cfg(windows)]
         assert_eq!(name_of("D:\\Projects\\shop\\"), "shop");
         #[cfg(not(windows))]

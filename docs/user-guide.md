@@ -721,6 +721,12 @@ A **Flutter** project (a `pubspec.yaml` with a `flutter:` section) or an **Andro
 
 ---
 
+### Long files
+
+When a code file your companion is working on passes 1,000 lines, she proposes splitting it: a short main file that keeps every name the rest of the project uses, and a few smaller files grouped by what they do. She shows the split as a plan and waits for your yes; nothing is split before it, and the project's tests run before and after. Generated files, lock files, other people's libraries and data files are never split.
+
+This comes from **Shard**, one of Castle's own skills. Castle keeps it in your memory database, like every skill, so it is listed in **Settings > Database > Skills**; only a short note to load it sits in your memory folder.
+
 ## 17. Market
 
 **MARKET** is a practice desk: paper money on real public Bybit prices, with your companion beside you. Nothing real is ever ordered. Turn it on in **Settings › Rooms** and set your paper money to start.
