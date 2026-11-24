@@ -91,10 +91,21 @@ fn download_resumable_with(url: &str, expected: u64, what: &str, part: &Path, pa
             progress(expected, expected);
             break;
         }
-        if fetch_more(&client, url, expected, part, progress).is_ok() {
+        let answered = fetch_more(&client, url, expected, part, progress).is_ok();
+        let after = size_of(part);
+        // done only when the whole release is here: an answer that arrived in full can still be just
+        // part of it (a bounded range, a short body)
+        if after == expected {
             break;
         }
-        stalled = if size_of(part) > before { 0 } else { stalled + 1 };
+        if after > expected {
+            // more than the release: it is not this release, so start again
+            discard(part);
+        } else if answered && after > before {
+            // a complete answer for a part of what was missing: ask for the rest at once
+            continue;
+        }
+        stalled = if after > before && after <= expected { 0 } else { stalled + 1 };
         if stalled >= STALLED_TRIES {
             return Err(format!(
                 "The {what} download paused at {} of {} MB. Press Install again and it carries on from there.",
@@ -107,7 +118,17 @@ fn download_resumable_with(url: &str, expected: u64, what: &str, part: &Path, pa
     std::fs::read(part).map_err(|_| offline())
 }
 
-/// One try: asks for what `part` lacks and appends it. `Ok` only when the whole body arrived.
+/// A `Content-Range` header read whole: `bytes 40-59/100` is (40, 59, Some(100)); a total the server
+/// does not know (`*`) is None. Anything else that is not that shape is None.
+fn parse_content_range(said: &str) -> Option<(u64, u64, Option<u64>)> {
+    let (span, total) = said.trim().strip_prefix("bytes ")?.split_once('/')?;
+    let (start, end) = span.split_once('-')?;
+    let total = if total.trim() == "*" { None } else { Some(total.trim().parse().ok()?) };
+    Some((start.trim().parse().ok()?, end.trim().parse().ok()?, total))
+}
+
+/// One try: asks for what `part` lacks and appends it. `Ok` only when the whole body of this answer
+/// arrived; the caller decides whether that makes the whole release (an answer may hold only a part of it).
 fn fetch_more(client: &reqwest::blocking::Client, url: &str, expected: u64, part: &Path, progress: &dyn Fn(u64, u64)) -> Result<(), ()> {
     let mut have = size_of(part);
     if have > expected {
@@ -129,10 +150,11 @@ fn fetch_more(client: &reqwest::blocking::Client, url: &str, expected: u64, part
     }
     let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
     if resumed {
-        let asked = format!("bytes {have}-");
         let said = response.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()).unwrap_or("");
-        if !said.starts_with(&asked) {
-            // a piece from somewhere else: never glue it on
+        // the whole header is read: where the piece starts and ends and how big the whole is. A piece
+        // from somewhere else, of a different whole, or that runs past the release is never glued on.
+        let fits = parse_content_range(said).is_some_and(|(from, to, total)| from == have && to >= from && to < expected && total.is_none_or(|t| t == expected));
+        if !fits {
             discard(part);
             return Err(());
         }
@@ -141,7 +163,8 @@ fn fetch_more(client: &reqwest::blocking::Client, url: &str, expected: u64, part
     let start = if resumed { have } else { 0 };
     let mut file = if resumed { std::fs::OpenOptions::new().append(true).open(part) } else { std::fs::File::create(part) }.map_err(|_| ())?;
     let server_total = response.content_length().map(|n| start + n);
-    let shown_total = server_total.unwrap_or(expected);
+    // the bar runs to the end of the release, not to the end of this answer
+    let shown_total = expected;
     let mut written = 0u64;
     let mut chunk = [0u8; 256 * 1024];
     let mut last = Instant::now();
@@ -416,6 +439,97 @@ mod tests {
         assert_eq!(server.ranges.lock().unwrap().len(), STALLED_TRIES as usize);
         assert_eq!(std::fs::read(&part).unwrap(), &body[..100], "the earlier bytes are still there to continue from");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server that gives back less than was asked: each answer holds at most `window` bytes. A
+    /// bounded `206` names the span it really sent in Content-Range (and `claimed_total` lets it name a
+    /// different whole than the release); with `plain_short` it answers `200` with a body of only
+    /// `window` bytes whatever the request says.
+    fn serve_partial(body: Vec<u8>, window: usize, claimed_total: Option<usize>, plain_short: bool) -> Served {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/file.zip", listener.local_addr().unwrap());
+        let ranges = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = ranges.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut range = None;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
+                        range = Some(v.trim().to_string());
+                    }
+                }
+                seen.lock().unwrap().push(range.clone());
+                let from = range.as_ref().filter(|_| !plain_short).and_then(|r| r.trim_end_matches('-').parse::<usize>().ok());
+                match from {
+                    Some(start) if start < body.len() => {
+                        let end = (start + window).min(body.len());
+                        let part = &body[start..end];
+                        let _ = write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{}/{}\r\nConnection: close\r\n\r\n", part.len(), end - 1, claimed_total.unwrap_or(body.len()));
+                        let _ = stream.write_all(part);
+                    }
+                    _ => {
+                        let part = &body[..window.min(body.len())];
+                        let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", part.len());
+                        let _ = stream.write_all(part);
+                    }
+                }
+            }
+        });
+        Served { url, ranges }
+    }
+
+    #[test]
+    fn a_valid_answer_for_only_part_of_what_is_missing_is_followed_by_asking_for_the_rest() {
+        // the review's case: 40 of 100 bytes saved, the server answers `206`, `bytes 40-59/100`, 20 bytes
+        let body: Vec<u8> = (0..100u8).collect();
+        let server = serve_partial(body.clone(), 20, None, false);
+        let dir = temp("bounded");
+        let part = dir.join("release.zip.part");
+        std::fs::write(&part, &body[..40]).unwrap();
+        assert_eq!(run(&server.url, body.len(), &part).unwrap(), body, "the whole release, not the 60 bytes the first answer made");
+        assert_eq!(server.ranges.lock().unwrap().clone(), vec![Some("40-".to_string()), Some("60-".to_string()), Some("80-".to_string())], "each answer asked for what was still missing");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_range_that_names_a_different_whole_is_never_taken_for_this_release() {
+        let body: Vec<u8> = (0..100u8).collect();
+        let server = serve_partial(body.clone(), 20, Some(500), false);
+        let dir = temp("otherwhole");
+        let part = dir.join("release.zip.part");
+        std::fs::write(&part, &body[..40]).unwrap();
+        let error = run(&server.url, body.len(), &part).unwrap_err();
+        assert!(error.contains("paused"), "{error}");
+        assert!(size_of(&part) < body.len() as u64, "a piece of some other file never makes up the release");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_plain_answer_shorter_than_the_release_is_not_the_release() {
+        let body: Vec<u8> = (0..100u8).collect();
+        let server = serve_partial(body.clone(), 60, None, true);
+        let dir = temp("short200");
+        let part = dir.join("release.zip.part");
+        let error = run(&server.url, body.len(), &part).unwrap_err();
+        assert!(error.contains("paused") && error.contains("Press Install again"), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_content_range_is_read_whole_and_nonsense_is_refused() {
+        assert_eq!(parse_content_range("bytes 40-59/100"), Some((40, 59, Some(100))));
+        assert_eq!(parse_content_range(" bytes 0-0/1 "), Some((0, 0, Some(1))));
+        assert_eq!(parse_content_range("bytes 40-59/*"), Some((40, 59, None)));
+        for nonsense in ["", "bytes", "bytes 40-/100", "bytes -59/100", "bytes a-b/100", "items 40-59/100", "bytes 40-59/x", "bytes 40/100"] {
+            assert_eq!(parse_content_range(nonsense), None, "{nonsense}");
+        }
     }
 
     #[test]
