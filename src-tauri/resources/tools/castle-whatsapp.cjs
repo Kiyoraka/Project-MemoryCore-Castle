@@ -149431,6 +149431,26 @@ var Socket_default = makeWASocket;
 var isOneToOne = (jid) => !!jid && !isJidGroup(jid) && !isJidBroadcast(jid) && !isJidStatusBroadcast(jid);
 var AUTH_DIR = process.env.WA_AUTH_DIR ?? "./castle-whatsapp-auth";
 var PORT = Number(process.env.WA_PORT ?? 51847);
+var MEDIA_DIR = process.env.WA_MEDIA_DIR ?? null;
+var MAX_PICTURE = 25 * 1024 * 1024;
+async function savePicture(id, image) {
+  try {
+    if (!MEDIA_DIR || !image || Number(image.fileLength ?? 0) > MAX_PICTURE) return null;
+    const parts = [];
+    let size = 0;
+    for await (const chunk of await downloadContentFromMessage(image, "image")) {
+      size += chunk.length;
+      if (size > MAX_PICTURE) return null;
+      parts.push(chunk);
+    }
+    require("node:fs").mkdirSync(MEDIA_DIR, { recursive: true });
+    const file = require("node:path").join(MEDIA_DIR, `${String(id).replace(/[^A-Za-z0-9]/g, "") || Date.now()}.img`);
+    require("node:fs").writeFileSync(file, Buffer.concat(parts));
+    return file;
+  } catch {
+    return null;
+  }
+}
 var sock = null;
 var state = null;
 var saveCreds = null;
@@ -149462,7 +149482,7 @@ async function connect() {
       }
     }
   });
-  sock.ev.on("messages.upsert", ({ messages }) => {
+  sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const m of messages) {
       if (m.key.fromMe) continue;
       const chatId = m.key.remoteJid;
@@ -149481,11 +149501,12 @@ async function connect() {
         incoming.push({ id: m.key.id, chatId, pn, name, kind: "text", text });
         continue;
       }
-      // a picture, voice note or video arrives as a line only; the file itself stays on WhatsApp
+      // a picture is saved for Castle (`file`); a voice note or video arrives as a line only
       const media = m.message?.imageMessage ? "a picture" : m.message?.audioMessage ? "a voice note" : m.message?.videoMessage ? "a video" : null;
       if (media) {
         const caption = (m.message?.imageMessage?.caption ?? m.message?.videoMessage?.caption ?? "").trim();
-        incoming.push({ id: m.key.id, chatId, pn, name, kind: "media", text: `(sent ${media})${caption ? " " + caption : ""}` });
+        const file = m.message?.imageMessage ? await savePicture(m.key.id, m.message.imageMessage) : null;
+        incoming.push({ id: m.key.id, chatId, pn, name, kind: "media", text: `(sent ${media})${caption ? " " + caption : ""}`, file });
       }
     }
   });

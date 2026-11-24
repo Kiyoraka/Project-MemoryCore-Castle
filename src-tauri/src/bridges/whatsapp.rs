@@ -108,6 +108,29 @@ struct IncomingMessage {
     /// the phone number behind the chat, when WhatsApp gives it
     #[serde(default)]
     pn: Option<String>,
+    /// a picture the helper saved in `media_dir` for Castle to take (or remove)
+    #[serde(default)]
+    file: Option<String>,
+}
+
+/// Where the helper saves a chat's picture until Castle takes it: Castle's own folder, never the
+/// memory folder (a guest's or a stranger's picture is removed there, unseen).
+fn media_dir(store: &SettingsStore) -> std::path::PathBuf {
+    store.folder().join("whatsapp-media")
+}
+
+/// The words a member's picture becomes for the companion: the path in the memory folder and the
+/// caption, or None when there is no picture to take (a voice note, a video, a failed download).
+fn picture_words(memory: Option<&std::path::Path>, m: &IncomingMessage) -> Option<String> {
+    let saved = std::path::PathBuf::from(m.file.as_deref()?);
+    let caption = m.text.strip_prefix("(sent a picture)").unwrap_or("");
+    match memory {
+        Some(memory) => crate::bridges::take_picture(memory, &saved, caption),
+        None => {
+            let _ = std::fs::remove_file(&saved);
+            None
+        }
+    }
 }
 
 fn text_kind() -> String {
@@ -289,6 +312,7 @@ fn ensure_started(app: &AppHandle, store: &SettingsStore, state: &WhatsAppState)
         .current_dir(store.folder())
         .env("WA_AUTH_DIR", auth_dir(store))
         .env("WA_PORT", PORT.to_string())
+        .env("WA_MEDIA_DIR", media_dir(store))
         .stdout(log.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null()))
         .stderr(Stdio::from(log))
         .stdin(Stdio::null());
@@ -321,9 +345,22 @@ fn handle(app: &AppHandle, client: &reqwest::blocking::Client, m: IncomingMessag
         let store = app.state::<SettingsStore>();
         let settings = store.get();
         let digits = digits_of(&m.chat_id, m.pn.as_deref());
-        let (chat_id, text, name) = (m.chat_id.clone(), m.text.clone(), m.name.clone());
-        match who(&settings, &chat_id, digits.as_deref()) {
-            Who::Me if m.kind == "media" => {} // the companion's own session takes words only
+        let (chat_id, mut text, name) = (m.chat_id.clone(), m.text.clone(), m.name.clone());
+        let who = who(&settings, &chat_id, digits.as_deref());
+        // a picture reaches only the member's own companion; anyone else's is removed unseen
+        if !matches!(who, Who::Me) {
+            if let Some(file) = &m.file {
+                let _ = std::fs::remove_file(file);
+            }
+        }
+        if matches!(who, Who::Me) && m.kind == "media" {
+            match picture_words(settings.memory_folder.as_deref().map(std::path::Path::new), &m) {
+                Some(words) => text = words,
+                // a voice note or a video: the companion's own session takes words only
+                None => return,
+            }
+        }
+        match who {
             Who::Me => {
                 // the AUTOMATIONS message trigger only looks at the approved chat itself; a member recognised by number alone is answered as before
                 if settings.whatsapp_bridge_chat_id.as_deref() == Some(chat_id.as_str()) && !crate::automations::triggers::incoming(&app, "whatsapp", &chat_id, &m.id, &text) { return; }
@@ -481,6 +518,25 @@ pub fn whatsapp_bridge_unpair(store: State<SettingsStore>, state: State<WhatsApp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_members_picture_becomes_its_path_and_caption_and_a_voice_note_nothing() {
+        let root = std::env::temp_dir().join(format!("castle-wa-picture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let saved = root.join("X1.img");
+        std::fs::write(&saved, [0xFF, 0xD8, 0xFF, 0xE0, 1]).unwrap();
+        let line = format!(r#"{{"id":"X1","chatId":"60123@s.whatsapp.net","name":"Me","kind":"media","text":"(sent a picture) receipt","file":{}}}"#, serde_json::to_string(&saved.display().to_string()).unwrap());
+        let m: IncomingMessage = serde_json::from_str(&line).unwrap();
+        let memory = root.join("memory");
+        let words = picture_words(Some(&memory), &m).unwrap();
+        assert!(words.starts_with("(sent a picture: ") && words.ends_with(") receipt"), "{words}");
+        // an older helper's line has no file; a voice note is words only
+        let voice: IncomingMessage = serde_json::from_str(r#"{"chatId":"60123@s.whatsapp.net","name":"Me","kind":"media","text":"(sent a voice note)"}"#).unwrap();
+        assert_eq!(voice.file, None);
+        assert_eq!(picture_words(Some(&memory), &voice), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_door_always_points_at_the_local_only_port() {

@@ -3,7 +3,9 @@
 // side never needs to know anything about WhatsApp's own protocol - only this door's shape.
 //
 // Env vars Castle sets when it starts this: WA_AUTH_DIR (where the paired session is kept, so a
-// restart does not ask for the QR again), WA_PORT (the local port this door listens on).
+// restart does not ask for the QR again), WA_PORT (the local port this door listens on),
+// WA_MEDIA_DIR (where a picture sent in a chat is saved for Castle to take; Castle moves it on or
+// deletes it).
 //
 // This file is a SOURCE, not what Castle ships. It is bundled into one dependency-free file with
 // esbuild (Baileys needs real npm packages; bundling means Castle ships one script, the same way
@@ -16,13 +18,38 @@
 // builtin modules, which only resolves correctly in a CommonJS bundle.)
 
 import http from 'node:http'
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, isJidGroup, isJidBroadcast, isJidStatusBroadcast } from '@whiskeysockets/baileys'
+import fs from 'node:fs'
+import path from 'node:path'
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, isJidGroup, isJidBroadcast, isJidStatusBroadcast, downloadContentFromMessage } from '@whiskeysockets/baileys'
 
 // v1: one-to-one chats only, no groups/broadcasts/status updates
 const isOneToOne = (jid) => !!jid && !isJidGroup(jid) && !isJidBroadcast(jid) && !isJidStatusBroadcast(jid)
 
 const AUTH_DIR = process.env.WA_AUTH_DIR ?? './castle-whatsapp-auth'
 const PORT = Number(process.env.WA_PORT ?? 51847)
+const MEDIA_DIR = process.env.WA_MEDIA_DIR ?? null
+// a picture over this is not saved (Castle takes receipts up to 25 MB)
+const MAX_PICTURE = 25 * 1024 * 1024
+
+// A chat's picture saved for Castle, or null (no folder, too big, or the download failed).
+async function savePicture(id, image) {
+  try {
+    if (!MEDIA_DIR || !image || Number(image.fileLength ?? 0) > MAX_PICTURE) return null
+    const parts = []
+    let size = 0
+    for await (const chunk of await downloadContentFromMessage(image, 'image')) {
+      size += chunk.length
+      if (size > MAX_PICTURE) return null
+      parts.push(chunk)
+    }
+    fs.mkdirSync(MEDIA_DIR, { recursive: true })
+    const file = path.join(MEDIA_DIR, `${String(id).replace(/[^A-Za-z0-9]/g, '') || Date.now()}.img`)
+    fs.writeFileSync(file, Buffer.concat(parts))
+    return file
+  } catch {
+    return null
+  }
+}
 
 let sock = null
 let state = null
@@ -59,7 +86,7 @@ async function connect() {
     }
   })
 
-  sock.ev.on('messages.upsert', ({ messages }) => {
+  sock.ev.on('messages.upsert', async ({ messages }) => {
     for (const m of messages) {
       if (m.key.fromMe) continue
       const chatId = m.key.remoteJid
@@ -78,11 +105,12 @@ async function connect() {
         incoming.push({ id: m.key.id, chatId, pn, name, kind: 'text', text })
         continue
       }
-      // a picture, voice note or video arrives as a line only; the file itself stays on WhatsApp
+      // a picture is saved for Castle (`file`); a voice note or video arrives as a line only
       const media = m.message?.imageMessage ? 'a picture' : m.message?.audioMessage ? 'a voice note' : m.message?.videoMessage ? 'a video' : null
       if (media) {
         const caption = (m.message?.imageMessage?.caption ?? m.message?.videoMessage?.caption ?? '').trim()
-        incoming.push({ id: m.key.id, chatId, pn, name, kind: 'media', text: `(sent ${media})${caption ? ' ' + caption : ''}` })
+        const file = m.message?.imageMessage ? await savePicture(m.key.id, m.message.imageMessage) : null
+        incoming.push({ id: m.key.id, chatId, pn, name, kind: 'media', text: `(sent ${media})${caption ? ' ' + caption : ''}`, file })
       }
     }
   })

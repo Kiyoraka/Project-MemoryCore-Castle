@@ -118,8 +118,49 @@ fn turn_finished(path: &std::path::Path, from: u64, cli: crate::settings::Cli) -
     }
 }
 
+/// A picture the member sent from the phone, for the companion: checked by its own bytes, moved
+/// into the memory folder's `inbox/pictures/` by its fingerprint, and the words the companion
+/// reads ("(sent a picture: <path>) <caption>"). The file the bridge saved is removed either way.
+/// None when it is not a picture Castle takes (the companion then hears only the caption line).
+pub fn take_picture(memory: &std::path::Path, saved: &std::path::Path, caption: &str) -> Option<String> {
+    let picture = crate::finance::companion::Picture::open(saved);
+    let _ = std::fs::remove_file(saved);
+    let picture = picture.ok()?;
+    let inbox = memory.join("inbox").join("pictures");
+    let file = inbox.join(format!("{}.{}", &picture.sha256[..8], picture.ext));
+    if !file.is_file() {
+        std::fs::create_dir_all(&inbox).ok()?;
+        std::fs::write(&file, &picture.bytes).ok()?;
+    }
+    let caption = caption.trim();
+    Some(format!("(sent a picture: {}){}", file.display(), if caption.is_empty() { String::new() } else { format!(" {caption}") }))
+}
+
 /// How long the companion must stay silent before what it last said counts as its answer.
 const QUIET_AFTER: Duration = Duration::from_secs(12);
+
+#[cfg(test)]
+mod picture_tests {
+    use super::take_picture;
+
+    #[test]
+    fn a_sent_picture_moves_into_the_memory_folder_and_is_named_to_the_companion() {
+        let root = std::env::temp_dir().join(format!("castle-phone-picture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (memory, saved) = (root.join("memory"), root.join("media").join("ABC.img"));
+        std::fs::create_dir_all(saved.parent().unwrap()).unwrap();
+        std::fs::write(&saved, [0xFF, 0xD8, 0xFF, 0xE0, 7]).unwrap();
+        let words = take_picture(&memory, &saved, " lunch receipt ").unwrap();
+        assert!(words.starts_with("(sent a picture: ") && words.ends_with(") lunch receipt"), "{words}");
+        assert!(words.contains(&memory.join("inbox").join("pictures").display().to_string()));
+        assert!(!saved.exists(), "the bridge's own file is removed");
+        let pdf = root.join("media").join("D.img");
+        std::fs::write(&pdf, b"%PDF").unwrap();
+        assert_eq!(take_picture(&memory, &pdf, ""), None);
+        assert!(!pdf.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
 
 #[cfg(test)]
 mod tests {
