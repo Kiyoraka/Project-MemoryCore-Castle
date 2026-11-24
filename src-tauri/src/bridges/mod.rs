@@ -113,6 +113,8 @@ fn turn_finished(path: &std::path::Path, from: u64, cli: crate::settings::Cli) -
     match cli {
         crate::settings::Cli::Codex => text.contains("\"type\":\"task_complete\""),
         crate::settings::Cli::Claude => text.contains("\"subtype\":\"turn_duration\""),
+        // their turn ends are read with their records (Phase 6)
+        crate::settings::Cli::Gemini | crate::settings::Cli::Grok => false,
     }
 }
 

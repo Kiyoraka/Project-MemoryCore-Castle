@@ -43,11 +43,7 @@ pub fn execute(app: &AppHandle, j: &Value, run: u64, payload: &Value) -> Result<
     let rules = include_str!("../../resources/automation-rules.md");
     crate::oneshot::write_if_changed(&folder.join("AGENTS.md"), rules);
     crate::oneshot::write_if_changed(&folder.join("rules.md"), rules);
-    let cli = match j["action"]["cli"].as_str() {
-        Some("claude") => crate::settings::Cli::Claude,
-        Some("codex") => crate::settings::Cli::Codex,
-        _ => settings.cli,
-    };
+    let cli = j["action"]["cli"].as_str().and_then(crate::settings::Cli::from_id).unwrap_or(settings.cli);
     let timeout = Duration::from_secs(j["policy"]["timeout_s"].as_u64().unwrap_or(120));
     let result = run_isolated(
         cli,
@@ -103,8 +99,9 @@ mod tests {
     }
 }
 
-/// Use a fresh CLI process, no user config/MCP/apps/shell, and bounded, drained pipes.
-fn cli_args(cli: crate::settings::Cli, model: Option<&str>) -> Vec<String> {
+/// Use a fresh CLI process, no user config/MCP/apps/shell, and bounded, drained pipes. None for a
+/// provider whose isolated run Castle does not know yet (Gemini, Grok: Task 8).
+fn cli_args(cli: crate::settings::Cli, model: Option<&str>) -> Option<Vec<String>> {
     let mut args: Vec<String> = match cli {
         crate::settings::Cli::Claude => [
             "-p",
@@ -155,12 +152,15 @@ fn cli_args(cli: crate::settings::Cli, model: Option<&str>) -> Vec<String> {
         .iter()
         .map(|s| s.to_string())
         .collect(),
+        crate::settings::Cli::Gemini | crate::settings::Cli::Grok => return None,
     };
     args.extend(crate::oneshot::model_args(cli, model));
-    if cli == crate::settings::Cli::Codex {
-        args.push("-".into());
+    match cli {
+        // Codex reads the prompt from stdin when told "-"
+        crate::settings::Cli::Codex => args.push("-".into()),
+        crate::settings::Cli::Claude | crate::settings::Cli::Gemini | crate::settings::Cli::Grok => {}
     }
-    args
+    Some(args)
 }
 fn drain(mut pipe: impl std::io::Read, cap: usize) -> String {
     let mut kept = Vec::new();
@@ -198,6 +198,7 @@ fn run_isolated(
     model: Option<&str>,
 ) -> Result<String, String> {
     use std::process::{Command, Stdio};
+    let args = cli_args(cli, model).ok_or_else(|| format!("Briefings need Claude Code or Codex; {} cannot run one yet.", cli.label()))?;
     let program = crate::env::find_on_path(cli.command())
         .ok_or("The selected companion provider is not installed.")?;
     let mut cmd = if program
@@ -210,7 +211,7 @@ fn run_isolated(
     } else {
         Command::new(program)
     };
-    cmd.args(cli_args(cli, model))
+    cmd.args(args)
         .current_dir(folder)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -433,7 +434,7 @@ mod isolation_tests {
     use super::*;
     #[test]
     fn cli_blocks_tools_and_user_setup() {
-        let args = cli_args(crate::settings::Cli::Codex, None);
+        let args = cli_args(crate::settings::Cli::Codex, None).unwrap();
         for flag in [
             "--ignore-user-config",
             "--ephemeral",
@@ -443,8 +444,11 @@ mod isolation_tests {
         ] {
             assert!(args.contains(&flag.to_string()));
         }
-        let args = cli_args(crate::settings::Cli::Claude, None);
+        let args = cli_args(crate::settings::Cli::Claude, None).unwrap();
         assert!(args.windows(2).any(|w| w == ["--tools", ""]));
+        assert!(!args.contains(&"-".to_string()), "Claude Code gets its prompt otherwise");
+        assert!(cli_args(crate::settings::Cli::Gemini, None).is_none());
+        assert!(cli_args(crate::settings::Cli::Grok, None).is_none());
     }
     #[test]
     fn pipe_is_drained_but_bounded() {

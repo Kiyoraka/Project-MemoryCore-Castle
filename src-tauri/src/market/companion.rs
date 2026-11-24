@@ -67,7 +67,7 @@ fn prepare(app: &AppHandle, name: &str, rules: &str) -> Result<std::path::PathBu
         .replace("{{AI_NAME}}", &settings.companion_label())
         .replace("{{USER_NAME}}", settings.member_name.as_deref().unwrap_or("your person"))
         .replace("{{STYLE}}", settings.relationship_style.as_deref().unwrap_or("a friendly partner"));
-    for file in ["rules.md", "CLAUDE.md", "AGENTS.md"] {
+    for file in std::iter::once("rules.md").chain(crate::setup::INSTRUCTION_FILES) {
         crate::oneshot::write_if_changed(&folder.join(file), &text);
     }
     Ok(folder)

@@ -17,15 +17,39 @@ pub enum Cli {
     #[default]
     Claude,
     Codex,
+    /// Google's Antigravity CLI (`agy`): personal Google accounts left Gemini CLI for it.
+    Gemini,
+    /// xAI's Grok Build (`grok`).
+    Grok,
 }
 
 impl Cli {
+    /// Every provider, in the order Settings and Setup show them.
+    pub const ALL: [Cli; 4] = [Cli::Claude, Cli::Codex, Cli::Gemini, Cli::Grok];
+
     /// The command name looked up on PATH.
-    pub fn command(self) -> &'static str {
+    pub const fn command(self) -> &'static str {
         match self {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
+            Cli::Gemini => "agy",
+            Cli::Grok => "grok",
         }
+    }
+
+    /// The name written in settings.json and sent to the screens ("claude", "codex", "gemini", "grok").
+    pub const fn id(self) -> &'static str {
+        match self {
+            Cli::Claude => "claude",
+            Cli::Codex => "codex",
+            Cli::Gemini => "gemini",
+            Cli::Grok => "grok",
+        }
+    }
+
+    /// The provider an id names, None for any other word.
+    pub fn from_id(id: &str) -> Option<Cli> {
+        Cli::ALL.into_iter().find(|cli| cli.id() == id)
     }
 
     /// The name shown on the companion's chip.
@@ -33,6 +57,52 @@ impl Cli {
         match self {
             Cli::Claude => "Claude Code",
             Cli::Codex => "Codex",
+            Cli::Gemini => "Gemini",
+            Cli::Grok => "Grok",
+        }
+    }
+
+    /// The option that hands the CLI Castle's boot file as a system prompt. Only Claude Code has
+    /// one; the others read the block Castle writes into the folder's instructions file.
+    pub fn boot_flag(self) -> Option<&'static str> {
+        match self {
+            Cli::Claude => Some("--append-system-prompt-file"),
+            Cli::Codex | Cli::Gemini | Cli::Grok => None,
+        }
+    }
+
+    /// Whether the CLI can be kept apart from the member's personal setup (setting sources, its own
+    /// MCP list, no CLAUDE.md): only Claude Code has those options.
+    pub fn isolates(self) -> bool {
+        match self {
+            Cli::Claude => true,
+            Cli::Codex | Cli::Gemini | Cli::Grok => false,
+        }
+    }
+
+    /// Whether Castle names a fresh session's id up front, so its record is known exactly.
+    pub fn pins_id(self) -> bool {
+        match self {
+            Cli::Claude | Cli::Grok => true,
+            Cli::Codex | Cli::Gemini => false,
+        }
+    }
+
+    /// The word that runs the CLI once without a terminal; None when it has no such mode.
+    #[allow(dead_code)] // read by the background runs once Task 8 gives Grok its own
+    pub fn headless(self) -> Option<&'static str> {
+        match self {
+            Cli::Claude | Cli::Grok => Some("-p"),
+            Cli::Codex => Some("exec"),
+            Cli::Gemini => None,
+        }
+    }
+
+    /// Whether the CLI draws pictures on its own plan (Codex); the others draw with the OpenAI key.
+    pub fn draws_itself(self) -> bool {
+        match self {
+            Cli::Codex => true,
+            Cli::Claude | Cli::Gemini | Cli::Grok => false,
         }
     }
 }
@@ -1101,6 +1171,29 @@ mod tests {
         assert!(text.contains("\"cli\":\"codex\""));
         assert_eq!(Cli::Codex.command(), "codex");
         assert_eq!(Cli::Claude.label(), "Claude Code");
+    }
+
+    #[test]
+    fn four_providers_round_trip_by_their_ids() {
+        assert_eq!(Cli::ALL.len(), 4);
+        for cli in Cli::ALL {
+            let text = serde_json::to_string(&cli).unwrap();
+            assert_eq!(text, format!("\"{}\"", cli.id()), "the serde name is the id");
+            assert_eq!(serde_json::from_str::<Cli>(&text).unwrap(), cli);
+            assert_eq!(Cli::from_id(cli.id()), Some(cli));
+        }
+        assert_eq!(Cli::from_id("agy"), None, "the command is not the id");
+        assert_eq!((Cli::Gemini.command(), Cli::Grok.command()), ("agy", "grok"));
+        assert_eq!((Cli::Gemini.label(), Cli::Grok.label()), ("Gemini", "Grok"));
+    }
+
+    #[test]
+    fn what_each_provider_can_do() {
+        assert_eq!(Cli::ALL.map(Cli::boot_flag), [Some("--append-system-prompt-file"), None, None, None]);
+        assert_eq!(Cli::ALL.map(Cli::isolates), [true, false, false, false]);
+        assert_eq!(Cli::ALL.map(Cli::pins_id), [true, false, false, true]);
+        assert_eq!(Cli::ALL.map(Cli::headless), [Some("-p"), Some("exec"), None, Some("-p")]);
+        assert_eq!(Cli::ALL.map(Cli::draws_itself), [false, true, false, false]);
     }
 
     #[test]

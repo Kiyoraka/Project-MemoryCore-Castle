@@ -63,17 +63,22 @@ pub(crate) fn newest_record(cli: Cli, folder: &Path, started: SystemTime) -> Opt
             claude::newest_record(&records, started).map(|path| (path, claude::follower as fn(PathBuf, SystemTime) -> Follower))
         }
         Cli::Codex => transcript::codex::newest_record(folder, started).map(|path| (path, transcript::codex::follower as fn(PathBuf, SystemTime) -> Follower)),
+        // their readers come with Phase 6 (transcript/grok.rs, transcript/agy.rs): until then
+        // Chat stays empty and the Log shows the talk
+        Cli::Gemini | Cli::Grok => None,
     }
 }
 
 /// Claude Code's /clear goes on in a new record: moves Castle's pin there when this session's
 /// own turn started it (Codex's Chat already follows the newest rollout).
 fn follow_a_clear(cli: Cli, folder: &Path, host: &crate::pty::PtyHost) {
-    if cli != Cli::Claude {
-        return;
-    }
-    if let Some(records) = claude::projects_root().map(|root| root.join(claude::project_folder_name(&folder.display().to_string()))) {
-        claude::follow_clear(&records, &host.recent_enters());
+    match cli {
+        Cli::Claude => {
+            if let Some(records) = claude::projects_root().map(|root| root.join(claude::project_folder_name(&folder.display().to_string()))) {
+                claude::follow_clear(&records, &host.recent_enters());
+            }
+        }
+        Cli::Codex | Cli::Gemini | Cli::Grok => {}
     }
 }
 
@@ -82,9 +87,10 @@ fn follow_a_clear(cli: Cli, folder: &Path, host: &crate::pty::PtyHost) {
 /// member began in a terminal of their own, so it counts only when born right after a turn
 /// Castle sent (a /new). A fresh Codex session is remembered when it appears (resume.rs).
 fn started_by_castle(cli: Cli, record: &Path, enters: &[SystemTime]) -> bool {
-    match cli {
-        Cli::Claude => true,
-        Cli::Codex => record.metadata().and_then(|m| m.created()).is_ok_and(|born| claude::born_after_a_turn(born, enters)),
+    if cli.pins_id() {
+        true
+    } else {
+        record.metadata().and_then(|m| m.created()).is_ok_and(|born| claude::born_after_a_turn(born, enters))
     }
 }
 

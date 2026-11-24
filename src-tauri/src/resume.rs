@@ -51,6 +51,8 @@ fn remember(store: &SettingsStore, cli: Cli, id: &str, folder: &Path) {
     match cli {
         Cli::Claude => saved.claude = entry,
         Cli::Codex => saved.codex = entry,
+        // their places in main-session.json come with Task 8
+        Cli::Gemini | Cli::Grok => return,
     }
     save(store, &saved);
 }
@@ -60,6 +62,8 @@ pub fn id_of_record(cli: Cli, record: &Path) -> Option<String> {
     match cli {
         Cli::Claude => record.file_stem()?.to_str().filter(|id| is_id(id)).map(str::to_string),
         Cli::Codex => id_from_rollout(record),
+        // their record layouts are read on this PC first (Phase 4)
+        Cli::Gemini | Cli::Grok => None,
     }
 }
 
@@ -71,6 +75,7 @@ pub fn remember_followed(store: &SettingsStore, cli: Cli, record: &Path, folder:
         let kept = match cli {
             Cli::Claude => saved.claude,
             Cli::Codex => saved.codex,
+            Cli::Gemini | Cli::Grok => None,
         };
         if kept.as_ref().map(|r| (r.id.as_str(), r.folder.as_str())) != Some((id.as_str(), &folder.display().to_string())) {
             remember(store, cli, &id, folder);
@@ -111,6 +116,8 @@ pub fn args_for(cli: Cli, resume: Option<&str>, fresh_id: &str) -> Vec<String> {
         (Cli::Claude, None) => vec!["--session-id".into(), fresh_id.into()],
         (Cli::Codex, Some(id)) => vec!["resume".into(), id.into()],
         (Cli::Codex, None) => Vec::new(),
+        // fresh every time until Task 8 gives them their own words
+        (Cli::Gemini | Cli::Grok, _) => Vec::new(),
     }
 }
 
@@ -137,28 +144,34 @@ pub fn plan(store: &SettingsStore, cli: Cli, folder: &Path, allow_resume: bool, 
     let remembered = match cli {
         Cli::Claude => saved.claude,
         Cli::Codex => saved.codex,
+        Cli::Gemini | Cli::Grok => None,
     }
     .filter(|r| allow_resume && r.folder == folder.display().to_string() && is_id(&r.id));
     let record = |id: &str| -> Option<std::fs::Metadata> {
         match cli {
             Cli::Claude => claude_records(folder)?.join(format!("{id}.jsonl")).metadata().ok().filter(|m| m.len() > 0),
             Cli::Codex => codex::record_with_id(id)?.metadata().ok(),
+            Cli::Gemini | Cli::Grok => None,
         }
     };
     let now = SystemTime::now();
     let resumable = remembered.map(|r| r.id).filter(|id| record(id).is_some_and(|m| resumes(start, m.modified().ok(), now)));
     let fresh = new_id();
     let args = args_for(cli, resumable.as_deref(), &fresh);
-    if cli == Cli::Claude {
-        // Claude Code takes the id we give it, so its record is known exactly: Chat and the
-        // provider switch follow that file and never guess among the folder's records.
-        let id = resumable.clone().unwrap_or_else(|| fresh.clone());
-        if resumable.is_none() {
-            remember(store, cli, &id, folder);
+    match cli {
+        Cli::Claude => {
+            // Claude Code takes the id we give it, so its record is known exactly: Chat and the
+            // provider switch follow that file and never guess among the folder's records.
+            let id = resumable.clone().unwrap_or_else(|| fresh.clone());
+            if resumable.is_none() {
+                remember(store, cli, &id, folder);
+            }
+            if let Some(dir) = claude_records(folder) {
+                claude::set_own_session(dir, id);
+            }
         }
-        if let Some(dir) = claude_records(folder) {
-            claude::set_own_session(dir, id);
-        }
+        // Grok's pin follows with its reader (Phase 6)
+        Cli::Codex | Cli::Gemini | Cli::Grok => {}
     }
     Plan { args, resumed: resumable.is_some() }
 }

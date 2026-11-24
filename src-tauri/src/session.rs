@@ -150,12 +150,12 @@ pub struct Boot {
     pub only_this: bool,
 }
 
-/// The CLI's own arguments at wake: Claude Code is given the boot file as a system prompt. Codex has
-/// no such option, so it gets none and loads the memory itself. Keeping the personal setup out is
-/// `isolation_args`, which does not depend on a boot file.
+/// The CLI's own arguments at wake: Claude Code is given the boot file as a system prompt. The
+/// others have no such option, so they get none and load the memory themselves. Keeping the
+/// personal setup out is `isolation_args`, which does not depend on a boot file.
 pub fn wake_args(cli: Cli, boot: Option<&Boot>) -> Vec<String> {
-    let (Cli::Claude, Some(boot)) = (cli, boot) else { return Vec::new() };
-    vec!["--append-system-prompt-file".to_string(), boot.file.display().to_string()]
+    let (Some(flag), Some(boot)) = (cli.boot_flag(), boot) else { return Vec::new() };
+    vec![flag.to_string(), boot.file.display().to_string()]
 }
 
 /// Castle's own list of MCP servers for a session that is only this companion: empty, so no server
@@ -187,7 +187,7 @@ pub fn isolation_args(cli: Cli, mcp_config: &Path) -> Vec<String> {
 /// The same, with Castle's own session settings (its status line) given by `--settings` when there
 /// is a file for it.
 pub fn isolation_args_with(cli: Cli, mcp_config: &Path, session_settings: Option<&Path>) -> Vec<String> {
-    if cli != Cli::Claude {
+    if !cli.isolates() {
         return Vec::new();
     }
     let mut args = vec!["--setting-sources".to_string(), "project,local".to_string()];
@@ -294,7 +294,7 @@ pub fn ensure_session_settings(store: &SettingsStore, tools: &Path) -> Option<Pa
 /// is turned off, and the room's own instructions (Castle's block, the story rules, the project's
 /// CLAUDE.md) travel in the boot file instead (`folder_instructions`).
 pub fn isolation_vars(cli: Cli) -> Vec<(String, String)> {
-    if cli != Cli::Claude {
+    if !cli.isolates() {
         return Vec::new();
     }
     vec![
@@ -341,7 +341,7 @@ pub fn isolation_with_status(store: &SettingsStore, cli: Cli, on: bool, tools: &
 }
 
 fn isolation_inner(store: &SettingsStore, cli: Cli, on: bool, tools: Option<&Path>) -> Result<(Vec<String>, Vec<(String, String)>), String> {
-    if !on || cli != Cli::Claude {
+    if !on || !cli.isolates() {
         return Ok((Vec::new(), Vec::new()));
     }
     let mcp = ensure_mcp_config(store).ok_or("Castle could not write its settings folder, so the session was not started.")?;
@@ -365,7 +365,7 @@ pub fn wake_vars(boot: Option<&Boot>) -> Vec<(String, String)> {
 /// the companion then loads everything herself, exactly as before.
 fn prepare_boot(store: &SettingsStore, settings: &Settings, room: Room, folder: &Path) -> Option<Boot> {
     forget_boot_file(store);
-    if room != Room::Main || settings.cli != Cli::Claude {
+    if room != Room::Main || settings.cli.boot_flag().is_none() {
         return None;
     }
     let memory = if settings.db_boot_at_wake {
@@ -420,7 +420,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     // reach a member who set up before them); the member's own words outside it are untouched
     // the memory, read from the database now and handed to the CLI as it starts
     let mut boot = prepare_boot(store, &settings, room, &folder);
-    if boot.is_none() && settings.only_this_companion && settings.cli == Cli::Claude {
+    if boot.is_none() && settings.only_this_companion && settings.cli.isolates() {
         boot = room_instructions_boot(store, room, &folder);
     }
     vars.extend(wake_vars(boot.as_ref()));
@@ -441,11 +441,19 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     let fresh_handoff = prompt.is_some_and(|p| p.starts_with(crate::providers::HANDOFF_PROMPT));
     let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !(fresh_handoff || fresh), &settings.main_start));
     let resumed = plan.as_ref().is_some_and(|p| p.resumed);
+    let plan_args: Vec<String> = plan.iter().flat_map(|p| p.args.clone()).collect();
     let mut args = Vec::new();
-    // Codex's `resume <id>` is a subcommand, so it comes before any option
-    if settings.cli == Cli::Codex { args.extend(plan.iter().flat_map(|p| p.args.clone())); }
-    args.extend(wake_args(settings.cli, boot.as_ref()));
-    if settings.cli == Cli::Claude { args.extend(plan.iter().flat_map(|p| p.args.clone())); }
+    match settings.cli {
+        // Codex's `resume <id>` is a subcommand, so it comes before any option
+        Cli::Codex => {
+            args.extend(plan_args);
+            args.extend(wake_args(settings.cli, boot.as_ref()));
+        }
+        Cli::Claude | Cli::Gemini | Cli::Grok => {
+            args.extend(wake_args(settings.cli, boot.as_ref()));
+            args.extend(plan_args);
+        }
+    }
     args.extend(isolation_args);
     // a conversation picked up again is not greeted a second time
     let prompt = prompt.filter(|p| !(resumed && *p == WAKE_PROMPT));
@@ -469,7 +477,13 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
         },
     )?;
     if started { host.bind_provider(settings.cli); }
-    if started && room == Room::Main && settings.cli == Cli::Codex && !resumed { crate::resume::remember_codex_when_it_appears(app, folder.clone()); }
+    // a CLI that names its own sessions is remembered once its record appears
+    if started && room == Room::Main && !resumed {
+        match settings.cli {
+            Cli::Codex => crate::resume::remember_codex_when_it_appears(app, folder.clone()),
+            Cli::Claude | Cli::Grok | Cli::Gemini => {}
+        }
+    }
     // A handoff prompt is a turn the new CLI is now working on: a later switch waits for it.
     if started && prompt.is_some() { host.mark_input(); }
     Ok(())

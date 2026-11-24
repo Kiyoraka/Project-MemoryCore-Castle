@@ -142,20 +142,24 @@ pub fn complete_record(text: &str, cli: Cli) -> bool {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if cli == Cli::Codex && v["type"] == "event_msg" {
-            match v["payload"]["type"].as_str() {
+        match cli {
+            Cli::Codex if v["type"] == "event_msg" => match v["payload"]["type"].as_str() {
                 Some("task_complete" | "turn_complete") => return true,
                 Some("task_started" | "turn_started" | "user_message") => return false,
                 _ => {}
+            },
+            Cli::Codex => {}
+            Cli::Claude => {
+                if v["type"] == "user" {
+                    return false;
+                }
+                if v["type"] == "assistant" {
+                    return v["message"]["stop_reason"] == "end_turn";
+                }
             }
-        }
-        if cli == Cli::Claude {
-            if v["type"] == "user" {
-                return false;
-            }
-            if v["type"] == "assistant" {
-                return v["message"]["stop_reason"] == "end_turn";
-            }
+            // their records are read in Phase 6; until then no turn is known to have ended, so a
+            // live process is never replaced mid-turn
+            Cli::Gemini | Cli::Grok => return false,
         }
     }
     false
@@ -1049,6 +1053,12 @@ fn run_with_key(job: &ImageJob, key: &str, tools: &Path, styles: Option<&Path>, 
 
 /// Probe the CLI's own auth command, never infer readiness from a credential file.
 fn auth_output(cli: Cli) -> Option<std::process::Output> {
+    let args: &[&str] = match cli {
+        Cli::Codex => &["login", "status"],
+        Cli::Claude => &["auth", "status", "--json"],
+        // their status commands are read on this PC first (Phase 4); until then Castle cannot tell
+        Cli::Gemini | Cli::Grok => return None,
+    };
     let program = crate::env::find_on_path(cli.command())?;
     // platform: windows-only - a .cmd / .bat launcher exists only on Windows
     let mut command = if program
@@ -1060,11 +1070,6 @@ fn auth_output(cli: Cli) -> Option<std::process::Output> {
         c
     } else {
         std::process::Command::new(program)
-    };
-    let args: &[&str] = if cli == Cli::Codex {
-        &["login", "status"]
-    } else {
-        &["auth", "status", "--json"]
     };
     command
         .args(args)
@@ -1098,20 +1103,20 @@ fn auth_output(cli: Cli) -> Option<std::process::Output> {
 
 fn authenticated(cli: Cli) -> Option<bool> {
     let out = auth_output(cli)?;
-    if cli == Cli::Codex {
-        Some(out.status.success())
-    } else {
-        serde_json::from_slice::<serde_json::Value>(&out.stdout)
+    match cli {
+        Cli::Codex => Some(out.status.success()),
+        Cli::Claude => serde_json::from_slice::<serde_json::Value>(&out.stdout)
             .ok()?
             .get("loggedIn")?
-            .as_bool()
+            .as_bool(),
+        Cli::Gemini | Cli::Grok => None,
     }
 }
 
 #[tauri::command]
 pub async fn providers_list() -> Result<Vec<crate::setup::CliCheck>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        [Cli::Claude, Cli::Codex]
+        Cli::ALL
             .into_iter()
             .map(|cli| {
                 let mut check = crate::setup::check_cli(cli);

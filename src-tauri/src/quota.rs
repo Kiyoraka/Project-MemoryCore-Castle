@@ -389,7 +389,8 @@ fn window(used: f64, resets_at: Option<i64>) -> Window {
 pub struct CliUsage {
     pub cli: String,
     pub label: String,
-    /// "ok", "signed_out", "not_installed", "api_key" (Codex billed per use) or "unknown".
+    /// "ok", "signed_out", "not_installed", "api_key" (Codex billed per use), "not_measured" (a
+    /// provider whose limits Castle cannot read: Gemini, Grok) or "unknown".
     pub status: String,
     pub five_hour: Option<Window>,
     pub weekly: Option<Window>,
@@ -401,7 +402,7 @@ pub struct CliUsage {
 }
 
 fn usage(cli: Cli, status: &str) -> CliUsage {
-    CliUsage { cli: cli.command().into(), label: cli.label().into(), status: status.into(), five_hour: None, weekly: None, weekly_model: None, observed_at: None }
+    CliUsage { cli: cli.id().into(), label: cli.label().into(), status: status.into(), five_hour: None, weekly: None, weekly_model: None, observed_at: None }
 }
 
 /// Claude Code's usage answer -> its five-hour window and its tightest weekly limit.
@@ -478,15 +479,36 @@ fn codex_usage() -> CliUsage {
 /// usage endpoint is asked at most once every five minutes for the two.
 static CODEX: Mutex<Option<(Instant, CliUsage)>> = Mutex::new(None);
 
+/// Whether Castle can read a provider's limits: Claude Code and Codex report them, Gemini and Grok do not.
+fn measured(cli: Cli) -> bool {
+    match cli {
+        Cli::Claude | Cli::Codex => true,
+        Cli::Gemini | Cli::Grok => false,
+    }
+}
+
+/// The card's rows: every provider Castle can measure, and the chosen one when it cannot (said so,
+/// never left out silently).
+fn usage_rows(chosen: Cli) -> Vec<Cli> {
+    Cli::ALL.into_iter().filter(|&cli| measured(cli) || cli == chosen).collect()
+}
+
 /// The five-hour and weekly limits of Claude Code and Codex, in the card's order, asked at most
 /// every five minutes. The card itself is switched on or off in WIDGETS; off, neither CLI is asked.
 #[tauri::command]
 pub async fn cli_usage(store: State<'_, SettingsStore>) -> Result<Vec<CliUsage>, String> {
     let settings = store.get();
     // the card switched off asks neither CLI
-    let wanted = if settings.show_usage_card { vec![Cli::Claude, Cli::Codex] } else { Vec::new() };
+    let wanted = if settings.show_usage_card { usage_rows(settings.cli) } else { Vec::new() };
     tauri::async_runtime::spawn_blocking(move || {
-        wanted.into_iter().map(|cli| if cli == Cli::Claude { claude_usage() } else { codex_usage() }).collect::<Vec<_>>()
+        wanted
+            .into_iter()
+            .map(|cli| match cli {
+                Cli::Claude => claude_usage(),
+                Cli::Codex => codex_usage(),
+                Cli::Gemini | Cli::Grok => usage(cli, "not_measured"),
+            })
+            .collect::<Vec<_>>()
     })
     .await
     .map_err(|_| "Usage check stopped.".to_string())
@@ -499,6 +521,7 @@ pub async fn cli_quota(store: State<'_, SettingsStore>) -> Result<Option<Quota>,
     let answer = tauri::async_runtime::spawn_blocking(move || match cli {
         Cli::Claude => claude_quota(),
         Cli::Codex => codex_quota(),
+        Cli::Gemini | Cli::Grok => None,
     })
     .await
     .unwrap_or(None);

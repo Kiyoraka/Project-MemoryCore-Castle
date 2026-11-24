@@ -13,7 +13,7 @@ use crate::env;
 use crate::key;
 use crate::pty::{self, PtyHost};
 use crate::session::{self, SessionStatus};
-use crate::settings::{self, Cli, Settings, SettingsStore};
+use crate::settings::{self, Settings, SettingsStore};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -118,7 +118,7 @@ fn save(store: &SettingsStore, change: impl FnOnce(&mut Settings)) -> Result<(),
 fn prepare_boot(store: &SettingsStore, settings: &Settings, slot: usize, project: &Path) -> Option<(PathBuf, bool)> {
     let file = dev_tabs::boot_file(&store.folder(), slot);
     let _ = std::fs::remove_file(&file);
-    if settings.cli != Cli::Claude {
+    if settings.cli.boot_flag().is_none() {
         return None;
     }
     let memory_folder = settings.memory_folder.as_deref().map(PathBuf::from);

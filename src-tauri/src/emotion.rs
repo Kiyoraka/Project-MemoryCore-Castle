@@ -90,7 +90,7 @@ fn prepare_folder(store: &SettingsStore) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&folder).map_err(|_| "The emotion folder could not be made.".to_string())?;
     let member = settings.member_name.clone().unwrap_or_else(|| "your person".into());
     let rules = RULES.replace("{{AI_NAME}}", &settings.companion_label()).replace("{{USER_NAME}}", &member);
-    for name in ["rules.md", "CLAUDE.md", "AGENTS.md"] {
+    for name in std::iter::once("rules.md").chain(crate::setup::INSTRUCTION_FILES) {
         crate::oneshot::write_if_changed(&folder.join(name), &rules);
     }
     Ok(folder)

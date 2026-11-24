@@ -33,7 +33,7 @@ pub fn prepare(memory: &Path, companion: &str, member: &str) -> Result<PathBuf, 
     let folder = memory.join(STORY_FOLDER);
     std::fs::create_dir_all(&folder).map_err(|_| "The adventures folder could not be created.".to_string())?;
     let rules = RULES.replace("{{AI_NAME}}", companion.trim()).replace("{{USER_NAME}}", member.trim());
-    for name in ["CLAUDE.md", "AGENTS.md"] {
+    for name in crate::setup::INSTRUCTION_FILES {
         let path = folder.join(name);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let next = with_rules(&text, &rules);

@@ -12,7 +12,7 @@
 //! member's editor, and Windows itself.
 
 use crate::servers::{owner_of, Owner, Proc};
-use crate::settings::SettingsStore;
+use crate::settings::{Cli, SettingsStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -126,7 +126,7 @@ const EDITORS: &[&str] = &["code", "code - insiders", "cursor"];
 /// macOS: an editor runs as many helper programs ("Code Helper (Renderer)", "Cursor Helper (GPU)").
 const EDITOR_HELPERS: &[&str] = &["code helper", "code - insiders helper", "cursor helper", "electron"];
 /// The companion's programs, also when the member runs one outside Castle.
-const COMPANIONS: &[&str] = &["claude", "codex"];
+const COMPANIONS: &[&str] = &[Cli::Claude.command(), Cli::Codex.command(), Cli::Gemini.command(), Cli::Grok.command()];
 /// Programs that are part of Windows or of Castle and are never closed from the card.
 const PROTECTED: &[&str] = &[
     "memorycore-castle", "msedgewebview2", "explorer", "dwm", "csrss", "winlogon", "wininit", "services", "lsass",

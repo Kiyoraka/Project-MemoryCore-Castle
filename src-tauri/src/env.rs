@@ -156,12 +156,12 @@ pub fn find_in(command: &str, folders: impl IntoIterator<Item = PathBuf>, pathex
     None
 }
 
-/// The image path the companion should take: Codex draws by itself, Claude Code needs an OpenAI key.
+/// The image path the companion should take: Codex draws by itself, the others need an OpenAI key.
 pub fn image_mode(cli: Cli, has_openai_key: bool) -> &'static str {
-    match (cli, has_openai_key) {
-        (Cli::Codex, _) => "codex",
-        (Cli::Claude, true) => "openai",
-        (Cli::Claude, false) => "none",
+    match (cli.draws_itself(), has_openai_key) {
+        (true, _) => "codex",
+        (false, true) => "openai",
+        (false, false) => "none",
     }
 }
 
@@ -229,9 +229,13 @@ fn session_env_using(cli: Cli, key: &dyn Fn(&str) -> Option<String>, tools: &Pat
     }
     let openai = key("openai");
     vars.push(("CASTLE_IMAGE".into(), image_mode(cli, openai.is_some()).into()));
-    if cli == Cli::Claude {
-        if let Some(value) = openai {
-            vars.push(("OPENAI_API_KEY".into(), value));
+    match cli {
+        // never to Codex: it would switch from the member's ChatGPT login to paid API billing
+        Cli::Codex => {}
+        Cli::Claude | Cli::Gemini | Cli::Grok => {
+            if let Some(value) = openai {
+                vars.push(("OPENAI_API_KEY".into(), value));
+            }
         }
     }
     for (account, variable) in [("seedance", "ARK_API_KEY"), ("suno", "SUNOAPI_ORG_KEY"), ("elevenlabs", "ELEVENLABS_API_KEY")] {
@@ -367,6 +371,17 @@ mod tests {
         assert_eq!(get(&vars, "CASTLE_IMAGE"), Some("openai"));
         assert_eq!(get(&vars, "ARK_API_KEY"), None);
         assert_eq!(get(&vars, "CASTLE_TOOLS"), Some("C:\\tools"));
+    }
+
+    #[test]
+    fn gemini_and_grok_draw_with_the_key_like_claude_code() {
+        for cli in [Cli::Gemini, Cli::Grok] {
+            let vars = session_env_using(cli, &keys(&["openai"]), Path::new("C:\\tools"), None);
+            assert_eq!(get(&vars, "OPENAI_API_KEY"), Some("value-of-openai"));
+            assert_eq!(get(&vars, "CASTLE_IMAGE"), Some("openai"));
+            assert_eq!(get(&vars, "CASTLE_CLI"), Some(cli.command()));
+            assert_eq!(image_mode(cli, false), "none");
+        }
     }
 
     #[test]

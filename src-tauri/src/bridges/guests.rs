@@ -154,8 +154,9 @@ fn prepare(store: &SettingsStore) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&folder).map_err(|_| "the guests' folder could not be made".to_string())?;
     let member = settings.member_name.clone().unwrap_or_else(|| "my person".into());
     let rules = rules(&settings.companion_label(), &member, &card(store, &settings));
-    crate::oneshot::write_if_changed(&folder.join("CLAUDE.md"), &rules);
-    crate::oneshot::write_if_changed(&folder.join("AGENTS.md"), &rules);
+    for name in crate::setup::INSTRUCTION_FILES {
+        crate::oneshot::write_if_changed(&folder.join(name), &rules);
+    }
     crate::oneshot::write_if_changed(&folder.join("rules.md"), &rules);
     Ok(folder)
 }

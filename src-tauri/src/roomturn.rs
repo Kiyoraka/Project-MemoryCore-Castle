@@ -388,8 +388,9 @@ pub fn prepare_folder(store: &SettingsStore) -> Result<PathBuf, String> {
     let card = std::fs::read_to_string(&card_path).unwrap_or_else(|_| default_card(&settings));
     let member = settings.member_name.clone().unwrap_or_else(|| "your person".into());
     let rules = rules_for(&settings.companion_label(), &member, &card, &room_manner(&settings, &member), &crate::roomshelf::room_notes(store));
-    write_if_changed(&folder.join("CLAUDE.md"), &rules);
-    write_if_changed(&folder.join("AGENTS.md"), &rules);
+    for name in crate::setup::INSTRUCTION_FILES {
+        write_if_changed(&folder.join(name), &rules);
+    }
     // Claude Code takes the rules as its whole system prompt, so a user-level CLAUDE.md elsewhere
     // on the PC can never make the companion someone else in the room
     write_if_changed(&folder.join("rules.md"), &rules);

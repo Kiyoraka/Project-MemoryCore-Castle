@@ -114,7 +114,7 @@ pub fn validate(j: &Value) -> Result<(), String> {
             return Err("Briefing jobs use isolated think mode.".into());
         }
         if !j["action"]["cli"].is_null()
-            && !matches!(j["action"]["cli"].as_str(), Some("" | "claude" | "codex"))
+            && !j["action"]["cli"].as_str().is_some_and(|id| id.is_empty() || crate::settings::Cli::from_id(id).is_some())
         {
             return Err("Choose a supported provider.".into());
         }

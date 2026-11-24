@@ -36,6 +36,8 @@ pub fn model_args(cli: Cli, model: Option<&str>) -> Vec<String> {
         Some(m) => match cli {
             Cli::Claude => vec!["--model".into(), m],
             Cli::Codex => vec!["-m".into(), m],
+            // their model flags come with their background runs (Task 8)
+            Cli::Gemini | Cli::Grok => Vec::new(),
         },
         None => Vec::new(),
     }
@@ -61,6 +63,8 @@ pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Dur
         Cli::Claude => command.args(["-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", rules_file]).args(&model),
         // Codex reads AGENTS.md in this folder as its instructions
         Cli::Codex => command.arg("exec").args(&model).args(["--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message"]).arg(&answer_file).arg("-"),
+        // background runs for them come with Task 8; said, never run down the wrong path
+        Cli::Gemini | Cli::Grok => return Err(format!("This needs Claude Code or Codex; {} cannot run it in the background yet.", cli.label())),
     };
     command.current_dir(folder).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     for name in NEVER_INHERITED {

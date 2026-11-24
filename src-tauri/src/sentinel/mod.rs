@@ -59,7 +59,7 @@ impl SentinelSettings {
 pub fn recommended_model(cli: crate::settings::Cli) -> Option<&'static str> {
     match cli {
         crate::settings::Cli::Claude => Some("sonnet"),
-        crate::settings::Cli::Codex => None,
+        crate::settings::Cli::Codex | crate::settings::Cli::Gemini | crate::settings::Cli::Grok => None,
     }
 }
 

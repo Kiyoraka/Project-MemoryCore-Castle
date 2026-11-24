@@ -217,7 +217,11 @@ pub fn lives_in_database(folder: &Path) -> bool {
     has_database(folder) || folder.join(crate::backup::DUMP_FILE).is_file()
 }
 
-/// Writes Castle's block into CLAUDE.md (Claude Code) and AGENTS.md (Codex).
+/// The instructions files the CLIs read in a folder: CLAUDE.md (Claude Code) and AGENTS.md (Codex
+/// and Grok). Castle writes its block and its rooms' rules into each.
+pub const INSTRUCTION_FILES: [&str; 2] = ["CLAUDE.md", "AGENTS.md"];
+
+/// Writes Castle's block into each of INSTRUCTION_FILES.
 pub fn write_blocks(folder: &Path, companion: &str, member: &str) -> Result<(), String> {
     write_blocks_for(folder, companion, member, false)
 }
@@ -226,7 +230,7 @@ pub fn write_blocks(folder: &Path, companion: &str, member: &str) -> Result<(), 
 /// the session, so the block says so instead of telling her to load it.
 pub fn write_blocks_for(folder: &Path, companion: &str, member: &str, loaded: bool) -> Result<(), String> {
     let block = block_text(folder, companion, member, loaded)?;
-    for name in ["CLAUDE.md", "AGENTS.md"] {
+    for name in INSTRUCTION_FILES {
         let path = folder.join(name);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let next = with_block(&text, &block);
@@ -302,13 +306,16 @@ pub struct CliCheck {
 /// exists is asked (no password is read, so macOS shows no prompt).
 fn in_keychain(cli: Cli) -> bool {
     #[cfg(target_os = "macos")]
-    if cli == Cli::Claude {
-        return Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+    match cli {
+        Cli::Claude => {
+            return Command::new("security")
+                .args(["find-generic-password", "-s", "Claude Code-credentials"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        }
+        Cli::Codex | Cli::Gemini | Cli::Grok => {}
     }
     let _ = cli;
     false
@@ -320,6 +327,8 @@ fn credentials_file(cli: Cli) -> Option<PathBuf> {
     Some(match cli {
         Cli::Claude => home.join(".claude").join(".credentials.json"),
         Cli::Codex => std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".codex")).join("auth.json"),
+        // their sign-ins are read in Task 8 (Grok's file, agy's status command): until then unknown
+        Cli::Gemini | Cli::Grok => return None,
     })
 }
 
@@ -329,6 +338,9 @@ pub fn check_cli(cli: Cli) -> CliCheck {
     let (install_command, sign_in_hint) = match cli {
         Cli::Claude => ("npm install -g @anthropic-ai/claude-code", "Open the Log, type /login and follow the browser."),
         Cli::Codex => ("npm install -g @openai/codex", "Run `codex login` once (the Log can do it) and sign in with your ChatGPT account."),
+        Cli::Gemini => ("Install the Antigravity CLI from antigravity.google/docs/install (the CLI tab).", "Run `agy` once and sign in with your Google account."),
+        Cli::Grok if cfg!(windows) => ("irm https://x.ai/cli/install.ps1 | iex", "Run `grok login` once and sign in in the browser."),
+        Cli::Grok => ("curl -fsSL https://x.ai/cli/install.sh | bash", "Run `grok login` once and sign in in the browser."),
     };
     CliCheck {
         cli,

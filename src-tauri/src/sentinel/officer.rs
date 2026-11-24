@@ -177,7 +177,7 @@ fn prepare_room(name: &str) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&folder).map_err(|_| "The officer's room could not be made.".to_string())?;
     let name: String = name.chars().filter(|c| !c.is_control() && !"{}«»".contains(*c)).take(40).collect();
     let rules = RULES.replace("{{AI_NAME}}", if name.trim().is_empty() { "the companion" } else { name.trim() });
-    for file in ["rules.md", "CLAUDE.md", "AGENTS.md"] {
+    for file in std::iter::once("rules.md").chain(crate::setup::INSTRUCTION_FILES) {
         crate::oneshot::write_if_changed(&folder.join(file), &rules);
     }
     Ok(folder)

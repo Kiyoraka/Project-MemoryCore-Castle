@@ -132,7 +132,7 @@ pub struct Powers {
 pub fn powers(cli: Cli, has: &dyn Fn(&str) -> bool) -> Powers {
     let state = |name: &str| if has(name) { "ready" } else { "prompt" };
     Powers {
-        image: if cli == Cli::Codex { "builtin" } else { state("openai") },
+        image: if cli.draws_itself() { "builtin" } else { state("openai") },
         video: state("seedance"),
         song: state("suno"),
         voice: state("elevenlabs"),

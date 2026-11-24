@@ -137,7 +137,7 @@ static EXPLAINED: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 fn keeper_folder(store: &SettingsStore) -> Result<PathBuf, String> {
     let folder = store.folder().join("keeper");
     std::fs::create_dir_all(&folder).map_err(|_| "The keeper's corner could not be made.".to_string())?;
-    for name in ["rules.md", "CLAUDE.md", "AGENTS.md"] {
+    for name in std::iter::once("rules.md").chain(crate::setup::INSTRUCTION_FILES) {
         crate::oneshot::write_if_changed(&folder.join(name), RULES);
     }
     Ok(folder)
