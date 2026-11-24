@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Changed: companions now know how to set up an automation for you. Their instructions say what a job looks like (trigger, action and delivery kinds) and how to propose one with `castle-memory automation propose`; it waits disabled in AUTOMATIONS until you approve and switch it on.
+
 ## 0.4.0 - 2026-11-23
 
 - Every skill is now served from the memory database by default: its SKILL.md on disk becomes a short note that keeps the skill's own rules and loads the rest a flow or a section at a time, so each firing reads far less. Settings > Database > Skills shows the saving, switches one skill or all of them back to whole files, and lists each skill's flows.
