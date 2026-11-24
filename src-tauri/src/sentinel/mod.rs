@@ -107,9 +107,23 @@ pub fn start(app: &AppHandle) {
         loop {
             let alarmed = read_journal(&app);
             patrol_when_due(&app, alarmed);
+            report_to_network(&app);
             std::thread::sleep(Duration::from_secs(60));
         }
     });
+}
+
+/// Shares what the Sentinel caught with the Aegis Network, when the member joined: only when
+/// something new was caught (a burst, a detection, a block), never on a timer of its own.
+fn report_to_network(app: &AppHandle) {
+    let settings = app.state::<SettingsStore>().get();
+    let (Some(door), Some(memory)) = (network::door(&settings), settings.memory_folder.as_deref()) else { return };
+    let Ok(mut conn) = book::open(Path::new(memory)) else { return };
+    match network::report_caught(&mut conn, &door) {
+        Ok(0) => {}
+        Ok(n) => officer::log(&format!("\nthe Aegis Network was told {n} thing{} the Sentinel caught\n", if n == 1 { "" } else { "s" })),
+        Err(why) => officer::log(&format!("\n{why}\n")),
+    }
 }
 
 /// Reads the journal; true when an alarm opened.

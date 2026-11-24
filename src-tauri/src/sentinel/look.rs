@@ -17,6 +17,8 @@ pub const FULL_KINDS: [&str; 8] = ["port", "dbport", "startup", "task", "service
 
 /// Signatures older than this many days are worth a look.
 pub const OLD_SIGNATURES_DAYS: i64 = 3;
+/// How a detection's card opens; the network reads the threat's name back from it.
+pub const DETECTION_TITLE: &str = "The antivirus found ";
 /// The folder of the Sentinel's own scheduled tasks (install.ps1), lowercased.
 pub const SENTINEL_TASKS: &str = "\\memorycore castle sentinel\\";
 
@@ -184,7 +186,7 @@ pub fn things_from(json: &Value, sockets: &[Socket], db_port: Option<u16>, full:
                 "detection",
                 vec![s(d, "id").into(), s(d, "resources").into()],
                 if handled { LOOK } else { ALARM },
-                format!("The antivirus found {}", none_if_empty(s(d, "threat"))),
+                format!("{DETECTION_TITLE}{}", none_if_empty(s(d, "threat"))),
                 format!("At {}: {} ({})", s(d, "at"), s(d, "resources"), if handled { "dealt with" } else { "not dealt with yet" }),
                 Some(("scan-quick", None)),
                 false,
