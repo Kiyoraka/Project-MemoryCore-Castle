@@ -61,10 +61,16 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         layout(app);
         return Ok(window);
     }
-    let window = tauri::window::WindowBuilder::new(app, WINDOW)
+    let builder = tauri::window::WindowBuilder::new(app, WINDOW)
         .title("MemoryCore · Browser")
         .min_inner_size(MIN_W, MIN_H)
-        .visible(false)
+        .visible(false);
+    // Tauri's macOS default (Visible) also makes the content full-size, so the title bar would sit
+    // over the toolbar and push its address row under the page (F10). Transparent keeps the title
+    // bar and starts the content below it, so inner_size is the real content area.
+    #[cfg(target_os = "macos")]
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Transparent);
+    let window = builder
         .build()
         .map_err(|_| "The browser window could not be opened.".to_string())?;
     // listen first, so every size change after this point lays the views out again
