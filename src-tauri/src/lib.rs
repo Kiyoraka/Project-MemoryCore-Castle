@@ -12,6 +12,7 @@ mod backup;
 mod chat;
 mod chatroom;
 mod clipboard;
+mod comfy;
 mod commands;
 mod credits;
 mod db;
@@ -195,6 +196,8 @@ fn save_settings(app: AppHandle, settings: Settings, store: State<SettingsStore>
         settings.sentinel = current.sentinel.clone();
         // the credit widgets' figures, states and budget are kept by their own commands
         settings.credits = current.credits.clone();
+        // the member's ComfyUI is saved only by its own command (comfy_save)
+        settings.comfy = current.comfy.clone();
         // who the phone bridges answer is changed only by their own Approve / Make me / Remove /
         // Forget commands: a Settings page holding an older copy never un-approves anyone
         settings.telegram_bridge_chat_id = current.telegram_bridge_chat_id.clone();
@@ -309,6 +312,7 @@ pub fn run() {
         .manage(session::MainHost::default())
         .manage(providers::Control::default())
         .manage(providers::Images::default())
+        .manage(comfy::Launcher::default())
         .manage(messages::Pending::default())
         .manage(bridges::telegram::TelegramState::default())
         .manage(bridges::discord::DiscordState::default())
@@ -407,6 +411,11 @@ pub fn run() {
             gpu::gpu_meters,
             gpu::gpu_gauges_save,
             disks::disk_drives,
+            comfy::comfy_get,
+            comfy::comfy_save,
+            comfy::comfy_check,
+            comfy::comfy_start,
+            comfy::comfy_choose_file,
             weather::weather_get,
             weather::weather_search,
             weather::weather_save,
@@ -796,6 +805,7 @@ pub fn run() {
                 session::end_all(app);
                 dev::end_all(app);
                 db::stop_with_castle(app);
+                comfy::stop_with_castle(app);
             }
         });
 }

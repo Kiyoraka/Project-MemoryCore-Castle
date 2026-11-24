@@ -6,6 +6,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 - Changed: companions now know how to set up an automation for you. Their instructions say what a job looks like (trigger, action and delivery kinds) and how to propose one with `castle-memory automation propose`; it waits disabled in AUTOMATIONS until you approve and switch it on.
 
+- STUDIO can draw its plain pictures with your own ComfyUI, with no key and no cost: turn it on in Settings > Connect > ComfyUI, say where it listens and which file starts it (Castle starts it hidden and closes only what it started), and pick a checkpoint or point Castle at a workflow you exported from ComfyUI, with its own model and nodes. Stop and Retry work as before; a picture that follows reference pictures, APPEARANCE's looks and Write prompt from picture still go to Codex or your OpenAI key.
+
 ## 0.4.0 - 2026-11-23
 
 - Every skill is now served from the memory database by default: its SKILL.md on disk becomes a short note that keeps the skill's own rules and loads the rest a flow or a section at a time, so each firing reads far less. Settings > Database > Skills shows the saving, switches one skill or all of them back to whole files, and lists each skill's flows.

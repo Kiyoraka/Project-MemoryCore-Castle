@@ -410,6 +410,9 @@ pub struct Settings {
     /// HOME's credit widgets: the OpenAI and Seedance figures, the page readers' last word, Suno's
     /// whole and the Seedance budget. Changed only by the credits commands.
     pub credits: crate::credits::CreditsSaved,
+    /// The member's own ComfyUI: where it is, how to start it, which checkpoint. Off until they
+    /// switch it on. Changed only by its own command (comfy_save), never by the Settings page.
+    pub comfy: crate::comfy::ComfySettings,
 }
 
 /// HOME's widgets, by id (the theme's `widgets` keys).
@@ -549,6 +552,7 @@ impl Default for Settings {
             sweep: crate::sweep::SweepSettings::default(),
             sentinel: crate::sentinel::SentinelSettings::default(),
             credits: crate::credits::CreditsSaved::default(),
+            comfy: crate::comfy::ComfySettings::default(),
         }
     }
 }
@@ -1084,6 +1088,7 @@ mod tests {
             sweep: crate::sweep::SweepSettings { look: Some("broom".into()), recycle_bin: true },
             sentinel: crate::sentinel::SentinelSettings { on: true, model: Some("opus".into()), patrol_minutes: 30 },
             credits: crate::credits::CreditsSaved { seedance_budget: Some(20.0), suno_peak: Some(800.0), ..Default::default() },
+            comfy: crate::comfy::ComfySettings { on: true, address: "http://127.0.0.1:8188".into(), start: "start.bat".into(), model: "m.safetensors".into(), workflow: "qwen.json".into(), limit_minutes: 20 },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings, None));

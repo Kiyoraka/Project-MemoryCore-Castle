@@ -333,6 +333,7 @@ At the top right, a switch picks **Picture**, **Video**, **Song** or **Voice**. 
 | Pill | Meaning |
 |-------|---------|
 | **Ready** | The key is kept, so the real thing can be made |
+| **ComfyUI** | Plain pictures are drawn by your own ComfyUI (below) - no key and no cost |
 | **Codex** | Pictures are drawn on your ChatGPT plan - no key needed |
 | **VoiceStudio** | Voice lines are spoken by VoiceStudio on this computer (below) |
 | **Add a key** | No key yet: the main button becomes **Add the ... key** (see chapter 4, Keys) |
@@ -407,6 +408,20 @@ With **Video**, **Song** or **Voice** chosen, the room shows one **MAKE** box. W
 ### Your own voice (optional, for self-hosters)
 
 If you run [VoiceStudio](https://github.com/debpalash/voicestudio) on this PC, you can use it for Voice instead of a key. It is off by default: turn it on in **Settings > Companion > Local voice**. With it on and VoiceStudio running, Voice shows **VoiceStudio**: type a line in the Make box, press **Speak with VoiceStudio**, and the clip plays and is saved with your other voice lines. Castle uses your first saved VoiceStudio voice (a saved voice also keeps one-word lines from coming out as noise) and checks each clip with VoiceStudio's own transcriber, making it again if it came out as noise. Everything stays on your computer, Castle never installs or starts VoiceStudio, and while the switch is off Castle never contacts it. VoiceStudio's models have their own licences; some are non-commercial.
+
+### Drawing with your own ComfyUI (optional)
+
+If you run [ComfyUI](https://github.com/comfyanonymous/ComfyUI), a free picture program, on this computer or on another one in your home, Castle can draw STUDIO's pictures with it first: nothing is billed and nothing leaves your network. It is off by default. Turn it on in **Settings > Connect > ComfyUI**; while it is on, the Picture pill reads **ComfyUI**.
+
+- **Address**: where ComfyUI listens. Empty means this computer (`http://127.0.0.1:8188`). **Check** says whether it answers and how many checkpoints it has.
+- **Start file**: the file you start ComfyUI with (on Windows, the `.bat` in its folder). When ComfyUI is not running, Castle runs it hidden, from its own folder, and waits for it to come up (a minute or two the first time); **Start it now** does the same on request. Castle closes ComfyUI when it closes, but only a ComfyUI that Castle started. ComfyUI's usual start file opens a browser tab every time it starts: use a copy with `--disable-auto-launch` added to stop that. Other flags, such as `--disable-smart-memory` for a big model on a smaller graphics card, depend on your card and your model.
+- **Checkpoint**: the model to draw with. Without a choice, the first one ComfyUI lists.
+- **Your own workflow**: to draw with a model that needs its own nodes, save your workflow from ComfyUI with **Workflow > Export (API)** and choose the file. Put `{{prompt}}` where the words to draw go (type it into your prompt node's text box before you export, or edit the file); it can appear in several places, and a negative prompt you wrote yourself stays as it is. To let STUDIO's size and quality count, put `{{width}}`, `{{height}}`, `{{seed}}` and `{{steps}}` in the matching number fields of the file; any you leave out keep your own numbers. Castle never changes your file, and your own model, custom nodes and settings are used as they are. A workflow made on someone else's computer may need a node or a model your ComfyUI does not have: Castle says which one and what to do (open the workflow in ComfyUI and use Manager > Install Missing Custom Nodes, or put the model file in ComfyUI's models folder, then Export (API) again). Castle never downloads anything for you.
+- **Time limit**: how long Castle waits for one picture, 15 minutes unless you change it. A big model on a modest card can take minutes.
+
+ComfyUI draws pictures made from words: the Make bar, and the workflows with no pictures to follow (such as Poster). It leaves to Codex or your OpenAI key what it cannot do: a picture that follows reference pictures, APPEARANCE's looks, and **Write prompt from picture**, which has to read a picture. If none of those is set up, Castle says so instead of drawing something else. **Stop** works while ComfyUI draws, and **Retry** draws the same prompt again.
+
+If ComfyUI stops answering while it draws, the line says so and keeps your prompt. When Castle started that ComfyUI, the line also gives how it ended (its exit code), and what it printed last is in `comfy-start.log`, with the run before it in `comfy-start.previous.log`, in Castle's settings folder.
 
 ### Before anything costs money
 

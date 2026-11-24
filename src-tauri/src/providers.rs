@@ -235,8 +235,9 @@ pub struct ImageJob {
     size: Option<String>,
     #[serde(default)]
     quality: Option<String>,
-    /// Drawn by Castle with the OpenAI key: a helper script that never touches the conversation,
-    /// so it neither waits for a safe pause nor holds the chat or a provider switch.
+    /// Drawn by Castle itself, with the OpenAI key or with the member's ComfyUI (not by Codex): a
+    /// process that never touches the conversation, so it neither waits for a safe pause nor holds
+    /// the chat or a provider switch. (Named for the key, which came first.)
     #[serde(default)]
     pub(crate) by_key: bool,
     /// The member pressed Stop while it was drawing: the worker ends Codex at its next look.
@@ -593,10 +594,14 @@ pub fn start_images(app: &AppHandle) {
             }
         }
         // asked now, not when it was queued: a sign-in or a key may have changed since
-        let way = crate::env::picture_way(codex_chatgpt_cached, crate::key::load("openai").is_some());
-        // Only a Codex job waits for a safe pause in the conversation; a drawing with the key is a
-        // helper script beside it. Reading the record can take a moment; no lock is held meanwhile.
-        if way != "key" && !safe_boundary(&store, &app.state::<MainHost>().0) {
+        // The member's ComfyUI draws a plain text picture only: one with a reference or an APPEARANCE
+        // look goes the other ways, as before.
+        let comfy_can = images.0.lock().unwrap().iter().find(|j| j.id == id).is_some_and(|j| j.look.is_none() && j.references.is_empty());
+        let way = crate::env::drawing_way(store.get().comfy.on, comfy_can, codex_chatgpt_cached, crate::key::load("openai").is_some());
+        // Only a Codex job waits for a safe pause in the conversation; a drawing with the key or
+        // with ComfyUI is a process beside it. Reading the record can take a moment; no lock is
+        // held meanwhile.
+        if way == "codex" && !safe_boundary(&store, &app.state::<MainHost>().0) {
             continue;
         }
         let job = {
@@ -609,11 +614,11 @@ pub fn start_images(app: &AppHandle) {
             let Some(job) = jobs.iter_mut().find(|j| j.id == id && j.phase == "queued") else { continue };
             job.phase = "working".into();
             job.stop_asked = false;
-            job.by_key = way == "key";
-            job.message = if way == "key" {
-                "Drawing with your OpenAI key. Stop ends it."
-            } else {
-                "Drawing with Codex. Messages to your companion wait until it finishes; Stop ends it."
+            job.by_key = way != "codex";
+            job.message = match way {
+                "key" => "Drawing with your OpenAI key. Stop ends it.",
+                "comfy" => "Drawing with your ComfyUI. Stop ends it.",
+                _ => "Drawing with Codex. Messages to your companion wait until it finishes; Stop ends it.",
             }
             .into();
             job.clone()
@@ -626,7 +631,7 @@ pub fn start_images(app: &AppHandle) {
                 .iter()
                 .any(|j| j.id == id && j.stop_asked)
         };
-        let result = run_image(&job, way, styles.as_deref(), &tools, &stop_asked);
+        let result = run_image(&job, way, &app, styles.as_deref(), &tools, &stop_asked);
         let drew = result.is_ok();
         let mut stopped = false;
         let mut jobs = images.0.lock().unwrap();
@@ -650,7 +655,7 @@ pub fn start_images(app: &AppHandle) {
 }
 
 /// Ends the drawing process and everything it started (Codex runs under `cmd.exe` and node).
-fn end_process_tree(child: &mut std::process::Child) {
+pub(crate) fn end_process_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -669,7 +674,10 @@ fn end_process_tree(child: &mut std::process::Child) {
 /// One queued picture, the way Castle can draw it now (`env::picture_way`). An APPEARANCE drawing's
 /// prompt is written by castle-look.mjs from the member's notes first, so it is saved in full even
 /// when nothing can draw, and Codex is handed the finished words instead of the notes to read.
-fn run_image(job: &ImageJob, way: &str, styles: Option<&Path>, tools: &Path, stop_asked: &dyn Fn() -> bool) -> Result<(), String> {
+fn run_image(job: &ImageJob, way: &str, app: &AppHandle, styles: Option<&Path>, tools: &Path, stop_asked: &dyn Fn() -> bool) -> Result<(), String> {
+    if way == "comfy" {
+        return run_with_comfy(job, app, stop_asked);
+    }
     if way == "key" {
         let key = crate::key::load("openai").ok_or(NO_WAY)?;
         return run_with_key(job, &key, tools, styles, stop_asked, IMAGE_TIME_LIMIT);
@@ -680,6 +688,10 @@ fn run_image(job: &ImageJob, way: &str, styles: Option<&Path>, tools: &Path, sto
         let _ = std::fs::write(&job.prompt, format!("{}\n\nOutput: {}\nReferences: {:?}\n", job.brief, job.output, job.references));
     }
     if way != "codex" {
+        // ComfyUI is on but cannot draw this one (a reference or an APPEARANCE look), and nothing else is open
+        if app.state::<SettingsStore>().get().comfy.on {
+            return Err(NO_WAY_WITH_COMFY.into());
+        }
         return Err(NO_WAY.into());
     }
     let program = crate::env::find_on_path("codex").ok_or(NO_WAY)?;
@@ -712,6 +724,27 @@ pub(crate) fn draw_once(brief: &str, folder: &Path, output: &Path, limit: std::t
 
 /// What to do when no way to draw is open, in the member's words.
 const NO_WAY: &str = "Not drawn: sign in to Codex with ChatGPT, or add an OpenAI key in Settings > Keys. Prompt saved.";
+
+/// The same when ComfyUI is on, but this picture is one it cannot draw yet.
+const NO_WAY_WITH_COMFY: &str = "Not drawn: your ComfyUI draws plain text pictures only, not ones with a reference picture or an APPEARANCE look. For this one, sign in to Codex with ChatGPT or add an OpenAI key in Settings > Keys. Prompt saved.";
+
+/// One picture with the member's own ComfyUI (comfy.rs): the same keeping of a picture it replaces
+/// and the same check of what came out as the other ways.
+fn run_with_comfy(job: &ImageJob, app: &AppHandle, stop_asked: &dyn Fn() -> bool) -> Result<(), String> {
+    let store = app.state::<SettingsStore>();
+    let settings = store.get().comfy;
+    let before = keep_previous(job)?;
+    let brief = crate::comfy::Brief { prompt: &job.brief, size: job.size.as_deref(), quality: job.quality.as_deref() };
+    let log = store.folder().join("comfy-start.log");
+    crate::comfy::draw(&settings, &app.state::<crate::comfy::Launcher>(), &log, &brief, Path::new(&job.output), settings.limit(), stop_asked).map_err(|said| {
+        if said == "Stopped." {
+            "Stopped. The prompt is saved; retry when you are ready.".to_string()
+        } else {
+            format!("Not drawn: {said} Prompt saved.")
+        }
+    })?;
+    check_new_image(job, before)
+}
 
 /// How long a ChatGPT sign-in check is trusted before it is asked again: STUDIO and APPEARANCE ask
 /// on every visit, and the image queue asks once a second while a job waits for a safe moment, so

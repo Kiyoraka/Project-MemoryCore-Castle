@@ -57,14 +57,18 @@ export function missing(workflow, values) {
   return ''
 }
 
+/** Whether the workflow's picture step follows pictures the member adds (ComfyUI draws plain text pictures only). */
+export const needsPictures = (workflow) => (createOf(workflow)?.references ?? []).length > 0
+
 /**
  * The picture button: { kind, label }. kind is 'checking' (the sign-in check is still answering),
  * 'key' (no way to draw: the button opens Keys), 'busy', 'missing' (something to fill first) or 'ready'.
- * `way` is the Pictures power: 'ready' (the key), 'builtin' (Codex), 'prompt' (none).
+ * `way` is the Pictures power: 'ready' (the key), 'builtin' (Codex), 'prompt' (none). `comfy` is the
+ * member's own ComfyUI being on: it opens the button for a workflow with no pictures to follow.
  */
-export function createAction(workflow, values, way, loaded = true, busy = false) {
+export function createAction(workflow, values, way, loaded = true, busy = false, comfy = false) {
   if (!loaded) return { kind: 'checking', label: 'Checking…' }
-  if (way !== 'ready' && way !== 'builtin') return { kind: 'key', label: 'Add the OpenAI key' }
+  if (way !== 'ready' && way !== 'builtin' && !(comfy && !needsPictures(workflow))) return { kind: 'key', label: 'Add the OpenAI key' }
   if (busy) return { kind: 'busy', label: 'Working…' }
   const why = missing(workflow, values)
   return why ? { kind: 'missing', label: 'Create picture', why } : { kind: 'ready', label: 'Create picture' }

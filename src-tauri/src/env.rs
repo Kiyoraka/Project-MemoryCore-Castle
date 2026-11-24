@@ -180,6 +180,18 @@ pub fn picture_way(codex_chatgpt: impl FnOnce() -> bool, has_openai_key: bool) -
     }
 }
 
+/// How a queued STUDIO or APPEARANCE picture is drawn: the member's own ComfyUI first when they
+/// turned it on and it can draw this picture (a plain text one, no reference and no look), else
+/// `picture_way`. Reading a picture (describe.rs) and the chat room's own drawing (roomdraw.rs)
+/// keep using `picture_way`: ComfyUI draws, it does not read and it does not answer the room.
+pub fn drawing_way(comfy_on: bool, comfy_can_draw_it: bool, codex_chatgpt: impl FnOnce() -> bool, has_openai_key: bool) -> &'static str {
+    if comfy_on && comfy_can_draw_it {
+        "comfy"
+    } else {
+        picture_way(codex_chatgpt, has_openai_key)
+    }
+}
+
 /// Every variable Castle adds to the session. `key` reads a kept key by its account name.
 /// OPENAI_API_KEY is never given to Codex: Codex would switch from the member's ChatGPT login
 /// to paid API billing. `place` says where Castle's own Node folder goes on PATH (only when
@@ -321,6 +333,19 @@ mod tests {
         assert_eq!(picture_way(|| true, false), "codex");
         assert_eq!(picture_way(|| false, true), "key");
         assert_eq!(picture_way(|| false, false), "none");
+    }
+
+    #[test]
+    fn the_members_comfyui_draws_first_when_it_is_on_and_can_draw_the_picture() {
+        // on and able: ComfyUI, whatever else is signed in, and nothing else is even asked
+        assert_eq!(drawing_way(true, true, || panic!("Codex must not be asked"), true), "comfy");
+        // on but the picture has a reference or is an APPEARANCE look: the other ways, as before
+        assert_eq!(drawing_way(true, false, || true, true), "codex");
+        assert_eq!(drawing_way(true, false, || false, true), "key");
+        assert_eq!(drawing_way(true, false, || false, false), "none");
+        // off: exactly picture_way
+        assert_eq!(drawing_way(false, true, || true, false), "codex");
+        assert_eq!(drawing_way(false, true, || false, false), "none");
     }
 
     #[test]

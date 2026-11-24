@@ -310,7 +310,7 @@ watch(() => props.stamp, () => {
               <button v-else class="text-delete" @click="askingDelete = current.id">Delete</button>
             </template>
           </div>
-          <WorkflowForm v-if="current && !current.error" :entry="current" :way="powers.image" :loaded="powersLoaded" @keys="emit('keys')" />
+          <WorkflowForm v-if="current && !current.error" :entry="current" :way="powers.image" :comfy="!!powers.comfy" :loaded="powersLoaded" @keys="emit('keys')" />
           <p v-else-if="current" role="alert" class="problem">This workflow has a problem: {{ current.error }}</p>
           <p v-else class="empty">Choose a workflow on the left.</p>
         </section>

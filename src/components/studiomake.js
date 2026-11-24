@@ -14,6 +14,8 @@ export const POWERS = [
 export function powerPill(id, powers = {}, voiceUp = false, loaded = true) {
   if (id === 'image' && !loaded) return { text: 'Checking…', tone: 'checking' }
   if (id === 'voice' && voiceUp) return { text: 'VoiceStudio', tone: 'ready' }
+  // the member's own ComfyUI draws a plain picture first, so it is what the Picture pill names
+  if (id === 'image' && powers.comfy) return { text: 'ComfyUI', tone: 'ready' }
   const state = powers[id]
   if (state === 'builtin') return { text: 'Codex', tone: 'ready' }
   if (state === 'ready') return { text: 'Ready', tone: 'ready' }
@@ -33,7 +35,7 @@ export function makeAction(id, powers = {}, voiceUp = false, companion = 'your c
   const power = POWERS.find((p) => p.id === id) ?? POWERS[0]
   const state = powers[power.id]
   if (power.id === 'image') {
-    return state === 'ready' || state === 'builtin' ? { kind: 'image', label: 'Create picture' } : { kind: 'key', label: 'Add the OpenAI key' }
+    return state === 'ready' || state === 'builtin' || powers.comfy ? { kind: 'image', label: 'Create picture' } : { kind: 'key', label: 'Add the OpenAI key' }
   }
   if (power.id === 'voice' && voiceUp) return { kind: 'voicestudio', label: 'Speak with VoiceStudio' }
   if (state === 'ready') return { kind: 'companion', label: `Ask ${companion}`, ask: power.ask }
