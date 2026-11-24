@@ -49,6 +49,13 @@ export function shieldLook(status) {
 }
 
 // The buttons a finding shows: Fix (only with a move), This is normal, Undo (only once fixed by a move).
+// Test my guard's answer, one line per check, and the verdict: it holds only when all three pass.
+export function guardWords(tested) {
+  if (!tested?.checks?.length) return { verdict: '', lines: [] }
+  const lines = tested.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.name}: ${c.why}`)
+  return { verdict: tested.holds ? 'Your guard holds.' : 'Not yet: see what did not pass.', lines }
+}
+
 // The sheet's one line about the Aegis Network: joined or not, and today's blocks.
 export function networkLine(status) {
   if (!status?.network) return 'The Aegis Network: not joined (Settings > Sentinel).'

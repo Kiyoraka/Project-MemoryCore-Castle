@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAC_LINE, STALE_MINUTES, findingButtons, moveLabel, networkLine, patrolAgo, shieldLook, watchAgo } from './sentinel.js'
+import { MAC_LINE, STALE_MINUTES, findingButtons, moveLabel, guardWords, networkLine, patrolAgo, shieldLook, watchAgo } from './sentinel.js'
 
 describe('the card on HOME says the watch is working', () => {
   it('tells how long ago the last patrol ran', () => {
@@ -106,5 +106,18 @@ describe('the Aegis Network on the sheet', () => {
 
   it('offers Undo on a block the network made, as on any fix', () => {
     expect(findingButtons({ kind: 'network-address', state: 'fixed', undoable: true })).toEqual(['undo'])
+  })
+})
+
+describe('Test my guard', () => {
+  it('says the guard holds only when all three checks pass', () => {
+    const pass = (name) => ({ name, ok: true, why: 'fine' })
+    const all = guardWords({ checks: [pass('The antivirus takes a test file'), pass('A practice block'), pass('The five-minute watch')], holds: true })
+    expect(all.verdict).toBe('Your guard holds.')
+    expect(all.lines).toEqual(['✓ The antivirus takes a test file: fine', '✓ A practice block: fine', '✓ The five-minute watch: fine'])
+    const one = guardWords({ checks: [pass('a'), { name: 'b', ok: false, why: 'not set up' }, pass('c')], holds: false })
+    expect(one.verdict).toBe('Not yet: see what did not pass.')
+    expect(one.lines[1]).toBe('✗ b: not set up')
+    expect(guardWords(null)).toEqual({ verdict: '', lines: [] })
   })
 })

@@ -720,6 +720,7 @@ pub fn run() {
             sentinel::sentinel_settings_save,
             sentinel::officer::sentinel_patrol_now,
             sentinel::commands::sentinel_status,
+            sentinel::commands::sentinel_test,
             sentinel::commands::sentinel_findings,
             sentinel::commands::sentinel_click,
             sentinel::commands::sentinel_log,

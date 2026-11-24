@@ -100,6 +100,20 @@ fn status_of(store: &SettingsStore) -> Status {
     status
 }
 
+/// Test my guard: the three checks (the antivirus takes a test file and the alarm writes its row,
+/// a practice block and its undo, the five-minute watch alive), on the member's press.
+#[tauri::command]
+pub async fn sentinel_test(app: AppHandle) -> Result<super::drill::Tested, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = app.state::<SettingsStore>();
+        let tested = super::drill::test_guard(&memory(&store)?);
+        changed(&app);
+        tested
+    })
+    .await
+    .map_err(|_| "The test stopped.".to_string())?
+}
+
 /// The shield's status.
 #[tauri::command]
 pub async fn sentinel_status(app: AppHandle) -> Result<Status, String> {

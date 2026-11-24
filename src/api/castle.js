@@ -180,6 +180,8 @@ export const sweepSettingsSave = (look, recycleBin) => invoke('sweep_settings_sa
 // -> { supported, on, installed, current, setupLine, patrol: { status, line, minutesAgo } | null,
 //      patrolling, unread, open: { alarm, look, note }, watchMinutes, problem }
 export const sentinelStatus = () => invoke('sentinel_status')
+// Test my guard: the three checks, on the member's press (it takes up to three minutes).
+export const sentinelTest = () => invoke('sentinel_test')
 export const sentinelPatrolNow = () => invoke('sentinel_patrol_now')
 export const sentinelSettingsSave = (on, model, patrolMinutes, network = null) => invoke('sentinel_settings_save', { on, model, patrolMinutes, network })
 export const onSentinelChanged = (handler) => listen('sentinel-changed', () => handler())

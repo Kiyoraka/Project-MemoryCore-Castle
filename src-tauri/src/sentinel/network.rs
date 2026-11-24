@@ -197,6 +197,8 @@ pub fn items_from(findings: &[FindingRow], blocks: &[(u64, String)]) -> Vec<Item
             items.push(Item::blocked(address));
         }
     }
+    // a documentation address is a practice (Test my guard), never a real attacker
+    items.retain(|i| i.kind != "address" || !is_documentation(&i.value));
     let mut seen = std::collections::HashSet::new();
     items.retain(|i| seen.insert(mark(i)));
     items
@@ -497,7 +499,7 @@ mod tests {
             (5, "task".into(), "Scheduled task \\Stranger".into(), Some("\\Stranger".into())),
             (6, "signin-burst".into(), "Many failed sign-ins from 185.220.101.4".into(), Some("185.220.101.4".into())),
         ];
-        let items = items_from(&findings, &[(9, "45.155.205.233".into())]);
+        let items = items_from(&findings, &[(9, "45.155.205.233".into()), (10, "203.0.113.7".into())]);
         assert_eq!(items, vec![Item::burst("185.220.101.4"), Item::detection("Trojan:Win32/Example!ml"), Item::blocked("45.155.205.233")]);
         assert!(is_drill_name("Virus:DOS/EICAR_Test_File"));
         assert_ne!(mark(&Item::burst("1.2.3.4")), mark(&Item::detection("1.2.3.4")));

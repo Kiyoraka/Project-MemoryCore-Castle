@@ -3,8 +3,8 @@
 // its buttons (Fix, This is normal, Undo - each one the member's own click), what was settled,
 // kept as normal or fixed, and the officer's log.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { onSentinelChanged, sentinelAlarmsSeen, sentinelClick, sentinelFindings, sentinelLog, sentinelPatrolNow, sentinelStatus } from '../api/castle.js'
-import { findingButtons, moveLabel, networkLine, patrolAgo, shieldLook } from './sentinel.js'
+import { onSentinelChanged, sentinelAlarmsSeen, sentinelClick, sentinelFindings, sentinelLog, sentinelPatrolNow, sentinelStatus, sentinelTest } from '../api/castle.js'
+import { findingButtons, guardWords, moveLabel, networkLine, patrolAgo, shieldLook } from './sentinel.js'
 
 const emit = defineEmits(['settings'])
 const status = ref(null)
@@ -36,6 +36,24 @@ async function read() {
     if (logOpen.value) log.value = await sentinelLog()
   } catch (reason) {
     problem.value = String(reason)
+  }
+}
+
+// Test my guard's last answer
+const guard = ref(null)
+
+async function testGuard() {
+  said.value = ''
+  problem.value = ''
+  guard.value = null
+  busy.value = -2
+  try {
+    guard.value = guardWords(await sentinelTest())
+  } catch (reason) {
+    problem.value = String(reason)
+  } finally {
+    busy.value = 0
+    read()
   }
 }
 
@@ -91,7 +109,12 @@ onBeforeUnmount(() => stop?.())
       <div class="row">
         <span class="when">{{ lastPatrol }}</span>
         <button v-if="ready" :disabled="busy !== 0 || status?.patrolling" @click="patrolNow">{{ busy === -1 || status?.patrolling ? 'On patrol…' : 'Patrol now' }}</button>
+        <button v-if="ready" class="quiet" :disabled="busy !== 0 || status?.patrolling" title="The antivirus takes a harmless test file, the hand makes a practice block and undoes it, and the five-minute watch is checked. Up to three minutes." @click="testGuard">{{ busy === -2 ? 'Testing…' : 'Test my guard' }}</button>
         <button v-else-if="status?.supported" @click="emit('settings')">Set it up</button>
+      </div>
+      <div v-if="guard" class="guard" :class="{ holds: guard.verdict === 'Your guard holds.' }">
+        <p class="verdict">{{ guard.verdict }}</p>
+        <p v-for="line in guard.lines" :key="line" class="check">{{ line }}</p>
       </div>
       <p v-if="status?.supported" class="network">{{ networkLine(status) }}</p>
       <p v-if="said" class="said">{{ said }}</p>
@@ -191,6 +214,24 @@ onBeforeUnmount(() => stop?.())
 .said {
   margin: 10px 0 0;
   color: var(--good);
+}
+.guard {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+.guard.holds {
+  border-color: var(--good);
+}
+.guard .verdict {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.guard .check {
+  margin: 2px 0 0;
+  color: var(--text-dim);
 }
 .network {
   margin: 10px 0 0;
