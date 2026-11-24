@@ -6,6 +6,10 @@ use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, Result,
 /// How much of its screen Castle takes (Settings' `window_layout`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
+    /// Native full screen: on macOS its own Space with the menu bar and Dock hidden; on Windows
+    /// the whole monitor, taskbar and all.
+    FullScreen,
+    /// The whole work area: the menu bar and Dock (or the taskbar) stay ("Full width").
     Full,
     Left,
     Right,
@@ -19,9 +23,51 @@ impl Layout {
             "left" => Self::Left,
             "right" => Self::Right,
             "free" => Self::Free,
+            "fullscreen" => Self::FullScreen,
             _ => Self::Full,
         }
     }
+
+    pub fn as_setting(self) -> &'static str {
+        match self {
+            Self::FullScreen => "fullscreen",
+            Self::Full => "full",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Free => "free",
+        }
+    }
+}
+
+/// What the layout menu, the keys and Esc ask for: a layout, or "toggle-fullscreen" (Ctrl+Cmd+F,
+/// F11) and "leave-fullscreen" (Esc). Gives the new layout and the one to come back to after
+/// full screen; leaving full screen returns to the layout the member had before it.
+fn resolve(requested: &str, current: Layout, before: Layout) -> (Layout, Layout) {
+    // full screen is never the layout to come back to
+    let before = if before == Layout::FullScreen { Layout::Full } else { before };
+    let wanted = match requested {
+        "toggle-fullscreen" if current == Layout::FullScreen => before,
+        "toggle-fullscreen" => Layout::FullScreen,
+        "leave-fullscreen" if current == Layout::FullScreen => before,
+        "leave-fullscreen" => current,
+        other => Layout::from_setting(other),
+    };
+    let before = if wanted == Layout::FullScreen && current != Layout::FullScreen { current } else { before };
+    (wanted, before)
+}
+
+fn before_of(app: &AppHandle) -> Layout {
+    Layout::from_setting(&app.state::<SettingsStore>().get().window_layout_before)
+}
+
+fn save_layout(app: &AppHandle, layout: Layout, before: Layout) -> std::result::Result<(), String> {
+    let store = app.state::<SettingsStore>();
+    let mut next = store.get();
+    next.window_layout = layout.as_setting().into();
+    next.window_layout_before = before.as_setting().into();
+    settings::save(&store.path, &next).map_err(|_| "The window layout could not be saved.".to_string())?;
+    *store.current.lock().unwrap() = next;
+    Ok(())
 }
 
 fn layout_of(app: &AppHandle) -> (Layout, Option<[i32; 4]>) {
@@ -33,7 +79,7 @@ fn layout_of(app: &AppHandle) -> (Layout, Option<[i32; 4]>) {
 fn target(area: DesktopArea, layout: Layout) -> Option<DesktopArea> {
     let half = area.width / 2;
     match layout {
-        Layout::Full => Some(area),
+        Layout::FullScreen | Layout::Full => Some(area),
         Layout::Left => Some(DesktopArea { width: half, ..area }),
         Layout::Right => Some(DesktopArea { x: area.x + half as i32, width: area.width - half, ..area }),
         Layout::Free => None,
@@ -49,7 +95,15 @@ fn first_free(area: DesktopArea) -> DesktopArea {
 /// Puts the main window where its layout says, on the monitor whose work area is `area`.
 fn place(window: &WebviewWindow, area: DesktopArea) -> Result<()> {
     let (layout, bounds) = layout_of(window.app_handle());
-    window.set_resizable(layout == Layout::Free)?;
+    // macOS only lets a resizable window into full screen
+    window.set_resizable(matches!(layout, Layout::Free | Layout::FullScreen))?;
+    if layout == Layout::FullScreen {
+        return window.set_fullscreen(true);
+    }
+    if window.is_fullscreen().unwrap_or(false) {
+        // macOS leaves full screen with an animation; the watcher fits the window once it is out
+        return window.set_fullscreen(false);
+    }
     match target(area, layout) {
         Some(part) => apply_desktop_area(window, part),
         None => {
@@ -64,20 +118,13 @@ fn place(window: &WebviewWindow, area: DesktopArea) -> Result<()> {
 
 /// The layout menu: saves the member's choice and applies it at once.
 #[tauri::command]
-pub fn castle_window_layout(app: AppHandle, layout: String) -> std::result::Result<(), String> {
-    let store = app.state::<SettingsStore>();
-    let mut next = store.get();
-    next.window_layout = match Layout::from_setting(&layout) {
-        Layout::Full => "full",
-        Layout::Left => "left",
-        Layout::Right => "right",
-        Layout::Free => "free",
-    }
-    .into();
-    settings::save(&store.path, &next).map_err(|_| "The window layout could not be saved.".to_string())?;
-    *store.current.lock().unwrap() = next;
+pub fn castle_window_layout(app: AppHandle, layout: String) -> std::result::Result<String, String> {
+    let (current, _) = layout_of(&app);
+    let (next, before) = resolve(&layout, current, before_of(&app));
+    save_layout(&app, next, before)?;
     let window = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
-    fill_desktop(&window).map_err(|_| "Castle's window could not be resized.".to_string())
+    fill_desktop(&window).map_err(|_| "Castle's window could not be resized.".to_string())?;
+    Ok(next.as_setting().into())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,6 +185,9 @@ pub fn watch_desktop(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let mut fitted = None;
+        // full screen asked for and seen: from then on, a window out of full screen means the
+        // member left it another way (the Mac's Window menu), so Castle follows
+        let mut seen_full_screen = false;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let Some(window) = app.get_webview_window("main") else { break };
@@ -147,6 +197,24 @@ pub fn watch_desktop(app: &AppHandle) {
                 continue;
             }
             let (layout, bounds) = layout_of(&app);
+            let in_full_screen = window.is_fullscreen().unwrap_or(false);
+            if layout == Layout::FullScreen || in_full_screen {
+                // the 1-second refit pauses: macOS owns the window while it is in full screen
+                fitted = None;
+                if layout != Layout::FullScreen {
+                    // entered from the Mac's own menu: remember it like a menu choice
+                    let _ = save_layout(&app, Layout::FullScreen, layout);
+                    seen_full_screen = true;
+                } else if in_full_screen {
+                    seen_full_screen = true;
+                } else if seen_full_screen {
+                    seen_full_screen = false;
+                    let _ = save_layout(&app, before_of(&app), before_of(&app));
+                    let _ = window.set_resizable(before_of(&app) == Layout::Free);
+                }
+                continue;
+            }
+            seen_full_screen = false;
             if layout == Layout::Free {
                 // the member's own size: only remember where they put it
                 fitted = None;
@@ -201,6 +269,28 @@ mod tests {
         assert_eq!(Layout::from_setting("free"), Layout::Free);
         let first = first_free(wide);
         assert!(first.width < wide.width && first.x > 0);
+    }
+
+    #[test]
+    fn full_screen_comes_back_to_the_layout_before_it() {
+        use Layout::*;
+        assert_eq!(Layout::from_setting("fullscreen"), FullScreen);
+        for l in [FullScreen, Full, Left, Right, Free] {
+            assert_eq!(Layout::from_setting(l.as_setting()), l);
+        }
+        // the menu item and Ctrl+Cmd+F go in, remembering the half the member was on
+        assert_eq!(resolve("fullscreen", Left, Full), (FullScreen, Left));
+        assert_eq!(resolve("toggle-fullscreen", Right, Full), (FullScreen, Right));
+        // Ctrl+Cmd+F again or Esc comes back out to it
+        assert_eq!(resolve("toggle-fullscreen", FullScreen, Right), (Right, Right));
+        assert_eq!(resolve("leave-fullscreen", FullScreen, Free), (Free, Free));
+        // Esc outside full screen changes nothing
+        assert_eq!(resolve("leave-fullscreen", Left, Full), (Left, Full));
+        // choosing full screen again keeps the layout to return to
+        assert_eq!(resolve("fullscreen", FullScreen, Left), (FullScreen, Left));
+        // an older file with nothing saved comes back to full width
+        assert_eq!(resolve("leave-fullscreen", FullScreen, Layout::from_setting("")), (Full, Full));
+        assert_eq!(resolve("toggle-fullscreen", FullScreen, FullScreen), (Full, Full));
     }
 
     #[test]
