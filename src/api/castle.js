@@ -622,6 +622,11 @@ export const calendarIcsExport = (includeDated) => invoke('calendar_ics_export',
 export const calendarLinkJobs = () => invoke('calendar_link_jobs')
 export const calendarProposals = () => invoke('calendar_proposals')
 export const calendarProposalDecide = (id, approve, event = null) => invoke('calendar_proposal_decide', { id, approve, event })
+// FINANCE: the receipts the companion proposes and the member keeps, on this computer only.
+export const financeMonth = (month = null) => invoke('finance_month', { month })
+export const financeDecide = (id, keep, edits = null) => invoke('finance_decide', { id, keep, edits })
+export const financeExport = (month = null) => invoke('finance_export', { month })
+export const financeDrop = (paths) => invoke('finance_drop', { paths })
 // Phase 3: reminders.
 export const calendarHome = () => invoke('calendar_home')
 export const calendarNoticeDismiss = (id = null) => invoke('calendar_notice_dismiss', { id })

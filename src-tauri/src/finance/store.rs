@@ -61,6 +61,8 @@ pub struct Receipt {
     pub picture_path: String,
     pub source: String,
     pub proposed_at: String,
+    /// the picture's full path, for the room's thumbnail (filled by the command, never stored)
+    pub picture_file: String,
 }
 
 /// A month's spending in one currency and category.
@@ -163,7 +165,7 @@ type Row = (u64, String, String, i64, String, String, String, String, String, St
 
 fn receipt(r: Row) -> Receipt {
     let (id, state, shop, total_cents, currency, spent_on, category, last4, note, picture_path, source, proposed_at) = r;
-    Receipt { id, state, shop, total_cents, currency, spent_on, category, last4, note, picture_path, source, proposed_at }
+    Receipt { id, state, shop, total_cents, currency, spent_on, category, last4, note, picture_path, source, proposed_at, picture_file: String::new() }
 }
 
 fn query(c: &mut Conn, tail: &str, params: impl Into<mysql::Params>) -> Result<Vec<Receipt>, String> {
@@ -377,7 +379,7 @@ mod tests {
         let r = Receipt {
             id: 1, state: "kept".into(), shop: "=HYPERLINK(\"x\")".into(), total_cents: 1205, currency: "MYR".into(), spent_on: "2026-11-24".into(),
             category: "food".into(), last4: "1234".into(), note: "lunch, with Rin".into(), picture_path: "finance/receipts/2026-11/ab.jpg".into(),
-            source: "drop".into(), proposed_at: "".into(),
+            source: "drop".into(), proposed_at: "".into(), picture_file: "".into(),
         };
         let text = csv(&[r]);
         let mut lines = text.lines();

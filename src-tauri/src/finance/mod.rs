@@ -35,7 +35,18 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + 
 #[tauri::command]
 pub async fn finance_month(app: AppHandle, month: Option<String>) -> Result<store::Month, String> {
     let month = month.unwrap_or_else(store::this_month);
-    blocking(move || store::month(&mut connect(&app)?, &month)).await
+    blocking(move || {
+        let mut m = store::month(&mut connect(&app)?, &month)?;
+        if let Some(memory) = app.state::<SettingsStore>().get().memory_folder.map(std::path::PathBuf::from) {
+            // the room shows the receipts' own pictures, and nothing else of the memory folder
+            let _ = app.asset_protocol_scope().allow_directory(memory.join("finance"), true);
+            for r in m.kept.iter_mut().chain(m.waiting.iter_mut()).filter(|r| !r.picture_path.is_empty()) {
+                r.picture_file = memory.join(&r.picture_path).display().to_string();
+            }
+        }
+        Ok(m)
+    })
+    .await
 }
 
 /// The member keeps a waiting receipt (with the fields they corrected) or dismisses it.

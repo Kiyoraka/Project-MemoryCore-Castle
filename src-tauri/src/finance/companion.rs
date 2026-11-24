@@ -200,7 +200,7 @@ mod tests {
     fn a_line_shows_only_the_last_four_card_digits() {
         let r = Receipt {
             id: 7, state: "proposed".into(), shop: "Kedai".into(), total_cents: 1250, currency: "MYR".into(), spent_on: "2026-11-24".into(),
-            category: "food".into(), last4: "1234".into(), note: "lunch".into(), picture_path: "".into(), source: "drop".into(), proposed_at: "".into(),
+            category: "food".into(), last4: "1234".into(), note: "lunch".into(), picture_path: "".into(), source: "drop".into(), proposed_at: "".into(), picture_file: "".into(),
         };
         assert_eq!(line(&r), "#7 2026-11-24 Kedai 12.50 MYR food [proposed] card ..1234 - lunch");
     }
