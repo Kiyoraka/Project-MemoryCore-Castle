@@ -14,6 +14,7 @@ use crate::browser_tabs::{self, LinkWay, Tabs};
 use crate::settings::SettingsStore;
 use cookie::time::{Duration, OffsetDateTime};
 use cookie::{Cookie, Expiration};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
@@ -40,6 +41,16 @@ const KEEP_DAYS: i64 = 30;
 /// How often the open window saves them, so a quit right after signing in still keeps it.
 const KEEP_EVERY_SECS: u64 = 30;
 
+/// Until when (unix seconds) the keeper stays still: Clear… sets it, so a save that read the
+/// cookies just before the wipe cannot write the sign-in back after it (F13).
+static KEEPER_STILL_UNTIL: AtomicI64 = AtomicI64::new(0);
+/// How long the keeper stays still after Clear…: past the 3 s save after the reloads.
+const STILL_AFTER_CLEAR_SECS: i64 = 15;
+
+fn keeper_still(until: i64, now: i64) -> bool {
+    now < until
+}
+
 fn on_kept_site(host: &str) -> bool {
     let host = host.trim_start_matches('.').to_ascii_lowercase();
     KEEP_SIGN_INS.iter().any(|site| host == *site || host.ends_with(&format!(".{site}")))
@@ -62,6 +73,9 @@ fn to_keep(cookies: Vec<Cookie<'static>>, now: OffsetDateTime) -> Vec<Cookie<'st
 /// them to disk. Blocks on WebKit: call it off the main thread.
 fn keep_sign_ins(app: &AppHandle) {
     if !app.state::<SettingsStore>().get().browser_remember {
+        return;
+    }
+    if keeper_still(KEEPER_STILL_UNTIL.load(Ordering::SeqCst), OffsetDateTime::now_utc().unix_timestamp()) {
         return;
     }
     // every page shares one store, so any open page reaches it
@@ -430,9 +444,52 @@ pub async fn browser_put_in_chat(app: AppHandle, url: String) -> Result<(), Stri
 /// never Castle's. Needs a page open to reach the store through.
 #[tauri::command]
 pub async fn browser_clear(app: AppHandle) -> Result<(), String> {
-    let open = tabs(&app).list.iter().find_map(|t| app.get_webview(&tab_label(t.id)));
-    let view = open.ok_or("Open a page in the browser window first, then clear it from there.")?;
-    view.clear_all_browsing_data().map_err(|_| "The browsing data could not be cleared.".to_string())
+    let views: Vec<_> = tabs(&app).list.iter().filter_map(|t| app.get_webview(&tab_label(t.id))).collect();
+    let view = views.first().cloned().ok_or("Open a page in the browser window first, then clear it from there.")?;
+    // WebKit's store calls block: keep them off the main thread
+    tauri::async_runtime::spawn_blocking(move || {
+        let still = || KEEPER_STILL_UNTIL.store(OffsetDateTime::now_utc().unix_timestamp() + STILL_AFTER_CLEAR_SECS, Ordering::SeqCst);
+        still();
+        // the wipe below does not wait for WebKit, so each cookie is also taken out one by one
+        for cookie in view.cookies().unwrap_or_default() {
+            let _ = view.delete_cookie(cookie);
+        }
+        view.clear_all_browsing_data().map_err(|_| "The browsing data could not be cleared.".to_string())?;
+        // wait until no sign-in is left (the wipe finishes on its own time)
+        let mut left = signed_in(&view);
+        for _ in 0..20 {
+            if left.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            for cookie in view.cookies().unwrap_or_default() {
+                let _ = view.delete_cookie(cookie);
+            }
+            left = signed_in(&view);
+        }
+        // the open pages still hold the old sign-in until they load again
+        for v in &views {
+            let _ = v.reload();
+        }
+        still();
+        if left.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Some sign-ins could not be cleared: {}.", left.join(", ")))
+        }
+    })
+    .await
+    .map_err(|_| "The browsing data could not be cleared.".to_string())?
+}
+
+/// The kept sites' cookies still in the pages' store, by name.
+fn signed_in(view: &tauri::Webview) -> Vec<String> {
+    view.cookies()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| c.domain().is_some_and(on_kept_site))
+        .map(|c| c.name().to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -467,6 +524,14 @@ mod tests {
             assert_eq!(c.expires_datetime(), Some(now + Duration::days(30)));
             assert_eq!((c.secure(), c.http_only(), c.path()), (Some(true), Some(true), Some("/")), "the cookie's flags stay as the site set them");
         }
+    }
+
+    #[test]
+    fn the_keeper_stays_still_after_clear_until_the_time_set() {
+        assert!(keeper_still(1_000 + STILL_AFTER_CLEAR_SECS, 1_000), "right after Clear… nothing is saved back");
+        assert!(keeper_still(1_000 + STILL_AFTER_CLEAR_SECS, 1_000 + STILL_AFTER_CLEAR_SECS - 1));
+        assert!(!keeper_still(1_000 + STILL_AFTER_CLEAR_SECS, 1_000 + STILL_AFTER_CLEAR_SECS), "then the keeper saves sign-ins again");
+        assert!(!keeper_still(0, 1_000), "never paused until Clear… runs");
     }
 
     #[test]
