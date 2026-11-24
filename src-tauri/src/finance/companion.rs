@@ -95,11 +95,17 @@ impl Picture {
     /// The picture at `path`, which must be inside the memory folder (where Castle saves what is
     /// dropped or sent from the phone), a PNG, JPEG or WebP by its own bytes, and at most 25 MB.
     pub fn read(path: &Path, memory: &Path) -> Result<Picture, String> {
-        let full = std::fs::canonicalize(path).map_err(|_| format!("The picture {} was not found.", path.display()))?;
+        let picture = Picture::open(path)?;
         let home = std::fs::canonicalize(memory).map_err(|_| "The memory folder was not found.".to_string())?;
-        if !full.starts_with(&home) {
+        if !picture.path.starts_with(&home) {
             return Err("Only a picture inside the memory folder can be filed (where Castle saves dropped and sent pictures).".into());
         }
+        Ok(picture)
+    }
+
+    /// The picture at `path`, wherever it is: a PNG, JPEG or WebP by its own bytes, at most 25 MB.
+    pub fn open(path: &Path) -> Result<Picture, String> {
+        let full = std::fs::canonicalize(path).map_err(|_| format!("The picture {} was not found.", path.display()))?;
         let size = std::fs::metadata(&full).map_err(|_| "The picture could not be read.".to_string())?.len();
         if size > MAX_PICTURE {
             return Err("The picture is over 25 MB.".into());

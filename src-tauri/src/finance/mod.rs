@@ -3,6 +3,7 @@
 //! here. Nothing of it leaves this computer: no Portfolio, no Foundation server, no room.
 
 pub mod companion;
+pub mod drop;
 pub mod store;
 
 use crate::settings::SettingsStore;
@@ -69,6 +70,35 @@ pub async fn finance_export(app: AppHandle, month: Option<String>) -> Result<Opt
         Ok(Some(Exported { path: path.to_string_lossy().to_string(), count: rows.len() }))
     })
     .await
+}
+
+/// Receipt pictures dropped on FINANCE: saved in the memory folder and handed to the companion in
+/// one turn (waking her when she is asleep); a picture already filed is named instead.
+#[tauri::command]
+pub async fn finance_drop(app: AppHandle, paths: Vec<String>) -> Result<drop::Dropped, String> {
+    blocking(move || {
+        let mut c = connect(&app)?;
+        let store = app.state::<SettingsStore>();
+        let memory = store.get().memory_folder.map(std::path::PathBuf::from).ok_or("Choose a MemoryCore folder first.")?;
+        let paths: Vec<std::path::PathBuf> = paths.into_iter().take(200).map(std::path::PathBuf::from).collect();
+        let (send, done) = drop::prepare(&paths, &memory.join("finance").join("inbox"), |sha| store::filed(&mut c, sha).ok().flatten());
+        if !send.is_empty() {
+            hand_over(&app, &store, &drop::turn(&send))?;
+        }
+        Ok(done)
+    })
+    .await
+}
+
+/// Gives the companion's main session a turn: typed in (queued behind a switch or a picture job,
+/// as Chat's own messages are) when she is awake, or as her first words when she is asleep.
+fn hand_over(app: &AppHandle, store: &SettingsStore, text: &str) -> Result<(), String> {
+    let host = &app.state::<crate::session::MainHost>().0;
+    if host.is_running() {
+        crate::messages::send_message(text.to_string(), None, app.clone()).map(|_| ())
+    } else {
+        crate::session::wake_with_prompt(app, store, host, crate::session::Room::Main, 120, 40, Some(text))
+    }
 }
 
 #[cfg(test)]

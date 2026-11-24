@@ -512,6 +512,7 @@ pub fn run() {
             finance::finance_month,
             finance::finance_decide,
             finance::finance_export,
+            finance::finance_drop,
             calendar::calendar_home,
             calendar::calendar_notice_dismiss,
             workflows::workflow_list,

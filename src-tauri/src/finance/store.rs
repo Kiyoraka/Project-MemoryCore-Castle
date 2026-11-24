@@ -175,6 +175,12 @@ pub fn get(c: &mut Conn, id: u64) -> Result<Receipt, String> {
     query(c, "WHERE id=?", (id,))?.into_iter().next().ok_or_else(|| format!("There is no receipt #{id}."))
 }
 
+/// The receipt a picture's fingerprint already is, as "#4 (kept)".
+pub fn filed(c: &mut Conn, sha256: &str) -> Result<Option<String>, String> {
+    let row: Option<(u64, String)> = c.exec_first("SELECT id, state FROM finance_receipts WHERE picture_sha256=?", (sha256,)).map_err(|_| "The receipts could not be read.".to_string())?;
+    Ok(row.map(|(id, state)| format!("#{id} ({state})")))
+}
+
 /// Files a proposal: it waits for the member in FINANCE. One picture is filed once; a second time
 /// names the receipt it already is.
 pub fn propose(c: &mut Conn, f: &Fields, picture_path: &str, sha256: &str, source: &str) -> Result<u64, String> {
