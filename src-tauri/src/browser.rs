@@ -14,7 +14,7 @@ use crate::browser_tabs::{self, LinkWay, Tabs};
 use crate::settings::SettingsStore;
 use std::sync::Mutex;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
 
 pub const WINDOW: &str = "browser";
 pub const UI: &str = "browser-ui";
@@ -42,44 +42,76 @@ fn tell(app: &AppHandle) {
     let _ = app.emit_to(UI, "browser-state", tabs(app));
 }
 
-/// The window, opened on the right half of the screen Castle is on when it is not open yet.
+/// The window, opened on the right half of the screen Castle is on when it is not open yet. An open
+/// window comes to the front where the member left it, unless it reaches past the screen (then it is
+/// fitted again).
 fn window(app: &AppHandle) -> Result<Window, String> {
     if let Some(window) = app.get_window(WINDOW) {
         let _ = window.unminimize();
+        if let Some(monitor) = window.current_monitor().ok().flatten() {
+            let area = monitor.work_area();
+            let pos = window.outer_position().unwrap_or_default();
+            let size = window.outer_size().unwrap_or_default();
+            if browser_tabs::sticks_out((pos.x, pos.y, size.width, size.height), (area.position.x, area.position.y, area.size.width, area.size.height)) {
+                fit(&window, &monitor);
+            }
+        }
         let _ = window.show();
         let _ = window.set_focus();
+        layout(app);
         return Ok(window);
     }
     let window = tauri::window::WindowBuilder::new(app, WINDOW)
         .title("MemoryCore · Browser")
-        .min_inner_size(560.0, 420.0)
+        .min_inner_size(MIN_W, MIN_H)
         .visible(false)
         .build()
         .map_err(|_| "The browser window could not be opened.".to_string())?;
-    let monitor = app
-        .get_webview_window("main")
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| window.primary_monitor().ok().flatten());
-    if let Some(monitor) = monitor {
-        let area = monitor.work_area();
-        let (x, y, w, h) = browser_tabs::right_half(area.position.x, area.position.y, area.size.width, area.size.height);
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-        let _ = window.set_size(PhysicalSize::new(w, h));
-    }
-    let (w, h) = logical_size(&window);
-    let ui = WebviewBuilder::new(UI, WebviewUrl::App("index.html".into())).initialization_script(UI_VIEW);
-    window
-        .add_child(ui, LogicalPosition::new(0.0, 0.0), LogicalSize::new(w, h))
-        .map_err(|_| "The browser window could not be opened.".to_string())?;
+    // listen first, so every size change after this point lays the views out again
     let events = app.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => layout(&events),
         WindowEvent::Destroyed => *events.state::<Browser>().0.lock().unwrap() = Tabs::default(),
         _ => {}
     });
+    let monitor = app
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+    if let Some(monitor) = &monitor {
+        fit(&window, monitor);
+    }
+    let (w, h) = logical_size(&window);
+    let ui = WebviewBuilder::new(UI, WebviewUrl::App("index.html".into())).initialization_script(UI_VIEW);
+    window
+        .add_child(ui, LogicalPosition::new(0.0, 0.0), LogicalSize::new(w, h))
+        .map_err(|_| "The browser window could not be opened.".to_string())?;
     window.show().map_err(|_| "The browser window could not be shown.".to_string())?;
     let _ = window.set_focus();
+    // the size macOS settled on after showing, not the one asked for
+    layout(app);
     Ok(window)
+}
+
+const MIN_W: f64 = 560.0;
+const MIN_H: f64 = 420.0;
+
+/// Puts the window on the right half of `monitor`'s work area with the WHOLE window inside it: the
+/// title bar and frame are taken off the inner size, and sizes are worked out in that screen's own
+/// scale (a Retina screen beside a plain one would otherwise get the window twice too big or small).
+fn fit(window: &Window, monitor: &tauri::Monitor) {
+    let area = monitor.work_area();
+    let (x, y, w, h) = browser_tabs::right_half(area.position.x, area.position.y, area.size.width, area.size.height);
+    // move first, so the window is on that screen and takes its scale
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let scale = monitor.scale_factor();
+    let frame = match (window.outer_size(), window.inner_size()) {
+        (Ok(o), Ok(i)) => ((o.width as f64 - i.width as f64) / scale, (o.height as f64 - i.height as f64) / scale),
+        _ => (0.0, 0.0),
+    };
+    let (iw, ih) = browser_tabs::inner_within(w as f64 / scale, h as f64 / scale, frame.0, frame.1, MIN_W, MIN_H);
+    let _ = window.set_size(LogicalSize::new(iw, ih));
+    let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
 /// Marks the UI page as the browser before it loads (main.js), with no start-up screen.

@@ -9,7 +9,7 @@ import AlertsPane from './AlertsPane.vue'
 import SentinelSettings from './SentinelSettings.vue'
 import ComfySettings from './ComfySettings.vue'
 import WidgetsView from './WidgetsView.vue'
-import { DEFAULT_PINS, setPinned } from '../launcher.js'
+import { DEFAULT_PINS, pinRows, setPinned } from '../launcher.js'
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
 import ModalSheet from '../components/ModalSheet.vue'
 import BackupPanel from '../components/BackupPanel.vue'
@@ -398,8 +398,14 @@ const ROOM_GROUPS = [
     ],
   },
 ]
-// Pins: which rooms sit in the top bar beside HOME and APPS (the room launcher).
-const pinnable = computed(() => ROOM_GROUPS.flatMap((g) => g.rooms))
+// Pins: which rooms sit in the top bar beside HOME and APPS (the room launcher). Every tile in APPS can be
+// pinned, also the ones that cannot be switched off (the BROWSER and ARTIFACTS window tiles), and a pin
+// switched here keeps the pins made on the tiles.
+const PIN_ONLY = [
+  { id: 'browser', label: 'BROWSER' },
+  { id: 'artifacts', label: 'ARTIFACTS' },
+]
+const pinnable = computed(() => pinRows(Object.fromEntries([...ROOM_GROUPS.flatMap((g) => g.rooms), ...PIN_ONLY].map((r) => [r.id, r.label]))))
 const pinnedNow = computed(() => settings.value?.pinnedRooms ?? DEFAULT_PINS)
 function setPin(id, on) {
   return saveRow('pins', { pinnedRooms: setPinned(pinnedNow.value, id, on, pinnable.value.map((r) => r.id)) })

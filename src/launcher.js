@@ -88,6 +88,15 @@ export function cleanPins(ids, known = []) {
     .slice(0, MAX_PINS)
 }
 
+/** The rows of Settings > Rooms > Top bar: every room the launcher shows except HOME and APPS, in the
+ * launcher's own order, so the list matches the tiles. `labels` maps a room id to its name; a room
+ * with no name there is left out. */
+export function pinRows(labels = {}) {
+  return GROUPS.flatMap((g) => g.rooms)
+    .filter((id) => !FIXED.includes(id) && labels[id])
+    .map((id) => ({ id, label: labels[id] }))
+}
+
 /** The pins with one room pinned or unpinned. HOME and the launcher cannot be pinned. */
 export function setPinned(pins, id, on, known = []) {
   if (FIXED.includes(id)) return cleanPins(pins, known)

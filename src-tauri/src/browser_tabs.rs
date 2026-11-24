@@ -160,6 +160,19 @@ pub fn right_half(area_x: i32, area_y: i32, area_w: u32, area_h: u32) -> (i32, i
     (area_x + left as i32, area_y, area_w - left, area_h)
 }
 
+/// The window's inner size (logical) that keeps the WHOLE window, title bar and frame included, inside
+/// `area` (logical width, height): the area minus the frame, never below the window's minimum.
+pub fn inner_within(area_w: f64, area_h: f64, frame_w: f64, frame_h: f64, min_w: f64, min_h: f64) -> (f64, f64) {
+    ((area_w - frame_w.max(0.0)).max(min_w), (area_h - frame_h.max(0.0)).max(min_h))
+}
+
+/// Whether a window (outer box, physical x, y, w, h) reaches outside the work area (physical x, y, w, h).
+pub fn sticks_out(win: (i32, i32, u32, u32), area: (i32, i32, u32, u32)) -> bool {
+    let (wx, wy, ww, wh) = (win.0 as i64, win.1 as i64, win.2 as i64, win.3 as i64);
+    let (ax, ay, aw, ah) = (area.0 as i64, area.1 as i64, area.2 as i64, area.3 as i64);
+    wx < ax || wy < ay || wx + ww > ax + aw || wy + wh > ay + ah
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +265,23 @@ mod tests {
         for bad in ["javascript:alert(1)", "http://example.com", "file:///x", "https://a b", ""] {
             assert_eq!(link_way("castle", bad), LinkWay::Refuse, "{bad}");
         }
+    }
+
+    #[test]
+    fn the_whole_window_fits_its_half_of_the_screen() {
+        // a 1512x944 (logical) work area's right half, with a 28-point title bar: the inner height leaves room for it
+        assert_eq!(inner_within(756.0, 944.0, 0.0, 28.0, 560.0, 420.0), (756.0, 916.0));
+        assert_eq!(inner_within(400.0, 300.0, 0.0, 28.0, 560.0, 420.0), (560.0, 420.0), "never below the minimum");
+        assert_eq!(inner_within(756.0, 944.0, -4.0, -1.0, 560.0, 420.0), (756.0, 944.0), "a negative frame counts as none");
+    }
+
+    #[test]
+    fn a_window_past_the_screen_edge_sticks_out() {
+        let area = (0, 25, 3024, 1890);
+        assert!(!sticks_out((1512, 25, 1512, 1890), area));
+        assert!(sticks_out((1512, 25, 1512, 1946), area), "taller than the screen by the title bar");
+        assert!(sticks_out((2000, 25, 1512, 1000), area), "past the right edge");
+        assert!(sticks_out((-10, 25, 800, 600), area));
     }
 
     #[test]

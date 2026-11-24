@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
+import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, pinRows, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
 const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'browser', 'artifacts'].map((id) => room(id))
@@ -78,6 +78,15 @@ describe('pins', () => {
   it('caps the number of pins', () => {
     const many = Array.from({ length: 40 }, (_, i) => `r${i}`)
     expect(cleanPins(many).length).toBe(16)
+  })
+  it('Settings lists every APPS tile but HOME and APPS, in the tiles\' order, window tiles included', () => {
+    const labels = { home: 'HOME', launcher: 'APPS', chat: 'CHAT', projects: 'PROJECTS', browser: 'BROWSER', artifacts: 'ARTIFACTS', theme: 'THEME' }
+    expect(pinRows(labels).map((r) => r.id)).toEqual(['chat', 'projects', 'browser', 'artifacts', 'theme'])
+    expect(pinRows({})).toEqual([])
+  })
+  it('a pin switched in Settings keeps a window tile pinned on the tiles', () => {
+    const known = pinRows({ chat: 'CHAT', browser: 'BROWSER', artifacts: 'ARTIFACTS' }).map((r) => r.id)
+    expect(setPinned(['browser', 'artifacts'], 'chat', true, known)).toEqual(['browser', 'artifacts', 'chat'])
   })
 })
 
