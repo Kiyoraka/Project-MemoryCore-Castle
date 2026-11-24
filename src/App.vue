@@ -35,6 +35,7 @@ import MarketView from './views/MarketView.vue'
 import MessagingView from './views/MessagingView.vue'
 import AutomationsView from './views/AutomationsView.vue'
 import CalendarView from './views/CalendarView.vue'
+import FinanceView from './views/FinanceView.vue'
 import LauncherView from './views/LauncherView.vue'
 import { DEFAULT_PINS, badgesFor, cleanPins, headerTabs, opensLauncher, setPinned } from './launcher.js'
 import { calendarCard, prepareCalendar, refreshCalendarCard } from './composables/useCalendar.js'
@@ -88,6 +89,7 @@ const allTabs = [
   { id: 'messaging', label: 'MESSAGING' },
   { id: 'automations', label: 'AUTOMATIONS' },
   { id: 'calendar', label: 'CALENDAR' },
+  { id: 'finance', label: 'FINANCE' },
 ]
 // dev only: ?tab=<room> opens a room straight away (for checking a room in a browser)
 const devTab = import.meta.env.DEV ? new URLSearchParams(location.search).get('tab') : null
@@ -115,7 +117,7 @@ const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
 // Rooms that are built; any other room shows its name until its phase lands.
-const BUILT = new Set(['launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar'])
+const BUILT = new Set(['launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
 const marks = ref([])
 const memberName = ref('')
@@ -741,6 +743,7 @@ watch(settingsStamp, () => {
       <AutomationsView v-if="active === 'automations'" @settings="openSettings" />
       <LauncherView v-if="active === 'launcher'" ref="launcherView" :search-on-open="launcherSearch" :tabs="tabs" :pins="pins" :badges="badges" :current="active" @open="openRoom" @pin="pinRoom" @close="closeLauncher" />
       <CalendarView v-if="active === 'calendar'" @open="(room) => (active = room)" />
+      <FinanceView v-if="active === 'finance'" :companion="companion" />
       <MessagingView v-if="active === 'messaging'" :companion="companion" />
       <div v-if="!BUILT.has(active)" class="room-soon">
         <p>{{ activeLabel }}</p>

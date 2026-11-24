@@ -117,10 +117,10 @@ pub struct QuickAction {
 
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
-pub const ROOMS: [&str; 17] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar"];
+pub const ROOMS: [&str; 18] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance"];
 /// Rooms that wait for the member's own switch in Settings > Rooms, for a new Castle and for one
 /// that never stored a choice for them.
-const ROOMS_OFF_AT_FIRST: [&str; 5] = ["library", "market", "messaging", "automations", "calendar"];
+const ROOMS_OFF_AT_FIRST: [&str; 6] = ["library", "market", "messaging", "automations", "calendar", "finance"];
 
 pub const DEFAULT_WORLD: &str = "3d/floating-isles";
 pub const CAMERAS: [&str; 4] = ["director", "follow", "wide", "orbit"];

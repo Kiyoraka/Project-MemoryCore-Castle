@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
-const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar'].map((id) => room(id))
+const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance'].map((id) => room(id))
 const ids = (groups) => groups.flatMap((g) => g.tabs.map((t) => t.id))
 
 describe('the launcher groups', () => {
@@ -30,7 +30,7 @@ describe('the launcher groups', () => {
   })
   it('keeps the listed order inside a group, whatever order the tabs come in', () => {
     const shuffled = [...all].reverse()
-    expect(groupRooms(shuffled)[0].tabs.map((t) => t.id)).toEqual(['home', 'chat', 'myprofile', 'diary', 'appearance'])
+    expect(groupRooms(shuffled)[0].tabs.map((t) => t.id)).toEqual(['home', 'chat', 'myprofile', 'diary', 'appearance', 'finance'])
   })
   it('copes with nothing', () => {
     expect(groupRooms([])).toEqual([])
