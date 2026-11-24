@@ -271,10 +271,13 @@ pub async fn dev_servers(store: State<'_, SettingsStore>, hosts: State<'_, DevHo
 }
 
 /// Ends the session in `slot` and frees its tab: its project stays on the list.
-fn end_session(s: &mut Settings, slot: usize, hosts: &DevHosts, chats: &DevChats) {
+fn end_session(s: &mut Settings, slot: usize, hosts: &DevHosts, chats: &DevChats, phones: &crate::emulator::Phones) {
     if let Some(host) = hosts.0.get(slot) {
         host.kill();
     }
+    // the tab's phone ends with it (only one Castle started); off the settings lock, it may take seconds
+    let phones = phones.clone();
+    std::thread::spawn(move || crate::emulator::stop(&phones, slot));
     if let Some(chat) = chats.0.get(slot) {
         chat.clear();
     }
@@ -284,19 +287,19 @@ fn end_session(s: &mut Settings, slot: usize, hosts: &DevHosts, chats: &DevChats
 }
 
 #[tauri::command]
-pub fn dev_close_tab(slot: usize, store: State<SettingsStore>, hosts: State<DevHosts>, chats: State<DevChats>) -> Result<DevState, String> {
+pub fn dev_close_tab(slot: usize, store: State<SettingsStore>, hosts: State<DevHosts>, chats: State<DevChats>, phones: State<crate::emulator::Phones>) -> Result<DevState, String> {
     host(&hosts, slot)?;
-    save(&store, |s| end_session(s, slot, &hosts, &chats))?;
+    save(&store, |s| end_session(s, slot, &hosts, &chats, &phones))?;
     Ok(state(&store, &hosts))
 }
 
 /// Takes a project off the list, after the member confirmed: its sessions end first, so no tab
 /// is ever left without its project. The folder and its files are not touched.
 #[tauri::command]
-pub fn dev_remove_project(folder: String, store: State<SettingsStore>, hosts: State<DevHosts>, chats: State<DevChats>) -> Result<DevState, String> {
+pub fn dev_remove_project(folder: String, store: State<SettingsStore>, hosts: State<DevHosts>, chats: State<DevChats>, phones: State<crate::emulator::Phones>) -> Result<DevState, String> {
     save(&store, |s| {
         for slot in dev_tabs::slots_of(&s.dev_tabs, &folder) {
-            end_session(s, slot, &hosts, &chats);
+            end_session(s, slot, &hosts, &chats, &phones);
         }
         s.dev_projects = dev_tabs::forgotten(&s.dev_projects, &folder);
     })?;

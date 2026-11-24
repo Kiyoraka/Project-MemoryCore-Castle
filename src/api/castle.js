@@ -1,5 +1,5 @@
 // The only file that talks to Castle's Rust core.
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { typeLine } from '../components/typeline.js'
 import { devSlotOf, pasted } from '../views/dev/devtabs.js'
@@ -479,6 +479,30 @@ export const devWrite = (slot, data) => invoke('dev_write', { slot, data })
 // DEV > Phone: Mobile setup for a tab's project, and a phone made from an installed image
 export const mobileCheck = (slot) => invoke('mobile_check', { slot })
 export const mobileCreatePhone = (name, image) => invoke('mobile_create_phone', { name, image })
+// the docked phone: the phones here and the emulators running that this Castle did not start -> { phones, elsewhere }
+export const phoneList = () => invoke('phone_list')
+// start the tab's phone with no window (booting goes on in the background) -> { state, avd, serial, note }
+export const phoneStart = (slot, avd) => invoke('phone_start', { slot, avd })
+// where the tab's phone stands: state 'off' | 'starting' | 'booting' | 'ready' | 'failed'
+export const phoneState = (slot) => invoke('phone_state', { slot })
+// stop the tab's phone (only one this Castle started)
+export const phoneStop = (slot) => invoke('phone_stop', { slot })
+// stream the phone's screen: onFrame(ArrayBuffer) gets width and height (u32 LE) then the RGBA bytes;
+// onError(text) when the stream breaks for a reason
+export function phoneScreen(slot, width, onFrame, onError = () => {}) {
+  const frames = new Channel()
+  frames.onmessage = (message) => {
+    if (message instanceof ArrayBuffer) onFrame(message)
+    else if (message && message.error) onError(message.error)
+  }
+  return invoke('phone_screen', { slot, width, frames })
+}
+export const phoneScreenEnd = (slot) => invoke('phone_screen_end', { slot })
+// one finger at a point on the phone's own screen, down or up
+export const phoneTouch = (slot, x, y, down) => invoke('phone_touch', { slot, x, y, down })
+// one of the phone's buttons ('back', 'home', 'recent', 'enter', 'backspace' ...) or typed text
+export const phoneKey = (slot, button = null, text = null) => invoke('phone_key', { slot, button, text })
+export const phoneRotate = (slot) => invoke('phone_rotate', { slot })
 export const devResize = (slot, cols, rows) => invoke('dev_resize', { slot, cols, rows })
 // the tab's screen so far, to draw the Log again
 export const devSnapshot = (slot) => invoke('dev_snapshot', { slot })

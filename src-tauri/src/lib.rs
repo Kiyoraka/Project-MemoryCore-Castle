@@ -7,6 +7,8 @@ mod library_db;
 mod spiral;
 mod mobile;
 mod emulator_grpc;
+mod emulator;
+mod cmd_phone;
 mod apps;
 mod shell;
 mod thumbs;
@@ -309,6 +311,8 @@ pub fn run() {
             Some(vec![startup::SIGN_IN_ARG]),
         ))
         .manage(automations::Running::default())
+        .manage(emulator::Phones::default())
+        .manage(cmd_phone::Screens::default())
         .manage(automations::health::Health::default())
         .manage(alerts::ActiveRoom::default())
         .manage(session::MainHost::default())
@@ -367,6 +371,15 @@ pub fn run() {
             dev::dev_write,
             mobile::mobile_check,
             mobile::mobile_create_phone,
+            cmd_phone::phone_list,
+            cmd_phone::phone_start,
+            cmd_phone::phone_state,
+            cmd_phone::phone_stop,
+            cmd_phone::phone_screen,
+            cmd_phone::phone_screen_end,
+            cmd_phone::phone_touch,
+            cmd_phone::phone_key,
+            cmd_phone::phone_rotate,
             dev::dev_resize,
             dev::dev_snapshot,
             dev::dev_chat_poll,
@@ -810,6 +823,8 @@ pub fn run() {
                 dev::end_all(app);
                 db::stop_with_castle(app);
                 comfy::stop_with_castle(app);
+                // a phone has no window of its own: one left behind would run unseen
+                emulator::stop_all(&app.state::<emulator::Phones>());
             }
         });
 }
