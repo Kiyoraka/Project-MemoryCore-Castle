@@ -31,6 +31,8 @@
 //!  castle-memory trait list [--status active] | trait show --number 3   her emotion engine
 //!  castle-memory trait propose --name ".." --line ".." [--audience everyone|owner|never] [--why ".."] [--file ..]
 //!  castle-memory trait set --number 3 [--name ..] [--line ..] [--audience ..] [--file ..] | trait retire --number 3
+//!  castle-memory finance propose --shop ".." --total 12.50 --currency MYR --date 2026-11-24 --category food --picture <file> [--last4 1234] [--note ".."] [--source drop|whatsapp|telegram|chat]
+//!  castle-memory finance list [--month 2026-11] [--state proposed|kept|dismissed] | finance show --id 4
 //!  castle-memory export --to <folder>        the memory back out as markdown
 //!  castle-memory dump --to backup/memory.sql | restore --from backup/memory.sql
 //! ```
@@ -159,6 +161,9 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
     }
     if words.first()==Some(&"automation") { return crate::automations::companion::door(conn,ask,memory); }
     if words.first()==Some(&"calendar") { return crate::calendar::companion::door(conn,ask); }
+    if words.first() == Some(&"finance") {
+        return crate::finance::companion::door(conn, ask, memory);
+    }
     match words.as_slice() {
         ["diary", "add"] => diary_add(conn, ask),
         ["diary", "rewrite"] => diary_rewrite(conn, ask),

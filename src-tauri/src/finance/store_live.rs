@@ -58,5 +58,25 @@ fn live_database_receipts_wait_are_kept_with_edits_and_total_apart_per_currency(
     assert_eq!(text.lines().count(), 3);
     assert!(text.contains("2026-11-24,Kedai A,groceries,13.50,MYR"));
 
+    // the door: a picture inside the memory folder is copied once and proposed; again, refused
+    let memory = std::env::temp_dir().join(format!("castle-finance-door-{}", std::process::id()));
+    std::fs::create_dir_all(memory.join("finance").join("inbox")).unwrap();
+    let picture = memory.join("finance").join("inbox").join("r.jpg");
+    std::fs::write(&picture, [0xFF, 0xD8, 0xFF, 0xE0, 9, 9]).unwrap();
+    let words = |extra: &[&str]| {
+        let mut args: Vec<String> = ["finance", "propose", "--shop", "Kedai Door", "--total", "4.20", "--currency", "MYR", "--date", "2026-11-24", "--category", "food", "--source", "drop", "--picture"].iter().map(|s| s.to_string()).collect();
+        args.push(picture.display().to_string());
+        args.extend(extra.iter().map(|s| s.to_string()));
+        crate::door::parse(&args).unwrap()
+    };
+    let said = super::companion::door(&mut c, &words(&[]), &memory).unwrap();
+    assert!(said.contains("proposed: Kedai Door 4.20 MYR"), "{said}");
+    let kept: Vec<_> = std::fs::read_dir(memory.join("finance").join("receipts").join("2026-11")).unwrap().collect();
+    assert_eq!(kept.len(), 1);
+    assert!(super::companion::door(&mut c, &words(&[]), &memory).unwrap_err().contains("already receipt"));
+    assert!(super::companion::door(&mut c, &words(&["--last4", "411111"]), &memory).unwrap_err().contains("last four"));
+    assert!(super::companion::door(&mut c, &crate::door::parse(&["finance".into(), "keep".into()]).unwrap(), &memory).unwrap_err().contains("belong to your person"));
+    let _ = std::fs::remove_dir_all(&memory);
+
     let _ = c.query_drop(format!("DROP DATABASE `{}`", access.name));
 }

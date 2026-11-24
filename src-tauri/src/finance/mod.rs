@@ -2,6 +2,7 @@
 //! The companion proposes (`castle-memory finance propose`); only the member keeps or dismisses,
 //! here. Nothing of it leaves this computer: no Portfolio, no Foundation server, no room.
 
+pub mod companion;
 pub mod store;
 
 use crate::settings::SettingsStore;
