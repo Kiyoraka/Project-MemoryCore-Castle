@@ -6,8 +6,9 @@ import { typeLine } from '../../components/typeline.js'
 import PlanPanel from './PlanPanel.vue'
 import SourcePanel from './SourcePanel.vue'
 import ProjectDatabase from './ProjectDatabase.vue'
+import PhonePanel from './PhonePanel.vue'
 import { useSaveClose } from './useSaveClose.js'
-import { devCloseTab, memoryFeatures } from '../../api/castle.js'
+import { devCloseTab, memoryFeatures, mobileCheck } from '../../api/castle.js'
 import { devOpenLink } from '../../api/devgit.js'
 import { linkOf, programOf } from './devprojects.js'
 import { tabLabel } from './devtabs.js'
@@ -36,6 +37,23 @@ const planOpen = ref(false)
 const sourceOpen = ref(false)
 // the project's own database (Local and Production), wide beside the chat
 const databaseOpen = ref(false)
+// a Flutter or Android project gets a Phone (Mobile setup, then the docked phone); read once when shown
+const phoneOpen = ref(false)
+const mobileKind = ref(null)
+let mobileRead = false
+watch(
+  () => props.shown,
+  async (now) => {
+    if (!now || mobileRead) return
+    mobileRead = true
+    try {
+      mobileKind.value = (await mobileCheck(props.tab.slot))?.kind ?? null
+    } catch {
+      mobileKind.value = null
+    }
+  },
+  { immediate: true },
+)
 // what the chat reads off the session: working or not, and how full her context is
 const busy = ref(false)
 const context = ref(null)
@@ -172,6 +190,7 @@ async function closeNow() {
         <button :class="{ on: sourceOpen }" :aria-pressed="sourceOpen" @click="sourceOpen = !sourceOpen">Source</button>
         <button :class="{ on: planOpen }" :aria-pressed="planOpen" @click="planOpen = !planOpen">Plan</button>
         <button :class="{ on: databaseOpen }" :aria-pressed="databaseOpen" title="This project's own database: Local and Production" @click="databaseOpen = !databaseOpen">Database</button>
+        <button v-if="mobileKind" :class="{ on: phoneOpen }" :aria-pressed="phoneOpen" title="A phone for this app: Mobile setup, then the phone itself" @click="phoneOpen = !phoneOpen">Phone</button>
         <button :class="{ on: logOpen }" :aria-pressed="logOpen" @click="logOpen = !logOpen">Log</button>
         <button :disabled="closing" @click="askClose">{{ closing ? 'Closing…' : 'Close session' }}</button>
       </div>
@@ -209,6 +228,7 @@ async function closeNow() {
       <SourcePanel v-if="sourceOpen" class="plan-side" :slot="tab.slot" :folder="tab.folder" :companion="companion" :shown="shown && sourceOpen" @ask="say" />
       <PlanPanel v-if="planOpen" class="plan-side" :index="tab.slot" :shown="shown && planOpen" />
       <ProjectDatabase v-if="databaseOpen" :slot="tab.slot" :shown="shown && databaseOpen" />
+      <PhonePanel v-if="phoneOpen" :index="tab.slot" :shown="shown && phoneOpen" :running="running" :say="say" :busy="busy" />
     </div>
 
     <div v-if="askingEnd" class="close-sheet" role="dialog" aria-modal="true" aria-labelledby="end-sheet-title" @click.self="askingEnd = false" @keydown.esc.stop="askingEnd = false">
