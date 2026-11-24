@@ -786,12 +786,35 @@ Click it to open the Sentinel: the sentence, **Patrol now**, then **Alarms** and
 
 Small notes, and what was settled, kept as normal or fixed, are folded below, with the patrol log at the bottom. Opening the Sentinel marks its alarms as seen.
 
+**What a scheduled task is.** A task's card opens with **What it is** when Castle knows the kind: Windows' own tips and getting-started notifications (renewed by Windows every day; harmless), a task that comes with Windows, OneDrive, Edge or Chrome keeping themselves up to date, NVIDIA's driver tools, or one of the Sentinel's own tasks. A task that runs a part of Windows says **runs a Windows component** with its id. A task Castle does not know says only what it runs, never a guess. Windows renews some tasks every day with a new number in their name; the Sentinel knows them as the same task, so they are not raised again, and what you kept as normal stays kept. Windows' own tasks and the Sentinel's own are small notes, never offered to switch off.
+
+**When your companion could not answer.** If a patrol's turn fails (a spent limit, an error), nothing is settled or done, every card keeps its buttons, and the patrol's sentence says what went wrong.
+
 ### What the helper may do
 
 - **On its own** (your companion may ask for these): switch the firewall on, switch antivirus protection on, run a quick scan, update the antivirus, and block an address that keeps knocking, for one day.
 - **Only when you press Fix**: block a port, switch off a scheduled task, stop something starting with Windows, or stop a program.
 
 It never blocks this computer's own addresses, its router or the loopback, never switches off Windows' own tasks or its own, and never stops a part of Windows or its protection. Only your own click can make the second kind of move: your companion's words can never press a button for you.
+
+### Test my guard
+
+**Test my guard**, beside **Patrol now**, proves the guard really works, in up to three minutes:
+
+1. **The antivirus takes a test file.** Castle writes the standard harmless anti-virus test file in a temporary folder; Windows' antivirus should take it at once, and the Sentinel's alarm should write its row. You will see Windows' own notice about the test file: that is the test working.
+2. **A practice block.** The helper blocks the address `203.0.113.7` (an address kept for examples, never a real computer) and takes the block away again.
+3. **The five-minute watch** ran in the last ten minutes.
+
+Each check says whether it passed and why. Only when all three pass does the Sentinel say **Your guard holds**. The test file and the practice block are never shared with the Aegis Network.
+
+### The Aegis Network
+
+One castle's sighting protects every castle. **Settings > Sentinel > Join the Aegis Network** (off to begin with; it needs your Foundation sign-in) shares what the Sentinel catches with the other Foundation castles that joined:
+
+- **What is shared:** only an attacker's address (a burst of failed sign-ins, or an address the Sentinel blocked) or the name of something the antivirus found. Nothing about you, your files or this computer, and only when something is caught; the same thing is not shared again within six hours.
+- **What comes back:** an address reported by two or more castles within a day goes on a shared list. The Sentinel listens for that list (one waiting request, answered the moment it changes) and blocks each address on it for a day, as its own card: "Blocked by the Aegis Network", with when it lifts and **Undo**. A block you undo is not made again for that day. A detection on the list is only a small note; nothing is blocked for it.
+- The helper's own rules still hold: it never blocks this computer, its router or the loopback.
+- The line under the shield says whether you joined and how many addresses the network blocked today.
 
 ### The model
 

@@ -4,6 +4,12 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- The Sentinel's task cards are steadier and say more: Windows' own tips tasks, renewed every day with a new number, are no longer raised again, and what you kept as normal stays kept. A task's card opens with what it is when Castle knows (Windows' own, OneDrive, Edge, Chrome, NVIDIA, the Sentinel's own), and a task that runs a part of Windows says so. When a patrol's turn fails, it says why.
+
+- Join the Aegis Network (Settings > Sentinel, off to begin with, needs your Foundation sign-in): the Sentinel shares only an attacker's address or a detection's name when it catches one, and blocks for a day each address two or more castles reported, with Undo.
+
+- Test my guard on the Sentinel: the antivirus takes a harmless test file, the helper makes a practice block and undoes it, and the five-minute watch is checked. Your guard is said to hold only when all three pass.
+
 - FINANCE: a new room (turn it on in Settings > Rooms) for your receipts. Drop receipt pictures on it, or send them to your companion on Telegram or WhatsApp; your companion reads each one and proposes it, and nothing counts until you press Keep. This month shows the total per currency with a bar per category, Latest lists what you kept, and Export saves a CSV. Everything stays on your computer, and only a card's last four digits are ever kept.
 
 - A picture you send your companion on Telegram or WhatsApp now reaches it: Castle saves it in your memory folder and your companion sees it with your caption. A guest's or a stranger's picture is never saved.
