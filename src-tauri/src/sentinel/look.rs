@@ -274,16 +274,20 @@ pub fn things_from(json: &Value, sockets: &[Socket], db_port: Option<u16>, full:
     for t in list(json.get("tasks")) {
         let full_name = format!("{}{}", s(t, "path"), s(t, "name"));
         let path = s(t, "path").to_lowercase();
-        // Windows' own tasks and the Sentinel's own (its Tick, Alarm and Hand) are notes, never a
-        // switch-off: the hand refuses both anyway
-        let quiet = path.starts_with("\\microsoft\\") || path.starts_with(SENTINEL_TASKS);
+        // Windows' own tasks and the Sentinel's own (its Tick, Alarm and Hand) are never offered to
+        // switch off: the hand refuses both anyway
+        let refused = path.starts_with("\\microsoft\\") || path.starts_with(SENTINEL_TASKS);
+        let family = super::families::task_family(&full_name);
+        // what the member needs to decide: what the task is, when Castle knows, then what it runs
+        let what = family.map(|f| format!("What it is: {}. ", f.words)).unwrap_or_default();
+        let actions = super::families::action_words(s(t, "actions"));
         things.push(thing(
             "task",
             vec![full_name.clone(), s(t, "actions").into()],
-            if quiet { NOTE } else { LOOK },
+            if refused || family.is_some_and(|f| f.own) { NOTE } else { LOOK },
             format!("Scheduled task {full_name}"),
-            format!("Runs: {}. State: {}. Author: {}.", none_if_empty(s(t, "actions")), s(t, "state"), none_if_empty(s(t, "author"))),
-            if quiet { None } else { Some(("disable-task", Some(full_name))) },
+            format!("{what}Runs: {}. State: {}. Author: {}.", none_if_empty(&actions), s(t, "state"), none_if_empty(s(t, "author"))),
+            if refused { None } else { Some(("disable-task", Some(full_name))) },
             true,
         ));
     }
@@ -437,6 +441,22 @@ mod tests {
         assert_eq!((microsoft.hint, microsoft.fix.clone()), (NOTE, None), "a Microsoft task is never offered to switch off");
         assert_eq!(look.things[2].fix, Some(("disable-task".into(), Some("\\Stranger".into()))));
         assert!(look.covered.contains("task"));
+    }
+
+    #[test]
+    fn a_task_card_says_what_it_is_when_castle_knows_and_nothing_invented_when_not() {
+        let j = json!({ "tasks": [
+            {"path": "\\SoftLanding\\S-1-5-21-1-2-3-1002\\", "name": "SoftLandingDeferralTask-{724494fb-1111-2222-3333-444455556666}", "actions": "{AF28889E-9F8A-4C20-A1B5-0E3C4F3C9A11}", "state": "Ready"},
+            {"path": "\\", "name": "Kettle Brewer", "actions": "C:\\kettle.exe", "state": "Ready"}
+        ] });
+        let look = things_from(&j, &[], None, true);
+        let tasks: Vec<&Thing> = look.things.iter().filter(|t| t.kind == "task").collect();
+        assert_eq!(tasks[0].hint, NOTE, "Windows' own tips are a note");
+        assert!(tasks[0].detail.starts_with("What it is: Windows' own tips"), "{}", tasks[0].detail);
+        assert!(tasks[0].detail.contains("runs a Windows component {AF28889E"));
+        assert!(tasks[0].fix.is_some(), "the member may still switch Windows' tips off");
+        assert_eq!(tasks[1].hint, LOOK);
+        assert!(tasks[1].detail.starts_with("Runs: C:\\kettle.exe"), "{}", tasks[1].detail);
     }
 
     #[test]

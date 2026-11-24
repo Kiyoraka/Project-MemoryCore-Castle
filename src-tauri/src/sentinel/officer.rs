@@ -263,7 +263,7 @@ fn patrol_inner(store: &SettingsStore, cause: &str) -> Result<Patrol, String> {
                 match read.verdict {
                     None => {
                         patrol.status = "look".into();
-                        patrol.line = "The officer did not answer, so nothing was done.".into();
+                        patrol.line = unanswered_line(&text);
                     }
                     Some((status, line)) => {
                         for (fid, why) in &read.settles {
@@ -339,6 +339,17 @@ pub async fn sentinel_patrol_now(app: tauri::AppHandle) -> Result<Patrol, String
     .map_err(|_| "The patrol stopped.".to_string())?
 }
 
+/// The patrol's line when the officer gave no verdict: nothing was done, and why when the CLI said
+/// something else (a spent limit, an error), so the member is never left guessing.
+pub fn unanswered_line(text: &str) -> String {
+    let said: String = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(140).collect();
+    if said.is_empty() {
+        "The officer did not answer, so nothing was done.".into()
+    } else {
+        format!("The officer could not answer, so nothing was done. It said: {said}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +368,16 @@ mod tests {
             first_seen: String::new(),
             last_seen: String::new(),
         }
+    }
+
+    #[test]
+    fn a_turn_that_hit_a_limit_does_nothing_and_says_why() {
+        let open = HashMap::from([(4, finding(4, "look", Some(("disable-task", Some("\\Stranger")))))]);
+        let limit = "You've hit your Fable limit · resets Nov 27, 5am\n";
+        let read = parse(limit, &open);
+        assert!(read.verdict.is_none() && read.settles.is_empty() && read.acts.is_empty(), "nothing is settled or done: the card keeps its buttons");
+        assert_eq!(unanswered_line(limit), "The officer could not answer, so nothing was done. It said: You've hit your Fable limit · resets Nov 27, 5am");
+        assert_eq!(unanswered_line("  \n "), "The officer did not answer, so nothing was done.");
     }
 
     fn open(list: Vec<Finding>) -> HashMap<u64, Finding> {

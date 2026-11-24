@@ -119,6 +119,7 @@ onBeforeUnmount(() => stop?.())
         <template v-if="notesOpen">
           <article v-for="f in notes" :key="f.id" class="finding note">
             <div class="title">{{ f.title }}</div>
+            <div v-if="f.detail" class="detail">{{ f.detail }}</div>
             <div class="buttons">
               <button v-for="word in findingButtons(f)" :key="word" class="quiet" :disabled="busy !== 0" @click="press(f, word)">{{ buttonText(f, word) }}</button>
             </div>

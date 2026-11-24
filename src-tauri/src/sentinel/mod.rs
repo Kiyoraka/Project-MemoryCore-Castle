@@ -14,6 +14,7 @@
 
 pub mod book;
 pub mod commands;
+pub mod families;
 pub mod hand;
 pub mod look;
 pub mod officer;
