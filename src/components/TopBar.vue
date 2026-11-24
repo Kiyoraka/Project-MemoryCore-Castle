@@ -1,10 +1,11 @@
 <script setup>
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import TopMusic from './TopMusic.vue'
 import TopClock from './TopClock.vue'
 import SentinelShield from './SentinelShield.vue'
 import { neighbourOf } from './taborder.js'
-import { castleWindowLayout, getSettings } from '../api/castle.js'
+import { layoutForKey, layoutHint } from './windowkeys.js'
+import { castleWindowLayout, getSettings, onWindowLayoutChanged } from '../api/castle.js'
 import { isMac } from '../platform.js'
 
 const moveHint = isMac ? 'Drag to move this tab, or ⌥← / ⌥→' : 'Drag to move this tab, or Alt+← / Alt+→'
@@ -24,9 +25,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['select', 'settings', 'hide', 'reorder', 'sentinel'])
 
-// How much of the screen Castle takes: the whole screen, half of it, or a size the member drags.
+// How much of the screen Castle takes: full screen in its own Space, the whole visible frame,
+// half of it, or a size the member drags.
 const LAYOUTS = [
-  { id: 'full', label: 'Full screen' },
+  { id: 'fullscreen', label: 'Full screen' },
+  { id: 'full', label: 'Full width' },
   { id: 'left', label: 'Left half' },
   { id: 'right', label: 'Right half' },
   { id: 'free', label: 'Free: drag the edges' },
@@ -45,12 +48,36 @@ async function toggleLayout() {
 async function chooseLayout(id) {
   layoutOpen.value = false
   try {
-    await castleWindowLayout(id)
-    layout.value = id
+    // the command answers with the layout it settled on (a toggle or Esc resolves there)
+    layout.value = (await castleWindowLayout(id)) || id
   } catch {
     // the window stays as it was
   }
 }
+function onLayoutKey(event) {
+  const wanted = layoutForKey(event, { mac: isMac, layout: layout.value })
+  if (!wanted) return
+  event.preventDefault()
+  chooseLayout(wanted)
+}
+async function readLayout() {
+  try {
+    layout.value = (await getSettings()).settings?.windowLayout || 'full'
+  } catch {
+    // outside Castle's window
+  }
+}
+let stopLayoutEvents = null
+onMounted(async () => {
+  // bubble phase: a dialog or the mic that takes Esc first keeps it
+  window.addEventListener('keydown', onLayoutKey)
+  readLayout()
+  try {
+    stopLayoutEvents = await onWindowLayoutChanged(readLayout)
+  } catch {
+    // outside Castle's window
+  }
+})
 function layoutOut(event) {
   if (!event.currentTarget.contains(event.relatedTarget)) layoutOpen.value = false
 }
@@ -106,12 +133,16 @@ function onClick(id) {
   emit('select', id)
 }
 function onKey(event, id) {
-  if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+  if (!event.altKey || event.ctrlKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
   event.preventDefault()
   const to = neighbourOf(props.tabs.map((t) => t.id), id, event.key === 'ArrowLeft' ? -1 : 1)
   if (to) emit('reorder', { from: id, to })
 }
-onBeforeUnmount(stopListening)
+onBeforeUnmount(() => {
+  stopListening()
+  window.removeEventListener('keydown', onLayoutKey)
+  stopLayoutEvents?.()
+})
 </script>
 
 <template>
@@ -137,13 +168,13 @@ onBeforeUnmount(stopListening)
       <SentinelShield @open="$emit('sentinel')" />
       <TopClock v-if="displayClock" :format="clockFormat" />
       <TopMusic />
-      <div class="layout" @focusout="layoutOut" @keydown.esc="layoutOpen = false">
+      <div class="layout" @focusout="layoutOut" @keydown.esc.prevent="layoutOpen = false">
         <button class="action" title="Window size" aria-label="Window size" :aria-expanded="layoutOpen" @click="toggleLayout">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" /><path d="M8 2.5v11" /></svg>
         </button>
         <div v-if="layoutOpen" class="layout-menu" role="menu">
           <button v-for="l in LAYOUTS" :key="l.id" role="menuitemradio" :aria-checked="l.id === layout" :class="{ on: l.id === layout }" @click="chooseLayout(l.id)">
-            <span class="check" aria-hidden="true">{{ l.id === layout ? '✓' : '' }}</span>{{ l.label }}
+            <span class="check" aria-hidden="true">{{ l.id === layout ? '✓' : '' }}</span><span class="name">{{ l.label }}</span><kbd v-if="layoutHint(l.id, isMac)" class="keys">{{ layoutHint(l.id, isMac) }}</kbd>
           </button>
         </div>
       </div>
@@ -294,7 +325,7 @@ button {
   z-index: 50;
   display: flex;
   flex-direction: column;
-  min-width: 190px;
+  min-width: 230px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -315,6 +346,15 @@ button {
 .layout-menu button:hover,
 .layout-menu button:focus-visible {
   background: var(--hover);
+}
+.layout-menu .name {
+  flex: 1;
+}
+.layout-menu .keys {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 .layout-menu .check {
   width: 14px;

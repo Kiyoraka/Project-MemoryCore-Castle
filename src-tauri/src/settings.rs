@@ -376,11 +376,14 @@ pub struct Settings {
     pub world: WorldSettings,
     /// The name of the screen Castle itself lives on ("" = wherever it opens, the primary screen).
     pub castle_screen: String,
-    /// How much of that screen Castle takes: "full" (or "" from older files), "left", "right"
+    /// How much of that screen Castle takes: "fullscreen" (macOS: its own Space), "full"
+    /// (or "" from older files: full width), "left", "right"
     /// (half the screen) or "free" (the member drags the edges; `window_bounds` keeps the size).
     pub window_layout: String,
     /// The free layout's last place and size: x, y, width, height in physical pixels.
     pub window_bounds: Option<[i32; 4]>,
+    /// The layout to return to when the member leaves full screen ("" = full width).
+    pub window_layout_before: String,
     /// True once the first-run setup has finished.
     pub setup_done: bool,
     /// The member's own quick-action buttons, after Castle's built-in ones.
@@ -587,6 +590,7 @@ impl Default for Settings {
             castle_screen: String::new(),
             window_layout: String::new(),
             window_bounds: None,
+            window_layout_before: String::new(),
             setup_done: false,
             quick_actions: Vec::new(),
             backup_after_diary: false,
@@ -1121,6 +1125,7 @@ mod tests {
             castle_screen: "\\\\.\\DISPLAY1".into(),
             window_layout: "left".into(),
             window_bounds: Some([10, 20, 1600, 900]),
+            window_layout_before: "left".into(),
             setup_done: true,
             quick_actions: vec![QuickAction { label: "Plan my day".into(), command: "plan my day".into() }],
             backup_after_diary: true,
