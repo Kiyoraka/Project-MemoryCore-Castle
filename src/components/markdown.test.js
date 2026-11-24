@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBlocks, parseSpans } from './markdown.js'
+import { linkSpans, parseBlocks, parseSpans } from './markdown.js'
 
 describe('parseBlocks', () => {
   it('draws a table with its header and rows', () => {
@@ -55,4 +55,35 @@ describe('parseSpans', () => {
   it('never turns markup into HTML', () => {
     expect(parseSpans('<img src=x onerror=alert(1)>')).toEqual([{ text: '<img src=x onerror=alert(1)>' }])
   })
+
+  it('turns a bare address into a link, without the full stop after it', () => {
+    expect(parseSpans('PR is at https://github.com/o/r/pull/7. Staging: http://localhost:5173/x, done')).toEqual([
+      { text: 'PR is at ' },
+      { text: 'https://github.com/o/r/pull/7', link: 'https://github.com/o/r/pull/7' },
+      { text: '. Staging: ' },
+      { text: 'http://localhost:5173/x', link: 'http://localhost:5173/x' },
+      { text: ', done' },
+    ])
+  })
+
+  it('keeps a markdown link whole and an address in code as code', () => {
+    expect(parseSpans('[the PR](https://x.y/1) and `https://x.y/2`')).toEqual([
+      { text: 'the PR', link: 'https://x.y/1' },
+      { text: ' and ' },
+      { code: true, text: 'https://x.y/2' },
+    ])
+  })
 })
+
+describe('linkSpans', () => {
+  it('finds only addresses (no markdown) for plain chat lines', () => {
+    expect(linkSpans('see **this** https://a.b/c?d=1!')).toEqual([
+      { text: 'see **this** ' },
+      { text: 'https://a.b/c?d=1', link: 'https://a.b/c?d=1' },
+      { text: '!' },
+    ])
+    expect(linkSpans('no links here')).toEqual([{ text: 'no links here' }])
+    expect(linkSpans('')).toEqual([])
+  })
+})
+

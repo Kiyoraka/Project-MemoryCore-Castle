@@ -5,6 +5,8 @@
 // when the room offers customReactions. Props in, events out.
 import { ref } from 'vue'
 import { REACTIONS, reactionChips, replySnippet } from '../roomchat.js'
+import { linkSpans } from '../markdown.js'
+import { linkWay, openLink } from '../links.js'
 import EmojiPicker from './EmojiPicker.vue'
 import ThemedAudio from '../ThemedAudio.vue'
 
@@ -42,7 +44,7 @@ function picked(emoji) {
   <p v-if="line.author?.kind === 'system'" class="system"><em>{{ line.text }}</em></p>
   <div v-else-if="mine" :id="'room-line-' + line.id" class="bubble mine" :class="{ picking }" tabindex="-1">
     <button v-if="quote()" class="quote" :disabled="!quote().loaded" @click="emit('jump', line.replyTo.id)"><strong>{{ quote().name }}</strong> {{ quote().text }}</button>
-    <span class="text">{{ line.text }}</span>
+    <span class="text"><template v-for="(span, s) in linkSpans(line.text)" :key="s"><a v-if="linkWay(span.link)" class="link" :href="span.link" :title="span.link" @click.prevent="openLink(span.link).catch(() => {})">{{ span.text }}</a><template v-else>{{ span.text }}</template></template></span>
     <span class="meta">{{ clock }} <span v-if="tick" class="tick" :class="{ read: tick.read }" :title="tick.title">{{ tick.mark }}</span></span>
     <span v-if="chips().length" class="chips">
       <button v-for="r in chips()" :key="r.emoji" class="chip" :class="{ mine: r.mine }" :disabled="!can.reactions" @click="emit('react', r.emoji)">{{ r.emoji }} {{ r.count }}</button>
@@ -59,7 +61,7 @@ function picked(emoji) {
     <div class="body">
       <span class="who" :title="speaker.title" :tabindex="ai ? 0 : undefined" :aria-label="speaker.title ? `${speaker.name}, ${speaker.title}` : undefined">{{ speaker.name }}<span v-if="ai" class="spark"> ✦</span></span>
       <button v-if="quote()" class="quote" :disabled="!quote().loaded" @click="emit('jump', line.replyTo.id)"><strong>{{ quote().name }}</strong> {{ quote().text }}</button>
-      <span class="text">{{ line.text }}</span>
+      <span class="text"><template v-for="(span, s) in linkSpans(line.text)" :key="s"><a v-if="linkWay(span.link)" class="link" :href="span.link" :title="span.link" @click.prevent="openLink(span.link).catch(() => {})">{{ span.text }}</a><template v-else>{{ span.text }}</template></template></span>
       <ThemedAudio v-if="line.voice && files[line.voice.fileId]" class="voice" :src="files[line.voice.fileId]" compact />
       <img
         v-if="line.picture && files[line.picture.fileId]"
@@ -258,5 +260,11 @@ function picked(emoji) {
 .tools button:hover,
 .tools button:focus-visible {
   background: var(--hover);
+}
+.text a.link {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  overflow-wrap: anywhere;
 }
 </style>
