@@ -57,6 +57,104 @@ pub struct Check {
     pub phones: Vec<Phone>,
     /// Installed system images a new phone can be made from (`system-images;android-35;...`).
     pub images: Vec<String>,
+    /// The iOS side's rows (a Mac with a Flutter project only; empty elsewhere): Xcode, a simulator.
+    pub ios: Vec<Row>,
+    pub ios_ready: bool,
+    /// The iPhone simulators Xcode has, the booted ones first.
+    pub simulators: Vec<Simulator>,
+}
+
+/// One iPhone simulator (macOS, from `xcrun simctl`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Simulator {
+    pub udid: String,
+    pub name: String,
+    /// "iOS 18.2", from the runtime's id
+    pub runtime: String,
+    pub booted: bool,
+}
+
+/// The iPhone simulators in `xcrun simctl list devices available -j`, booted first, newest iOS next.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn simulators_of(json: &str) -> Vec<Simulator> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return Vec::new() };
+    let Some(devices) = v.get("devices").and_then(|d| d.as_object()) else { return Vec::new() };
+    let mut out = Vec::new();
+    for (runtime, list) in devices {
+        let Some(version) = runtime.rsplit('.').next().and_then(|r| r.strip_prefix("iOS-")) else { continue };
+        let runtime = format!("iOS {}", version.replace('-', "."));
+        for d in list.as_array().into_iter().flatten() {
+            let name = d.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+            let udid = d.get("udid").and_then(|n| n.as_str()).unwrap_or_default();
+            let available = d.get("isAvailable").and_then(|a| a.as_bool()).unwrap_or(true);
+            if available && name.starts_with("iPhone") && !udid.is_empty() {
+                let booted = d.get("state").and_then(|s| s.as_str()) == Some("Booted");
+                out.push(Simulator { udid: udid.into(), name: name.into(), runtime: runtime.clone(), booted });
+            }
+        }
+    }
+    out.sort_by(|a, b| b.booted.cmp(&a.booted).then(b.runtime.cmp(&a.runtime)).then(a.name.cmp(&b.name)));
+    out
+}
+
+/// The simulator a run uses: a booted one, else the first (newest iOS).
+pub fn simulator_choice(simulators: &[Simulator]) -> Option<&Simulator> {
+    simulators.iter().find(|s| s.booted).or_else(|| simulators.first())
+}
+
+/// The iOS side's rows on a Mac: Xcode (the full app, not only its command-line tools) and a simulator.
+pub fn ios_rows(xcode: Option<&str>, simulators: usize) -> Vec<Row> {
+    let full = xcode.filter(|p| p.contains(".app/"));
+    vec![
+        Row {
+            id: "xcode",
+            label: "Xcode",
+            ok: full.is_some(),
+            detail: match (full, xcode) {
+                (Some(p), _) => p.to_string(),
+                (None, Some(_)) => "only the command-line tools - the simulator needs Xcode itself".into(),
+                (None, None) => "not found".into(),
+            },
+            action: if full.is_some() { "" } else { "install" },
+        },
+        Row {
+            id: "simulator",
+            label: "An iPhone simulator",
+            ok: simulators > 0,
+            detail: match simulators {
+                0 => "none yet".into(),
+                1 => "1 iPhone".into(),
+                n => format!("{n} iPhones"),
+            },
+            action: if simulators > 0 { "" } else { "install" },
+        },
+    ]
+}
+
+/// A Mac's own tool, its words back (None when it is missing or refuses).
+#[cfg(target_os = "macos")]
+fn mac_tool(program: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(program).args(args).stdin(Stdio::null()).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The iOS side as this computer has it: Xcode's folder and the iPhone simulators (a Mac only).
+pub fn ios_found() -> (Option<String>, Vec<Simulator>) {
+    #[cfg(target_os = "macos")]
+    {
+        let xcode = mac_tool("xcode-select", &["-p"]);
+        let simulators = if xcode.as_deref().is_some_and(|p| p.contains(".app/")) {
+            mac_tool("xcrun", &["simctl", "list", "devices", "available", "-j"]).map(|j| simulators_of(&j)).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        (xcode, simulators)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        (None, Vec::new())
+    }
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -332,7 +430,7 @@ pub fn rows_for(kind: Kind, f: &Found) -> Vec<Row> {
 /// Mobile setup for one project folder, read from this PC.
 pub fn check(folder: &Path) -> Check {
     let Some(kind) = kind_of(folder) else {
-        return Check { kind: None, rows: Vec::new(), ready: false, phones: Vec::new(), images: Vec::new() };
+        return Check { kind: None, rows: Vec::new(), ready: false, phones: Vec::new(), images: Vec::new(), ios: Vec::new(), ios_ready: false, simulators: Vec::new() };
     };
     let sdk = sdk_root();
     let phones = avd_home().map(|h| phones_in(&h)).unwrap_or_default();
@@ -347,7 +445,15 @@ pub fn check(folder: &Path) -> Check {
     };
     let rows = rows_for(kind, &found);
     let ready = rows.iter().all(|r| r.ok);
-    Check { kind: Some(kind), rows, ready, phones, images }
+    // the real iPhone simulator: a Mac and a Flutter project (Kotlin builds Android apps only)
+    let (ios, simulators) = if cfg!(target_os = "macos") && kind == Kind::Flutter {
+        let (xcode, simulators) = ios_found();
+        (ios_rows(xcode.as_deref(), simulators.len()), simulators)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let ios_ready = !ios.is_empty() && ios.iter().all(|r| r.ok);
+    Check { kind: Some(kind), rows, ready, phones, images, ios, ios_ready, simulators }
 }
 
 /// A phone's name as avdmanager and the emulator take it.
@@ -526,6 +632,33 @@ mod tests {
         let places = flutter_places(Some(Path::new("home")));
         assert_eq!(places[0], Path::new("home").join("flutter").join("bin").join(script("flutter")));
         assert!(!studio_jbr().is_empty());
+    }
+
+    #[test]
+    fn the_iphone_simulators_are_read_and_chosen() {
+        let json = r#"{"devices":{
+            "com.apple.CoreSimulator.SimRuntime.iOS-17-5":[{"udid":"A","name":"iPhone 15","state":"Shutdown","isAvailable":true}],
+            "com.apple.CoreSimulator.SimRuntime.iOS-18-2":[{"udid":"B","name":"iPhone 16","state":"Shutdown","isAvailable":true},
+                {"udid":"C","name":"iPad Air","state":"Shutdown","isAvailable":true},
+                {"udid":"D","name":"iPhone 16 Pro","state":"Booted","isAvailable":true}],
+            "com.apple.CoreSimulator.SimRuntime.watchOS-11-0":[{"udid":"E","name":"Apple Watch","state":"Shutdown"}]}}"#;
+        let sims = simulators_of(json);
+        assert_eq!(sims.iter().map(|s| s.udid.as_str()).collect::<Vec<_>>(), vec!["D", "B", "A"], "booted first, newest iOS next, iPhones only");
+        assert_eq!(sims[1].runtime, "iOS 18.2");
+        assert_eq!(simulator_choice(&sims).map(|s| s.udid.as_str()), Some("D"));
+        let shut: Vec<Simulator> = sims.into_iter().filter(|s| !s.booted).collect();
+        assert_eq!(simulator_choice(&shut).map(|s| s.udid.as_str()), Some("B"));
+        assert!(simulators_of("not json").is_empty());
+    }
+
+    #[test]
+    fn the_ios_rows_want_xcode_itself() {
+        let ok = ios_rows(Some("/Applications/Xcode.app/Contents/Developer"), 2);
+        assert!(ok.iter().all(|r| r.ok));
+        let tools = ios_rows(Some("/Library/Developer/CommandLineTools"), 0);
+        assert_eq!((tools[0].ok, tools[0].action), (false, "install"));
+        assert!(tools[0].detail.contains("command-line tools"));
+        assert_eq!(ios_rows(None, 0)[1].action, "install");
     }
 
     #[test]

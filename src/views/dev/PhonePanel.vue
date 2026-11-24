@@ -64,7 +64,9 @@ const isFlutter = computed(() => check.value?.kind === 'flutter')
 // the iPhone preview: the Flutter app as a local web page in an iPhone frame, shown once served
 const previewReady = ref(false)
 const previewing = computed(() => platform.value === 'ios' && run.value.running && run.value.target === 'ios')
-const showSetup = computed(() => (platform.value === 'ios' ? !previewing.value : !on.value || !check.value?.ready))
+// a Mac's real iPhone simulator: the app runs in the Simulator's own window, its console here
+const simulating = computed(() => platform.value === 'ios' && run.value.running && run.value.target === 'simulator')
+const showSetup = computed(() => (platform.value === 'ios' ? !previewing.value && !simulating.value : !on.value || !check.value?.ready))
 
 // Run, Hot reload, Restart: the app built and put on the phone in its own console
 async function runApp() {
@@ -296,6 +298,23 @@ onBeforeUnmount(() => {
       @run="platform === 'ios' ? runApp() : start()"
       @asked="onAsked"
     />
+
+    <template v-else-if="simulating">
+      <div class="bar">
+        <div class="switch" role="group" aria-label="Android or iOS">
+          <button type="button" @click="platform = 'android'">Android</button>
+          <button type="button" class="on">iOS</button>
+        </div>
+        <span class="which">iPhone simulator</span>
+      </div>
+      <div class="runs">
+        <button type="button" :disabled="!run.running" title="Hot reload (r)" @click="reloadApp">&#9889; Hot reload</button>
+        <button type="button" :disabled="!run.running" title="Hot restart (R)" @click="restartApp">&#8635; Restart</button>
+        <button type="button" :disabled="!run.running" @click="stopApp">&#9632; Stop</button>
+      </div>
+      <p class="state">Your app runs in the iPhone simulator's own window.</p>
+      <pre v-if="lines.length" class="lines">{{ lines.join(String.fromCharCode(10)) }}</pre>
+    </template>
 
     <template v-else-if="platform === 'ios'">
       <div class="bar">

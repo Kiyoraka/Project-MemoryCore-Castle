@@ -20,7 +20,10 @@ const emit = defineEmits(['recheck', 'platform', 'choose', 'run', 'asked'])
 
 const busy = ref('')
 const note = ref('')
-const rows = computed(() => props.check?.rows ?? [])
+// a Mac's iOS side has its own rows (Xcode, a simulator); elsewhere iOS is the preview of the Android rows' Flutter
+const macIos = computed(() => props.platform === 'ios' && (props.check?.ios?.length ?? 0) > 0)
+const rows = computed(() => (macIos.value ? props.check.ios : props.check?.rows ?? []))
+const ready = computed(() => (macIos.value ? props.check?.iosReady : props.check?.ready))
 const phones = computed(() => props.check?.phones ?? [])
 const missing = computed(() => companionSentence(rows.value))
 const ios = computed(() => iosAllowed(props.check?.kind))
@@ -74,7 +77,8 @@ async function create() {
           <button v-else-if="r.action === 'install'" type="button" class="small" @click="ask(r.id)">Install</button>
         </li>
       </ul>
-      <p v-if="platform === 'ios'" class="ios">iPhone preview - your Flutter app in an iPhone-sized frame. The real iPhone simulator needs a Mac.</p>
+      <p v-if="macIos" class="ios">The real iPhone simulator, in its own window. Your Flutter app runs on it.</p>
+      <p v-else-if="platform === 'ios'" class="ios">iPhone preview - your Flutter app in an iPhone-sized frame. The real iPhone simulator needs a Mac.</p>
 
       <button v-if="missing" type="button" class="ask" @click="ask()">&#10022; Ask my companion to install</button>
       <div class="foot">
@@ -83,7 +87,7 @@ async function create() {
       </div>
     </section>
 
-    <div v-if="phones.length" class="phones">
+    <div v-if="phones.length && !macIos && platform === 'android'" class="phones">
       <button v-for="p in phones" :key="p.name" type="button" class="phone" :class="{ on: chosen === p.name }" @click="emit('choose', p.name)">
         <span class="shape" aria-hidden="true"></span>
         <span class="words">
@@ -92,7 +96,7 @@ async function create() {
         </span>
       </button>
     </div>
-    <button v-if="check?.ready" type="button" class="run" :disabled="!chosen && platform === 'android'" @click="emit('run')">Run</button>
+    <button v-if="ready" type="button" class="run" :disabled="!chosen && platform === 'android'" @click="emit('run')">Run</button>
   </div>
 </template>
 

@@ -25,7 +25,7 @@ pub struct RunInfo {
     pub running: bool,
     /// "flutter" or "android"
     pub kind: String,
-    /// "android" (the phone) or "ios" (the iPhone preview)
+    /// "android" (the phone), "ios" (the iPhone preview) or "simulator" (a Mac's real iPhone simulator)
     pub target: String,
     /// the iPhone preview's local address, once it runs
     pub preview: String,
@@ -124,6 +124,11 @@ pub fn run(app: &AppHandle, slot: usize, folder: &Path, ios: bool) -> Result<Run
     let kind = mobile::kind_of(folder).ok_or("This project is neither Flutter nor an Android app.")?;
     let (program, args, target, preview): (PathBuf, Vec<String>, &str, String) = match (kind, ios) {
         (Kind::Android, true) => return Err("Kotlin builds Android apps only.".into()),
+        (Kind::Flutter, true) if cfg!(target_os = "macos") => {
+            let udid = boot_simulator()?;
+            let flutter = mobile::flutter_program().ok_or("Flutter is not installed.")?;
+            (flutter, flutter_args(&Target::Phone(udid)), "simulator", String::new())
+        }
         (Kind::Flutter, true) => {
             let busy: std::collections::HashSet<u16> = crate::servers::listeners().into_iter().map(|(p, _)| p).collect();
             let port = free_preview_port(|p| busy.contains(&p)).ok_or("No free port for the iPhone preview.")?;
@@ -172,6 +177,24 @@ pub fn run(app: &AppHandle, slot: usize, folder: &Path, ios: bool) -> Result<Run
     Ok(info)
 }
 
+/// A Mac's iPhone simulator, booted and shown in its own Simulator window: a booted one is used as it
+/// is, else the newest iPhone is booted. Its udid is what `flutter run -d` takes.
+fn boot_simulator() -> Result<String, String> {
+    let (xcode, simulators) = mobile::ios_found();
+    if !xcode.as_deref().is_some_and(|p| p.contains(".app/")) {
+        return Err("The iPhone simulator needs Xcode.".into());
+    }
+    let chosen = mobile::simulator_choice(&simulators).ok_or("There is no iPhone simulator yet.")?.clone();
+    if !chosen.booted {
+        let booted = std::process::Command::new("xcrun").args(["simctl", "boot", &chosen.udid]).status().map_err(|_| "xcrun could not run.".to_string())?;
+        if !booted.success() {
+            return Err(format!("{} could not be started.", chosen.name));
+        }
+    }
+    let _ = std::process::Command::new("open").args(["-a", "Simulator"]).status();
+    Ok(chosen.udid)
+}
+
 fn launch(app: &AppHandle, slot: usize, folder: &Path) -> String {
     let Some(id) = mobile::application_id(folder) else { return "Installed - its applicationId was not found, so open it on the phone yourself.".into() };
     let Some(serial) = app.state::<Phones>().serial(slot) else { return "Installed - the phone stopped before it could open.".into() };
@@ -201,7 +224,7 @@ pub fn restart(app: &AppHandle, slot: usize, folder: &Path) -> Result<RunInfo, S
         runs.hosts[slot].write(b"R")?;
         return Ok(info);
     }
-    run(app, slot, folder, info.target == "ios")
+    run(app, slot, folder, info.target == "ios" || info.target == "simulator")
 }
 
 /// Stops the tab's run: `q` to Flutter first, the console ended a moment later either way.
