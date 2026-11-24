@@ -5,7 +5,7 @@ import TopClock from './TopClock.vue'
 import SentinelShield from './SentinelShield.vue'
 import { neighbourOf } from './taborder.js'
 import { layoutForKey, layoutHint } from './windowkeys.js'
-import { castleWindowLayout, getSettings } from '../api/castle.js'
+import { castleWindowLayout, getSettings, onWindowLayoutChanged } from '../api/castle.js'
 import { isMac } from '../platform.js'
 
 const moveHint = isMac ? 'Drag to move this tab, or ⌥← / ⌥→' : 'Drag to move this tab, or Alt+← / Alt+→'
@@ -60,11 +60,20 @@ function onLayoutKey(event) {
   event.preventDefault()
   chooseLayout(wanted)
 }
+async function readLayout() {
+  try {
+    layout.value = (await getSettings()).settings?.windowLayout || 'full'
+  } catch {
+    // outside Castle's window
+  }
+}
+let stopLayoutEvents = null
 onMounted(async () => {
   // bubble phase: a dialog or the mic that takes Esc first keeps it
   window.addEventListener('keydown', onLayoutKey)
+  readLayout()
   try {
-    layout.value = (await getSettings()).settings?.windowLayout || 'full'
+    stopLayoutEvents = await onWindowLayoutChanged(readLayout)
   } catch {
     // outside Castle's window
   }
@@ -132,6 +141,7 @@ function onKey(event, id) {
 onBeforeUnmount(() => {
   stopListening()
   window.removeEventListener('keydown', onLayoutKey)
+  stopLayoutEvents?.()
 })
 </script>
 

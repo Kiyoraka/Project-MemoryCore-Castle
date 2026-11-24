@@ -18,6 +18,8 @@ export const alertSounds = () => invoke('alert_sounds')
 export const alertSoundPreview = (name) => invoke('alert_sound_preview', { name })
 export const alertSoundsFolder = () => invoke('alert_sounds_folder')
 export const castleWindowLayout = (layout) => invoke('castle_window_layout', { layout })
+// the Mac's Window menu (or its full screen) changed the window size
+export const onWindowLayoutChanged = (handler) => listen('window-layout-changed', () => handler())
 export const saveSettings = (settings) => invoke('save_settings', { settings })
 export const chooseFolder = (title) => invoke('choose_folder', { title })
 

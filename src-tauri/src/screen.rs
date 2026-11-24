@@ -98,7 +98,12 @@ fn place(window: &WebviewWindow, area: DesktopArea) -> Result<()> {
     // macOS only lets a resizable window into full screen
     window.set_resizable(matches!(layout, Layout::Free | Layout::FullScreen))?;
     if layout == Layout::FullScreen {
-        return window.set_fullscreen(true);
+        // macOS gives a window that is not on screen yet only the frame of full screen, not its
+        // Space: before the first show it takes the work area, and the watcher goes full screen
+        if window.is_visible().unwrap_or(false) {
+            return window.set_fullscreen(true);
+        }
+        return apply_desktop_area(window, area);
     }
     if window.is_fullscreen().unwrap_or(false) {
         // macOS leaves full screen with an animation; the watcher fits the window once it is out
@@ -125,6 +130,46 @@ pub fn castle_window_layout(app: AppHandle, layout: String) -> std::result::Resu
     let window = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
     fill_desktop(&window).map_err(|_| "Castle's window could not be resized.".to_string())?;
     Ok(next.as_setting().into())
+}
+
+/// The Window menu's window size items (macOS menu bar): menu id, label, key.
+/// Full screen has no key here: Tauri's View > Enter Full Screen already holds Ctrl+Cmd+F, and the
+/// watcher follows that one like a menu choice.
+#[cfg(any(target_os = "macos", test))]
+const MENU_LAYOUTS: [(&str, &str, Option<&str>); 5] = [
+    ("layout:fullscreen", "Full Screen", None),
+    ("layout:full", "Full Width", Some("Ctrl+Alt+Enter")),
+    ("layout:left", "Left Half", Some("Ctrl+Alt+ArrowLeft")),
+    ("layout:right", "Right Half", Some("Ctrl+Alt+ArrowRight")),
+    ("layout:free", "Free: Drag the Edges", None),
+];
+
+/// Tauri's default macOS menu, with the window sizes at the top of its Window menu.
+#[cfg(target_os = "macos")]
+pub fn app_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, WINDOW_SUBMENU_ID};
+    let menu = Menu::default(app)?;
+    if let Some(window_menu) = menu.get(WINDOW_SUBMENU_ID).and_then(|kind| kind.as_submenu().cloned()) {
+        for (at, (id, label, key)) in MENU_LAYOUTS.iter().enumerate() {
+            window_menu.insert(&MenuItem::with_id(app, *id, *label, true, *key)?, at)?;
+        }
+        window_menu.insert(&PredefinedMenuItem::separator(app)?, MENU_LAYOUTS.len())?;
+    }
+    Ok(menu)
+}
+
+/// A Window menu choice: the same as the top bar's window size menu.
+pub fn on_menu_event(app: &AppHandle, id: &str) {
+    let Some(layout) = id.strip_prefix("layout:") else { return };
+    if let Err(error) = castle_window_layout(app.clone(), layout.to_string()) {
+        eprintln!("MemoryCore Castle: {error}");
+    }
+    told(app);
+}
+
+/// Tells the top bar the layout changed outside it (its Esc needs to know about full screen).
+fn told(app: &AppHandle) {
+    let _ = tauri::Emitter::emit(app, "window-layout-changed", ());
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,6 +233,8 @@ pub fn watch_desktop(app: &AppHandle) {
         // full screen asked for and seen: from then on, a window out of full screen means the
         // member left it another way (the Mac's Window menu), so Castle follows
         let mut seen_full_screen = false;
+        // full screen asked of a window that was not on screen yet (Castle's start)
+        let mut asked_full_screen = false;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let Some(window) = app.get_webview_window("main") else { break };
@@ -203,18 +250,27 @@ pub fn watch_desktop(app: &AppHandle) {
                 fitted = None;
                 if layout != Layout::FullScreen {
                     // entered from the Mac's own menu: remember it like a menu choice
-                    let _ = save_layout(&app, Layout::FullScreen, layout);
+                    if save_layout(&app, Layout::FullScreen, layout).is_ok() {
+                        told(&app);
+                    }
                     seen_full_screen = true;
                 } else if in_full_screen {
                     seen_full_screen = true;
+                } else if !seen_full_screen && !asked_full_screen {
+                    asked_full_screen = true;
+                    let _ = window.set_resizable(true);
+                    let _ = window.set_fullscreen(true);
                 } else if seen_full_screen {
                     seen_full_screen = false;
-                    let _ = save_layout(&app, before_of(&app), before_of(&app));
+                    if save_layout(&app, before_of(&app), before_of(&app)).is_ok() {
+                        told(&app);
+                    }
                     let _ = window.set_resizable(before_of(&app) == Layout::Free);
                 }
                 continue;
             }
             seen_full_screen = false;
+            asked_full_screen = false;
             if layout == Layout::Free {
                 // the member's own size: only remember where they put it
                 fitted = None;
@@ -291,6 +347,15 @@ mod tests {
         // an older file with nothing saved comes back to full width
         assert_eq!(resolve("leave-fullscreen", FullScreen, Layout::from_setting("")), (Full, Full));
         assert_eq!(resolve("toggle-fullscreen", FullScreen, FullScreen), (Full, Full));
+    }
+
+    #[test]
+    fn the_mac_window_menu_offers_every_layout() {
+        for (id, _, _) in MENU_LAYOUTS {
+            let layout = id.strip_prefix("layout:").unwrap();
+            assert_eq!(Layout::from_setting(layout).as_setting(), layout);
+        }
+        assert!(MENU_LAYOUTS.iter().all(|(_, _, key)| *key != Some("Ctrl+Cmd+F")), "View > Enter Full Screen holds that key");
     }
 
     #[test]

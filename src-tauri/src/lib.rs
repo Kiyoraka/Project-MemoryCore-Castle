@@ -288,6 +288,9 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     env::adopt_login_path();
     let builder = tauri::Builder::default();
+    // macOS: the menu bar's Window menu carries the window sizes too
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(screen::app_menu).on_menu_event(|app, event| screen::on_menu_event(app, event.id().as_ref()));
     // the signed self-updater lives only in official builds (scripts/release.ps1)
     #[cfg(feature = "official")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
