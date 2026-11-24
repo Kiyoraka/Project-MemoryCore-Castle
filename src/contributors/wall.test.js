@@ -16,6 +16,13 @@ describe('the contributors wall', () => {
     expect(w.people).toEqual([{ login: 'rin-dev', name: 'rin-dev', merged: 1, built: [NO_LIST], initials: 'RD' }])
   })
 
+  it("fills a newcomer's card from their own merged titles, and a hand-written list still wins", () => {
+    const counts = { people: [{ login: 'rin-dev', merged: 2, built: ['Draw with ComfyUI', 'Keep the progress'] }, { login: 'Brian-C69', merged: 9, built: ['Some title'] }] }
+    const w = wall(counts, PEOPLE)
+    expect(w.people.find((p) => p.login === 'rin-dev').built).toEqual(['Draw with ComfyUI', 'Keep the progress'])
+    expect(w.people.find((p) => p.login === 'Brian-C69').built).toContain('The Alerts page and its sounds')
+  })
+
   it('shows eight until Show all', () => {
     const many = { people: Array.from({ length: 11 }, (_, i) => ({ login: `p${String(i).padStart(2, '0')}`, merged: 20 - i })) }
     const first = wall(many, {})

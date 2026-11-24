@@ -1,18 +1,42 @@
 {
-  "at": "2026-11-24T12:47:33.042Z",
+  "at": "2026-11-24T15:14:54.379Z",
   "merged": 78,
   "people": [
     {
       "login": "Brian-C69",
-      "merged": 60
+      "merged": 60,
+      "built": [
+        "Companions know how to propose an automation",
+        "HOME: one widget arrangement for every theme, and AUTOMATIONS/CALENDAR keep their place",
+        "APPS search: one focus ring instead of two",
+        "APPS: a room launcher so the top bar stays short",
+        "CALENDAR room: dated things, member events, reminders and holidays (off at first, stacked…",
+        "AUTOMATIONS room: schedules, triggers, chains and companion briefings (off at first)"
+      ]
     },
     {
       "login": "OneNonly148",
-      "merged": 12
+      "merged": 12,
+      "built": [
+        "Say when a project status is too long",
+        "Projects stay on the list, sessions are the tabs",
+        "Sub-projects and tasks",
+        "Real Codex 5h/week bars on the USAGE card",
+        "The room draws with Codex on the ChatGPT plan for a Claude Code companion",
+        "Mark up a picture before it goes to the companion"
+      ]
     },
     {
       "login": "NecroSlav",
-      "merged": 6
+      "merged": 6,
+      "built": [
+        "Draw STUDIO's plain pictures with your own ComfyUI",
+        "A download answer that is only part of the release no longer counts as all of it",
+        "Say Install will continue when a database download was interrupted",
+        "Carry the database download on from where it stopped",
+        "A long project status no longer stops moving the memory into the database",
+        "Keep the database install's progress when Settings closes and reopens"
+      ]
     }
   ]
 }

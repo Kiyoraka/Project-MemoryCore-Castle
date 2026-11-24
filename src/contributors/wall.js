@@ -19,10 +19,12 @@ export function wall(counts, people = {}, { all = false, limit = WALL_LIMIT } = 
     .filter((p) => p?.login && p.merged > 0)
     .slice()
     .sort((a, b) => b.merged - a.merged || a.login.localeCompare(b.login))
-    .map(({ login, merged }) => {
+    .map(({ login, merged, built: fromTitles }) => {
       const known = people[login] || {}
       const name = known.name || login
-      return { login, name, merged, built: known.built?.length ? known.built : [NO_LIST], initials: initialsOf(name) }
+      // a list written by hand wins; else their own merged titles (counts.json); else the thank-you
+      const built = known.built?.length ? known.built : fromTitles?.length ? fromTitles : [NO_LIST]
+      return { login, name, merged, built, initials: initialsOf(name) }
     })
   const shown = all ? everyone : everyone.slice(0, limit)
   return {
