@@ -672,6 +672,15 @@ onMounted(async () => {
               >
                 <SettingChoice :model-value="valueOf(settings, 'mainStart')" :options="[{ value: 'continue', label: 'Continue' }, { value: 'rested', label: 'After a rest' }, { value: 'fresh', label: 'Fresh' }]" label="When Castle starts" :disabled="locked" @update:model-value="(v) => saveRow('main-start', { mainStart: v })" />
               </SettingRow>
+              <SettingRow
+                id="share-fallback"
+                label="When a model's weekly share is spent"
+                :disabled="settings.cli !== 'claude'"
+                :description="settings.cli === 'claude' ? 'Starts on another model until the share opens again, and says so.' : 'Only with Claude Code.'"
+                tip="Some Claude plans give a model its own weekly share. When the model your companion uses has spent it, a session cannot go on with it, so the next wake starts on Opus (or Sonnet when Opus is spent too) and a line above Chat says until when. After the reset your own model comes back by itself. A talk already running when the share runs out stops with Claude Code's own message: wake again, or press Start fresh."
+              >
+                <SettingSwitch :model-value="valueOf(settings, 'shareFallback')" label="Start on another model when a weekly share is spent" :disabled="locked || settings.cli !== 'claude'" @update:model-value="(on) => saveRow('share-fallback', { shareFallback: on })" />
+              </SettingRow>
             </SettingGroup>
 
             <SettingGroup id="names" title="Name and picture" tip="Names already written in your memory files stay as they are - ask your companion to update the memory if you rename.">

@@ -391,8 +391,14 @@ pub fn claude_spent_shares(wait: Duration) -> Vec<SpentShare> {
     if let Some(fake) = std::env::var("CASTLE_FAKE_SPENT_SHARE").ok().and_then(|v| fake_share(&v)) {
         return vec![fake];
     }
-    match claude_cached_within(wait).good {
-        Some((_, answer)) => spent_shares(&answer, now_ms()),
+    // the card may be asking right now (it waits longer): the wake then goes on without the check
+    let Ok(mut slot) = CLAUDE.try_lock() else { return Vec::new() };
+    let now = Instant::now();
+    if !slot.as_ref().is_some_and(|c| still_fresh(c, now)) {
+        *slot = Some(remember(slot.take(), claude_answer(wait), now, now_ms()));
+    }
+    match slot.as_ref().and_then(|c| c.good.as_ref()) {
+        Some((_, answer)) => spent_shares(answer, now_ms()),
         None => Vec::new(),
     }
 }

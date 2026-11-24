@@ -102,6 +102,7 @@ export function sessionView(tab) {
   return {
     running: !!tab.running,
     status: { ready: !!tab.status?.ready, message: tab.status?.message ?? '', fix: tab.status?.fix ?? null },
+    notice: tab.notice ?? null,
   }
 }
 

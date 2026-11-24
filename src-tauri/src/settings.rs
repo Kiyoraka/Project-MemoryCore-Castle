@@ -432,6 +432,9 @@ pub struct Settings {
     /// `rested` picks it up unless it has been quiet REST_HOURS (a fresh session wakes from the
     /// memory and costs far fewer tokens than reading a long talk back), `fresh` always starts new.
     pub main_start: String,
+    /// A Claude Code session whose model has used up its own weekly share (Claude's per-model limit)
+    /// starts on another model until the share opens again (model_pick.rs). On by default.
+    pub share_fallback: bool,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -605,6 +608,7 @@ impl Default for Settings {
             only_this_companion: false,
             diary_look: "list".into(),
             main_start: "rested".into(),
+            share_fallback: true,
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -1141,6 +1145,7 @@ mod tests {
             only_this_companion: true,
             diary_look: "book".into(),
             main_start: "continue".into(),
+            share_fallback: false,
             emotion_room_voice: false,
             emotion_market_voice: false,
             profile_look: "constellation".into(),
@@ -1307,6 +1312,7 @@ mod tests {
     #[test]
     fn the_main_start_is_one_of_the_three_and_rests_by_default() {
         assert_eq!(Settings::default().main_start, "rested");
+        assert!(Settings::default().share_fallback, "a spent share falls back unless the member turns it off");
         assert_eq!(Settings { main_start: "fresh".into(), ..Settings::default() }.normalized().main_start, "fresh");
         assert_eq!(Settings { main_start: "sometimes".into(), ..Settings::default() }.normalized().main_start, "rested");
     }

@@ -70,6 +70,59 @@ fn last_model_in(text: &str) -> Option<String> {
     None
 }
 
+/// How long a wake waits for the usage answer when the shared one is old.
+const WAKE_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// The newest record in a Claude Code records folder (by its last write), for a session that has
+/// no remembered record: what that folder's sessions last ran on.
+pub fn newest_record(records: &Path) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(records)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|x| x == "jsonl"))
+        .filter_map(|path| Some((path.metadata().ok()?.modified().ok()?, path)))
+        .max_by_key(|(at, _)| *at)
+        .map(|(_, path)| path)
+}
+
+/// The fallback for a Claude Code session about to start in `records`' folder: the model is read
+/// from `record` (the one being resumed) or else the folder's newest record. Nothing when the
+/// member's switch is off, when no record says which model it is, or when the share is open.
+pub fn for_session(on: bool, record: Option<&Path>, records: Option<&Path>) -> Option<Fallback> {
+    if !on {
+        return None;
+    }
+    let asked = record.and_then(last_model).or_else(|| records.and_then(newest_record).and_then(|r| last_model(&r)))?;
+    remember_main(&asked);
+    pick(&asked, &crate::quota::claude_spent_shares(WAKE_WAIT), now_ms())
+}
+
+/// The model the main session last asked for, so a background run on the member's default
+/// (no model given) knows what that default is.
+static MAIN_MODEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn remember_main(model: &str) {
+    *MAIN_MODEL.lock().unwrap_or_else(|p| p.into_inner()) = Some(model.to_string());
+}
+
+/// The fallback for a background run: on the model given, else on the member's default as the
+/// last wake saw it. Only after a wake whose switch was on (a wake with it off forgets the model).
+pub fn for_background(model: Option<&str>) -> Option<Fallback> {
+    let known = MAIN_MODEL.lock().unwrap_or_else(|p| p.into_inner()).clone()?;
+    let asked = model.map(str::to_string).unwrap_or(known);
+    pick(&asked, &crate::quota::claude_spent_shares(WAKE_WAIT), now_ms())
+}
+
+/// A wake with the switch off: background runs keep their own model too.
+pub fn forget_main() {
+    *MAIN_MODEL.lock().unwrap_or_else(|p| p.into_inner()) = None;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +179,18 @@ mod tests {
         assert_eq!(last_model(&file).as_deref(), Some("claude-opus-5-5"));
         let _ = std::fs::remove_file(&file);
         assert_eq!(last_model(Path::new("C:/castle/no-such-record.jsonl")), None);
+    }
+
+    #[test]
+    fn the_newest_record_of_a_folder_is_found() {
+        let dir = std::env::temp_dir().join(format!("castle-newest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("old.jsonl"), "{}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::fs::write(dir.join("new.jsonl"), "{}").unwrap();
+        std::fs::write(dir.join("notes.txt"), "x").unwrap();
+        assert_eq!(newest_record(&dir), Some(dir.join("new.jsonl")));
+        assert_eq!(for_session(false, Some(&dir.join("new.jsonl")), Some(&dir)), None, "the switch off asks nothing");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

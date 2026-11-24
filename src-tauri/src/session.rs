@@ -108,6 +108,45 @@ pub struct TerminalView {
     /// The resting screen offers "Start fresh" beside Wake (the main session, unless every start
     /// is fresh already).
     offers_fresh_start: bool,
+    /// The session started on another model because its own weekly share is spent: one line for
+    /// the member (the screen writes it in their words and time).
+    notice: Option<ModelNotice>,
+}
+
+/// What the member is told when a session starts on the fallback.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelNotice {
+    pub share: String,
+    pub model: String,
+    pub until_ms: i64,
+}
+
+impl From<crate::model_pick::Fallback> for ModelNotice {
+    fn from(f: crate::model_pick::Fallback) -> Self {
+        ModelNotice { share: f.share, model: f.model.to_string(), until_ms: f.until_ms }
+    }
+}
+
+/// The fallback for a session about to start in `folder` with Claude Code, from the record it
+/// picks up (or the folder's newest). Other CLIs have no weekly model shares.
+pub fn fallback_for(settings: &Settings, folder: &Path, record: Option<&Path>) -> Option<crate::model_pick::Fallback> {
+    match settings.cli {
+        Cli::Claude => {
+            if !settings.share_fallback {
+                crate::model_pick::forget_main();
+                return None;
+            }
+            let records = crate::transcript::claude::projects_root().map(|root| root.join(crate::transcript::claude::project_folder_name(&folder.display().to_string())));
+            crate::model_pick::for_session(true, record, records.as_deref())
+        }
+        Cli::Codex | Cli::Gemini | Cli::Grok => None,
+    }
+}
+
+/// The CLI's words for starting on the fallback.
+pub fn fallback_args(fallback: Option<&crate::model_pick::Fallback>) -> Vec<String> {
+    fallback.map(|f| vec!["--model".to_string(), f.model.to_string()]).unwrap_or_default()
 }
 
 /// Whether the resting screen offers a one-off fresh start: only the main session picks a talk
@@ -126,6 +165,7 @@ fn view(store: &SettingsStore, host: &PtyHost, room: Room) -> TerminalView {
         status: status(&settings, room, program.as_deref()),
         snapshot: host.snapshot(),
         offers_fresh_start: offers_fresh_start(room, &settings.main_start),
+        notice: host.fallback().map(ModelNotice::from),
     }
 }
 
@@ -441,6 +481,8 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     let fresh_handoff = prompt.is_some_and(|p| p.starts_with(crate::providers::HANDOFF_PROMPT));
     let plan = (room == Room::Main).then(|| crate::resume::plan(store, settings.cli, &folder, !(fresh_handoff || fresh), &settings.main_start));
     let resumed = plan.as_ref().is_some_and(|p| p.resumed);
+    // a model whose weekly share is spent starts on the fallback (Claude Code only)
+    let fallback = fallback_for(&settings, &folder, plan.as_ref().and_then(|p| p.record.as_deref()));
     let plan_args: Vec<String> = plan.iter().flat_map(|p| p.args.clone()).collect();
     let mut args = Vec::new();
     match settings.cli {
@@ -454,6 +496,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
             args.extend(plan_args);
         }
     }
+    args.extend(fallback_args(fallback.as_ref()));
     args.extend(isolation_args);
     // a conversation picked up again is not greeted a second time
     let prompt = prompt.filter(|p| !(resumed && *p == WAKE_PROMPT));
@@ -476,7 +519,10 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
             let _ = ending.emit(exit_event, code);
         },
     )?;
-    if started { host.bind_provider(settings.cli); }
+    if started {
+        host.bind_provider(settings.cli);
+        host.set_fallback(fallback);
+    }
     // a CLI that names its own sessions is remembered once its record appears
     if started && room == Room::Main && !resumed {
         match settings.cli {
@@ -669,6 +715,20 @@ mod tests {
         assert_eq!(wake_args(Cli::Claude, Some(&only)).len(), 2);
         assert_eq!(wake_vars(Some(&only)), vec![("CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_string(), "1".to_string())]);
         assert!(wake_args(Cli::Codex, Some(&only)).is_empty());
+    }
+
+    #[test]
+    fn a_spent_share_adds_the_fallback_model_and_only_for_claude_code() {
+        let fallback = crate::model_pick::Fallback { model: "opus", share: "Fable".into(), until_ms: 1 };
+        assert_eq!(fallback_args(Some(&fallback)), vec!["--model", "opus"]);
+        assert!(fallback_args(None).is_empty());
+        let folder = std::env::temp_dir();
+        for cli in [Cli::Codex, Cli::Gemini, Cli::Grok] {
+            assert_eq!(fallback_for(&Settings { cli, ..Settings::default() }, &folder, None), None);
+        }
+        assert_eq!(fallback_for(&Settings { share_fallback: false, ..Settings::default() }, &folder, None), None, "the switch off");
+        let notice = ModelNotice::from(fallback);
+        assert_eq!((notice.share.as_str(), notice.model.as_str(), notice.until_ms), ("Fable", "opus", 1));
     }
 
     #[test]

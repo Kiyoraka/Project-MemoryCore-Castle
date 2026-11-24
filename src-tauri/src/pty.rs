@@ -158,6 +158,8 @@ pub struct PtyHost {
     /// When the session's recent turns were sent (Enter), newest last: a record the CLI starts
     /// right after one of them is this session's own (a /clear goes on in a new record).
     enters: Mutex<std::collections::VecDeque<std::time::SystemTime>>,
+    /// The session started on another model because its own weekly share was spent.
+    fallback: Mutex<Option<crate::model_pick::Fallback>>,
 }
 
 /// How many sent turns the host remembers for finding a record a /clear started.
@@ -180,6 +182,15 @@ impl PtyHost {
     }
     pub fn provider(&self) -> Option<crate::settings::Cli> {
         if self.is_running() { *self.provider.lock().unwrap() } else { None }
+    }
+
+    /// What this session started on instead of the member's model, when it did; kept while it runs.
+    pub fn fallback(&self) -> Option<crate::model_pick::Fallback> {
+        if self.is_running() { self.fallback.lock().unwrap().clone() } else { None }
+    }
+
+    pub fn set_fallback(&self, fallback: Option<crate::model_pick::Fallback>) {
+        *self.fallback.lock().unwrap() = fallback;
     }
 
     pub fn bind_provider(&self, provider: crate::settings::Cli) {

@@ -33,6 +33,7 @@ export const SETTINGS_DEFAULTS = {
   onlyThisCompanion: false,
   diaryLook: 'list',
   mainStart: 'rested',
+  shareFallback: true,
   emotionRoomVoice: true,
   profileLook: 'cards',
 }

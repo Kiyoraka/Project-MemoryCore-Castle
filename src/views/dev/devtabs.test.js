@@ -98,7 +98,9 @@ describe('DEV tabs', () => {
 
   it('reads a closed tab as asleep', () => {
     expect(sessionView(null).running).toBe(false)
-    expect(sessionView(tab(1, 'a', true))).toEqual({ running: true, status: { ready: true, message: '', fix: null } })
+    expect(sessionView(tab(1, 'a', true))).toEqual({ running: true, status: { ready: true, message: '', fix: null }, notice: null })
+    const fallback = { share: 'Fable', model: 'opus', untilMs: 1 }
+    expect(sessionView({ ...tab(1, 'a', true), notice: fallback }).notice).toEqual(fallback)
   })
 
   it('names a tab’s chat room and reads the slot back, leaving other rooms alone', () => {

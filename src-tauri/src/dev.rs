@@ -33,6 +33,8 @@ pub struct DevTab {
     number: u32,
     running: bool,
     status: SessionStatus,
+    /// the tab started on another model because its own weekly share is spent
+    notice: Option<session::ModelNotice>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +96,7 @@ fn state(store: &SettingsStore, hosts: &DevHosts) -> DevState {
                 number: numbers.get(slot).copied().unwrap_or(1),
                 running: hosts.0.get(slot).is_some_and(PtyHost::is_running),
                 status: tab_status(&settings, Path::new(folder), program.as_deref()),
+                notice: hosts.0.get(slot).and_then(PtyHost::fallback).map(session::ModelNotice::from),
             })
         })
         .collect();
@@ -169,6 +172,9 @@ fn wake(app: &AppHandle, store: &SettingsStore, hosts: &DevHosts, slot: usize, c
     // A DEV tab is always only this companion: the personal setup never reaches a project session.
     // The project's own CLAUDE.md is still read (it describes the project).
     // with Castle's status line, so the tab can show how full her context is
+    // a model whose weekly share is spent starts on the fallback (the project's own records say which)
+    let fallback = session::fallback_for(&settings, &project, None);
+    args.extend(session::fallback_args(fallback.as_ref()));
     let (isolation_args, isolation_vars) = session::isolation_with_status(store, settings.cli, true, &session::tools_folder(app))?;
     args.extend(isolation_args);
     vars.extend(isolation_vars);
@@ -194,6 +200,7 @@ fn wake(app: &AppHandle, store: &SettingsStore, hosts: &DevHosts, slot: usize, c
     )?;
     if started {
         host.bind_provider(settings.cli);
+        host.set_fallback(fallback);
     }
     Ok(())
 }

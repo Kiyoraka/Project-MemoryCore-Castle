@@ -54,6 +54,8 @@ struct Remembered {
 pub struct Plan {
     pub args: Vec<String>,
     pub resumed: bool,
+    /// Claude Code's record of the talk being picked up (its last model is the member's default).
+    pub record: Option<PathBuf>,
 }
 
 fn file(store: &SettingsStore) -> PathBuf {
@@ -192,7 +194,11 @@ pub fn plan(store: &SettingsStore, cli: Cli, folder: &Path, allow_resume: bool, 
             Cli::Grok | Cli::Codex | Cli::Gemini => {}
         }
     }
-    Plan { args, resumed: resumable.is_some() }
+    let record = match cli {
+        Cli::Claude => resumable.as_ref().and_then(|id| Some(claude_records(folder)?.join(format!("{id}.jsonl")))),
+        Cli::Codex | Cli::Gemini | Cli::Grok => None,
+    };
+    Plan { args, resumed: resumable.is_some(), record }
 }
 
 /// Codex names its own sessions: once a fresh one's rollout appears, its id is kept.

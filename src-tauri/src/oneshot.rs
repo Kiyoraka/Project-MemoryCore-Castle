@@ -69,7 +69,12 @@ pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Dur
     };
     let answer_file = folder.join("last-answer.txt");
     let _ = std::fs::remove_file(&answer_file);
-    let model = model_args(cli, model);
+    // a model whose weekly share is spent runs on the fallback (Claude Code only)
+    let fallback = match cli {
+        Cli::Claude => crate::model_pick::for_background(model),
+        Cli::Codex | Cli::Gemini | Cli::Grok => None,
+    };
+    let model = model_args(cli, fallback.as_ref().map(|f| f.model).or(model));
     match cli {
         // no tools at all, no MCP servers, no user-level settings or memory - only this folder
         Cli::Claude => command.args(["-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", rules_file]).args(&model),

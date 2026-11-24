@@ -33,6 +33,7 @@ import {
   terminalWrite,
 } from '../api/castle.js'
 import { devRoom, sessionView, tabForSlot } from '../views/dev/devtabs.js'
+import { noticeKey, noticeWords } from './modelnotice.js'
 
 const props = defineProps({
   // Changes whenever Settings saves, so the session status is read again.
@@ -105,6 +106,9 @@ const ended = ref(false)
 const status = ref({ ready: false, message: '', fix: null })
 // the resting screen offers "Start fresh" beside Wake (the main session only)
 const offersFresh = ref(false)
+// the session started on another model because its own weekly share is spent (one line, closable)
+const notice = ref(null)
+const closedNotice = ref('')
 const problem = ref('')
 const width = ref(readWidth())
 // CHAT or LOG under the companion's portrait; the wide button gives the panel the whole screen.
@@ -182,7 +186,10 @@ function show(state) {
   running.value = state.running
   status.value = state.status
   offersFresh.value = state.offersFreshStart === true
+  notice.value = state.notice ?? null
 }
+
+const noticeLine = () => (noticeKey(notice.value) === closedNotice.value ? '' : noticeWords(notice.value, props.companion))
 
 function fitNow() {
   if (!fit || !surface.value || surface.value.clientWidth === 0) return
@@ -466,6 +473,11 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
 
     <QuickActions v-if="!isDev && room !== 'story' && view !== 'profile'" :running="running" :write="writeToSession" :settings-stamp="settingsStamp" />
 
+    <p v-if="running && noticeLine()" class="model-notice" role="status">
+      <span>{{ noticeLine() }}</span>
+      <button title="Close" aria-label="Close" @click="closedNotice = noticeKey(notice)">×</button>
+    </p>
+
     <div class="body">
     <div v-show="view === 'log'" ref="surface" class="surface"></div>
     <div v-show="view === 'chat'" class="chat-area">
@@ -610,6 +622,28 @@ defineExpose({ wake, screenLines, writeToSession, addPaths })
   margin: auto;
   font-size: 13px;
   color: var(--text-dim);
+}
+
+.model-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.model-notice span {
+  flex: 1;
+}
+
+.model-notice button {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .body {
