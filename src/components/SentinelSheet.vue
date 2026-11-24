@@ -4,7 +4,7 @@
 // kept as normal or fixed, and the officer's log.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onSentinelChanged, sentinelAlarmsSeen, sentinelClick, sentinelFindings, sentinelLog, sentinelPatrolNow, sentinelStatus } from '../api/castle.js'
-import { findingButtons, moveLabel, patrolAgo, shieldLook } from './sentinel.js'
+import { findingButtons, moveLabel, networkLine, patrolAgo, shieldLook } from './sentinel.js'
 
 const emit = defineEmits(['settings'])
 const status = ref(null)
@@ -93,6 +93,7 @@ onBeforeUnmount(() => stop?.())
         <button v-if="ready" :disabled="busy !== 0 || status?.patrolling" @click="patrolNow">{{ busy === -1 || status?.patrolling ? 'On patrol…' : 'Patrol now' }}</button>
         <button v-else-if="status?.supported" @click="emit('settings')">Set it up</button>
       </div>
+      <p v-if="status?.supported" class="network">{{ networkLine(status) }}</p>
       <p v-if="said" class="said">{{ said }}</p>
       <p v-if="problem" class="problem">{{ problem }}</p>
     </section>
@@ -190,6 +191,11 @@ onBeforeUnmount(() => stop?.())
 .said {
   margin: 10px 0 0;
   color: var(--good);
+}
+.network {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
 }
 .problem {
   margin: 10px 0 0;

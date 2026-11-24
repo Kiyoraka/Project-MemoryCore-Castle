@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAC_LINE, STALE_MINUTES, findingButtons, moveLabel, patrolAgo, shieldLook, watchAgo } from './sentinel.js'
+import { MAC_LINE, STALE_MINUTES, findingButtons, moveLabel, networkLine, patrolAgo, shieldLook, watchAgo } from './sentinel.js'
 
 describe('the card on HOME says the watch is working', () => {
   it('tells how long ago the last patrol ran', () => {
@@ -92,5 +92,19 @@ describe('the buttons', () => {
     expect(moveLabel('block-port')).toBe('Block this port')
     expect(moveLabel('disable-startup')).toBe('Stop it starting with Windows')
     expect(moveLabel('something-new')).toBe('Fix')
+  })
+})
+
+describe('the Aegis Network on the sheet', () => {
+  it('says whether the member joined and what was blocked today', () => {
+    expect(networkLine({ network: false })).toBe('The Aegis Network: not joined (Settings > Sentinel).')
+    expect(networkLine({ network: true, networkBlocked: 0 })).toBe('The Aegis Network: joined. Nothing blocked today.')
+    expect(networkLine({ network: true, networkBlocked: 1 })).toBe('The Aegis Network: joined, 1 address blocked today.')
+    expect(networkLine({ network: true, networkBlocked: 3 })).toBe('The Aegis Network: joined, 3 addresses blocked today.')
+    expect(networkLine(null)).toMatch(/not joined/)
+  })
+
+  it('offers Undo on a block the network made, as on any fix', () => {
+    expect(findingButtons({ kind: 'network-address', state: 'fixed', undoable: true })).toEqual(['undo'])
   })
 })

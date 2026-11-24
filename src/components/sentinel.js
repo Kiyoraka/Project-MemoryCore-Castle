@@ -49,6 +49,13 @@ export function shieldLook(status) {
 }
 
 // The buttons a finding shows: Fix (only with a move), This is normal, Undo (only once fixed by a move).
+// The sheet's one line about the Aegis Network: joined or not, and today's blocks.
+export function networkLine(status) {
+  if (!status?.network) return 'The Aegis Network: not joined (Settings > Sentinel).'
+  const n = status.networkBlocked ?? 0
+  return n ? `The Aegis Network: joined, ${n} address${n === 1 ? '' : 'es'} blocked today.` : 'The Aegis Network: joined. Nothing blocked today.'
+}
+
 export function findingButtons(finding) {
   if (!finding) return []
   if (finding.state === 'open') {

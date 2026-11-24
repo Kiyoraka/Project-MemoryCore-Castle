@@ -43,6 +43,10 @@ pub struct Status {
     pub watch_minutes: Option<u64>,
     /// Why the book could not be read, when it could not.
     pub problem: Option<String>,
+    /// Joined the Aegis Network.
+    pub network: bool,
+    /// Addresses the network blocked in the last day.
+    pub network_blocked: u32,
 }
 
 fn memory(store: &SettingsStore) -> Result<PathBuf, String> {
@@ -65,12 +69,15 @@ fn status_of(store: &SettingsStore) -> Status {
         open: Counts::default(),
         watch_minutes: super::watch::last_tick(&hand::local_dir()).map(|t| now.saturating_sub(t) / 60),
         problem: None,
+        network: gear.network,
+        network_blocked: 0,
     };
     let read = memory(store).and_then(|m| book::open(&m)).and_then(|mut conn| {
         let patrol: Option<(Option<String>, Option<String>, i64)> = conn
             .query_first("SELECT status, line, TIMESTAMPDIFF(MINUTE, started_at, NOW()) FROM sentinel_patrols WHERE status IS NOT NULL ORDER BY id DESC LIMIT 1")
             .map_err(|_| "The Sentinel's book could not be read.".to_string())?;
         let unread: Option<u32> = conn.query_first("SELECT COUNT(*) FROM sentinel_alarms WHERE seen_at IS NULL").map_err(|_| "The Sentinel's book could not be read.".to_string())?;
+        status.network_blocked = super::network::blocked_today(&mut conn);
         let counts: Vec<(String, u32)> = conn
             .query("SELECT hint, COUNT(*) FROM sentinel_findings WHERE state = 'open' GROUP BY hint")
             .map_err(|_| "The Sentinel's book could not be read.".to_string())?;

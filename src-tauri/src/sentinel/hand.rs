@@ -36,6 +36,8 @@ pub enum Asker {
     Reflex,
     /// The member, with a spent click.
     Member,
+    /// The Aegis Network's shared list (network.rs): an address only, for a day.
+    Network,
 }
 
 impl Asker {
@@ -44,6 +46,7 @@ impl Asker {
             Asker::Officer => "officer",
             Asker::Reflex => "reflex",
             Asker::Member => "member",
+            Asker::Network => "network",
         }
     }
 }
@@ -55,6 +58,8 @@ pub fn allowed(asker: Asker, mv: &str) -> bool {
         Asker::Reflex => REFLEX.contains(&mv) || mv == "signins",
         Asker::Officer => ALONE.contains(&mv),
         Asker::Member => ALONE.contains(&mv) || CLICK.contains(&mv) || mv == "undo",
+        // the shared list may only close the door to an address, never anything else
+        Asker::Network => mv == "block-address",
     }
 }
 
@@ -275,6 +280,11 @@ mod tests {
         assert!(!allowed(Asker::Reflex, "block-address") && !allowed(Asker::Reflex, "scan-quick"));
         assert!(allowed(Asker::Reflex, "signins") && !allowed(Asker::Officer, "signins"));
         assert!(!allowed(Asker::Member, "format-disk") && !allowed(Asker::Member, "signins"));
+        // the Aegis Network's list may only block an address
+        assert!(allowed(Asker::Network, "block-address"));
+        for mv in ["firewall-on", "scan-quick", "block-port", "disable-task", "stop-process", "undo", "signins"] {
+            assert!(!allowed(Asker::Network, mv), "the network may not ask for {mv}");
+        }
     }
 
     #[test]

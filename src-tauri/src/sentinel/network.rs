@@ -279,6 +279,165 @@ pub fn report_caught(conn: &mut mysql::Conn, door: &Door) -> Result<usize, Strin
     }
 }
 
+/// A documentation address (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32): never a real
+/// attacker, so the list's copy of one is acted on only by a debug build's drill.
+pub fn is_documentation(address: &str) -> bool {
+    match address.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            let o = v4.octets();
+            matches!((o[0], o[1], o[2]), (192, 0, 2) | (198, 51, 100) | (203, 0, 113))
+        }
+        Ok(std::net::IpAddr::V6(v6)) => v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0db8,
+        Err(_) => false,
+    }
+}
+
+/// An address on the public internet (the Portfolio refuses the rest; this is the castle's own
+/// second look before its hand is asked, beside the hand's own refusals).
+pub fn is_public(address: &str) -> bool {
+    if is_documentation(address) {
+        return false;
+    }
+    match address.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            let o = v4.octets();
+            !(v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_multicast() || v4.is_broadcast() || v4.is_unspecified() || o[0] == 0 || o[0] >= 240 || (o[0] == 100 && (64..128).contains(&o[1])) || (o[0] == 198 && (o[1] == 18 || o[1] == 19)))
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            let first = v6.segments()[0];
+            !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80) && (first & 0xe000) == 0x2000
+        }
+        Err(_) => false,
+    }
+}
+
+/// Whether a debug build's drill may act on documentation addresses (CASTLE_AEGIS_DRILL=1). A
+/// release never does.
+pub fn drill_on() -> bool {
+    cfg!(debug_assertions) && std::env::var("CASTLE_AEGIS_DRILL").is_ok_and(|v| v == "1")
+}
+
+/// The listed addresses to block now: public (or, in a drill, a documentation address), not yet
+/// expired. The castle's own refusals (this PC, its router) are the hand's.
+pub fn to_block(list: &List, now_ms: i64, drill: bool) -> Vec<Listed> {
+    list.items
+        .iter()
+        .filter(|i| i.kind == "address")
+        .filter(|i| crate::quota::iso_ms(&i.expires).is_none_or(|at| at > now_ms))
+        .filter(|i| is_public(&i.value) || (drill && is_documentation(&i.value)))
+        .cloned()
+        .collect()
+}
+
+/// The listed detections: a warning each, never a block.
+pub fn warnings(list: &List) -> Vec<Listed> {
+    list.items.iter().filter(|i| i.kind == "detection" && !i.value.trim().is_empty() && !is_drill_name(&i.value)).cloned().collect()
+}
+
+/// What one reading of the list did.
+#[derive(Debug, Default, PartialEq)]
+pub struct Applied {
+    pub blocked: u32,
+    pub warned: u32,
+}
+
+/// Acts on the list: each address the network has not blocked in the last day, and the member has
+/// not undone, is blocked for a day through the hand (its own card, settled with Undo); each
+/// detection becomes a warning card. The hand still refuses this computer, its router and loopback.
+pub fn apply_list(conn: &mut mysql::Conn, list: &List, drill: bool) -> Applied {
+    use mysql::prelude::Queryable;
+    let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let mut applied = Applied::default();
+    for item in to_block(list, now_ms, drill) {
+        let recent: Option<u64> = conn
+            .exec_first(
+                "SELECT id FROM sentinel_actions WHERE asked_by = 'network' AND move = 'block-address' AND arg = ? AND ((state = 'done' AND done_at > NOW() - INTERVAL 23 HOUR) OR undone_at > NOW() - INTERVAL 1 DAY) LIMIT 1",
+                (&item.value,),
+            )
+            .ok()
+            .flatten();
+        if recent.is_some() {
+            continue;
+        }
+        let lifts = (chrono::Local::now() + chrono::Duration::hours(24)).format("%a %-I:%M %p").to_string();
+        let title = format!("Blocked by the Aegis Network: {}", item.value);
+        let detail = format!("{} castles reported this address in the last day. The block lifts {lifts}.", item.castles.max(2));
+        let print = super::book::print_of("network-address", &[item.value.as_str()]);
+        let opened = conn.exec_drop(
+            "INSERT INTO sentinel_findings (fingerprint, kind, hint, title, detail, fix_move, fix_arg) VALUES (?, 'network-address', 'look', ?, ?, 'block-address', ?) ON DUPLICATE KEY UPDATE state = 'open', title = VALUES(title), detail = VALUES(detail), last_seen = NOW(), closed_at = NULL",
+            (&print, &title, &detail, &item.value),
+        );
+        if opened.is_err() {
+            continue;
+        }
+        let Ok(Some(finding)) = conn.exec_first::<u64, _, _>("SELECT id FROM sentinel_findings WHERE fingerprint = ?", (&print,)) else { continue };
+        if super::officer::act(conn, super::hand::Asker::Network, "block-address", Some(&item.value), Some(finding)).is_ok_and(|a| a.ok) {
+            applied.blocked += 1;
+        }
+    }
+    for item in warnings(list) {
+        let print = super::book::print_of("network-detection", &[item.value.as_str()]);
+        let title = format!("Other castles saw {} this week", item.value);
+        let detail = "Two or more castles' antivirus found this. Nothing was found here; the Sentinel only says so.".to_string();
+        let new = conn.exec_drop(
+            "INSERT IGNORE INTO sentinel_findings (fingerprint, kind, hint, title, detail) VALUES (?, 'network-detection', 'note', ?, ?)",
+            (&print, &title, &detail),
+        );
+        if new.is_ok() && conn.affected_rows() > 0 {
+            applied.warned += 1;
+        }
+    }
+    applied
+}
+
+/// How many addresses the network blocked in the last day (the sheet's line).
+pub fn blocked_today(conn: &mut mysql::Conn) -> u32 {
+    use mysql::prelude::Queryable;
+    conn.query_first("SELECT COUNT(*) FROM sentinel_actions WHERE asked_by = 'network' AND state = 'done' AND done_at > NOW() - INTERVAL 1 DAY").ok().flatten().unwrap_or(0)
+}
+
+/// Listens to the shared list while the member is joined: one catch-up ask when Castle starts,
+/// when the member joins again and after the computer slept, then one held read after another.
+/// Off, or signed out, it asks nothing and looks again in a while.
+pub fn listen(app: &tauri::AppHandle) {
+    use tauri::{Emitter, Manager};
+    let app = app.clone();
+    let _ = std::thread::Builder::new().name("aegis-network".into()).spawn(move || {
+        let mut version: Option<i64> = None;
+        let mut last = std::time::Instant::now();
+        loop {
+            let settings = app.state::<crate::settings::SettingsStore>().get();
+            let (Some(door), Some(memory)) = (door(&settings), settings.memory_folder.clone()) else {
+                version = None; // joining again starts with a catch-up
+                std::thread::sleep(Duration::from_secs(15));
+                continue;
+            };
+            // a long gap means the computer slept: the news it missed comes with a catch-up
+            if last.elapsed() > Duration::from_secs(600) {
+                version = None;
+            }
+            let answer = door.list(version, if version.is_some() { HELD_WAIT } else { 0 });
+            last = std::time::Instant::now();
+            match answer {
+                Ok(list) => {
+                    let changed = version != Some(list.version);
+                    version = Some(list.version);
+                    if changed {
+                        if let Ok(mut conn) = super::book::open(std::path::Path::new(&memory)) {
+                            let done = apply_list(&mut conn, &list, drill_on());
+                            if done.blocked + done.warned > 0 {
+                                super::officer::log(&format!("\nthe Aegis Network's list: {} blocked for a day, {} warning(s)\n", done.blocked, done.warned));
+                                let _ = app.emit(super::CHANGED, ());
+                            }
+                        }
+                    }
+                }
+                Err(away) => std::thread::sleep(away.rest()),
+            }
+        }
+    });
+}
+
 /// The door for this member, when they joined and are signed in to the Foundation.
 pub fn door(settings: &crate::settings::Settings) -> Option<Door> {
     if !settings.sentinel.network {
@@ -410,6 +569,33 @@ mod tests {
         assert_eq!(report_caught(&mut c, &Door::new(&base, "k")), Ok(1));
         assert!(seen.join().unwrap().contains("45.155.205.233"));
         c.query_drop(format!("DROP DATABASE `{}`", access.name)).unwrap();
+    }
+
+    #[test]
+    fn only_a_public_unexpired_address_is_blocked_and_a_drill_only_in_a_drill() {
+        let now = crate::quota::iso_ms("2026-11-25T02:00:00Z").unwrap();
+        let entry = |kind: &str, value: &str, expires: &str| Listed { kind: kind.into(), value: value.into(), castles: 2, first_seen: String::new(), last_seen: String::new(), expires: expires.into() };
+        let list = List {
+            version: 1,
+            items: vec![
+                entry("address", "185.220.101.4", "2026-11-25T20:00:00Z"),
+                entry("address", "45.155.205.233", "2026-11-25T01:00:00Z"),
+                entry("address", "10.0.0.1", "2026-11-25T20:00:00Z"),
+                entry("address", "203.0.113.7", "2026-11-25T20:00:00Z"),
+                entry("detection", "Trojan:Win32/Example!ml", "2026-11-25T20:00:00Z"),
+                entry("detection", "Virus:DOS/EICAR_Test_File", "2026-11-25T20:00:00Z"),
+            ],
+        };
+        let values = |v: Vec<Listed>| v.into_iter().map(|i| i.value).collect::<Vec<_>>();
+        assert_eq!(values(to_block(&list, now, false)), vec!["185.220.101.4"], "expired, private and documentation addresses are left");
+        assert_eq!(values(to_block(&list, now, true)), vec!["185.220.101.4", "203.0.113.7"], "a drill acts on the documentation address too");
+        assert_eq!(values(warnings(&list)), vec!["Trojan:Win32/Example!ml"], "a detection is a warning, never the test file");
+        assert!(is_documentation("203.0.113.7") && is_documentation("2001:db8::1") && !is_documentation("185.220.101.4"));
+        for private in ["127.0.0.1", "192.168.1.1", "169.254.0.1", "100.64.0.1", "0.1.2.3", "224.0.0.1", "::1", "fe80::1", "fd00::1"] {
+            assert!(!is_public(private), "{private}");
+        }
+        assert!(is_public("185.220.101.4") && is_public("2a01:4f8::1"));
+        assert!(!drill_on() || cfg!(debug_assertions), "a release never drills");
     }
 
     #[test]

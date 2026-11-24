@@ -795,6 +795,7 @@ pub fn run() {
             market::engine::start(app.handle());
             market::companion::start(app.handle());
             sentinel::start(app.handle());
+            sentinel::network::listen(app.handle());
             automations::start(app.handle());
             db::start_with_castle(app.handle());
             Ok(())
