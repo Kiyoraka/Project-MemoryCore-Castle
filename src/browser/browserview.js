@@ -25,3 +25,21 @@ export function shownAddress(tabs) {
   const tab = tabs?.list?.find((t) => t.id === tabs.active)
   return tab?.url ?? ''
 }
+
+// Sign-in pages where a Google sign-in fails or is not kept in an embedded window (F11).
+const SIGN_IN = [
+  (u) => u.hostname === 'claude.ai' && u.pathname.startsWith('/login'),
+  (u) => u.hostname === 'accounts.google.com',
+]
+
+/** A line for the toolbar while a sign-in page is in front, else ''. */
+export function signInHint(url) {
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch {
+    return ''
+  }
+  if (parsed.protocol !== 'https:' || !SIGN_IN.some((match) => match(parsed))) return ''
+  return 'Sign in with your email code: Google sign-in is not kept in this window'
+}

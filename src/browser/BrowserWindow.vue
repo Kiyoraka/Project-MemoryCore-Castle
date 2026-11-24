@@ -17,7 +17,7 @@ import {
   onBrowserState,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
-import { newTabShortcuts, shownAddress } from './browserview.js'
+import { newTabShortcuts, shownAddress, signInHint } from './browserview.js'
 
 const tabs = ref({ list: [], active: null })
 const typed = ref('')
@@ -31,6 +31,7 @@ const current = computed(() => tabs.value.list.find((t) => t.id === tabs.value.a
 const page = computed(() => current.value?.url ?? '')
 const shortcuts = computed(() => newTabShortcuts(servers.value, newTab.value))
 const secure = computed(() => page.value.startsWith('https://'))
+const hint = computed(() => signInHint(page.value))
 
 watch(page, (url) => (typed.value = url), { immediate: true })
 
@@ -114,7 +115,8 @@ onBeforeUnmount(() => {
         <button class="icon add" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
-        <span class="safe" title="Web pages here get no Castle permissions: they cannot read your memory, chats or files.">
+        <span v-if="hint" class="safe hint" role="status">{{ hint }}</span>
+        <span v-else class="safe" title="Web pages here get no Castle permissions: they cannot read your memory, chats or files.">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6z" /></svg>
           This window can't reach Castle or your memory
         </span>
@@ -263,6 +265,9 @@ onBeforeUnmount(() => {
 }
 .safe svg {
   color: var(--good);
+}
+.safe.hint {
+  color: var(--warn);
 }
 .tools {
   height: 52px;
