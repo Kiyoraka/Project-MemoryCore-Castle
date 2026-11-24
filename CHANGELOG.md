@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- A phone in DEV: a Flutter or Kotlin project's tab shows Phone, with Mobile setup (your companion installs whatever is missing, worded for your computer) and then a live Android phone beside the chat, with taps, typing, Run, Hot reload and Restart. On a Mac the iOS side is the real iPhone simulator; on Windows and Linux it is an iPhone-sized preview of the Flutter app.
+
 - Changed: companions now know how to set up an automation for you. Their instructions say what a job looks like (trigger, action and delivery kinds) and how to propose one with `castle-memory automation propose`; it waits disabled in AUTOMATIONS until you approve and switch it on.
 
 - STUDIO can draw its plain pictures with your own ComfyUI, with no key and no cost: turn it on in Settings > Connect > ComfyUI, say where it listens and which file starts it (Castle starts it hidden and closes only what it started), and pick a checkpoint or point Castle at a workflow you exported from ComfyUI, with its own model and nodes. Stop and Retry work as before; a picture that follows reference pictures, APPEARANCE's looks and Write prompt from picture still go to Codex or your OpenAI key.

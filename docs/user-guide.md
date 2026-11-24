@@ -698,6 +698,24 @@ Each theme keeps its own places: change theme and the cards sit where that theme
 - **Production** opens in **LOOK**, read only. Press **Change mode** to unlock it. Even then, a change runs held: press **Keep** to make it final or **Undo** to put everything back. Nothing kept within two minutes is undone by itself. A change to a table's shape (ALTER, DROP...) cannot be undone, so it asks twice.
 - Every statement is written to Castle's own log, without any rows.
 
+### A phone for mobile projects
+
+A **Flutter** project (a `pubspec.yaml` with a `flutter:` section) or an **Android** app in Kotlin (a Gradle file with `com.android.application`) shows **Phone** in its tab. It opens a phone beside the chat.
+
+**Mobile setup.** While something is missing, the panel lists what the phone needs: **Android SDK**, **Emulator**, **A phone**, and **Flutter** (or **Java** for Kotlin). A green check means it is there.
+- **Create** makes a phone from an Android image already on your computer.
+- **Install**, or **Ask my companion to install** for everything at once, types one sentence into this tab's session naming what is missing and how to get it on your computer (winget on Windows, Homebrew on a Mac, the official installers on Linux). You never install by hand. Wake the session first.
+- When your companion finishes its reply, the panel checks again by itself. **Check again** does it any time.
+
+**The phone.** Pick a phone and press **Run**. It starts with no window of its own and appears in the panel. A click is a touch and typing goes into the phone. **Back**, **Home**, **Recent** and **Rotate** sit under it.
+- **Run** puts your app on the phone. For Flutter, **Hot reload** shows a change in about a second and **Restart** starts the app again. For Kotlin, **Restart** builds and installs it again (Kotlin has no hot reload).
+- The build's own lines show under the phone, apart from the chat.
+- **Stop** ends the app and the phone. Closing the tab or quitting Castle stops them too. Castle only ever stops a phone it started itself. A phone you opened from Android Studio is left alone.
+
+**iOS.** The **Android | iOS** switch is for Flutter projects only.
+- On a **Mac** with Xcode, iOS is the real **iPhone simulator**. It opens in its own window, and Hot reload and Restart work as on Android. Setup asks for **Xcode** and **an iPhone simulator** the same way.
+- On **Windows** and **Linux**, iOS is the **iPhone preview**: your Flutter app as a web page in an iPhone-sized frame. It is handy for layout, but it is not a real iPhone.
+
 ---
 
 ## 17. Market
