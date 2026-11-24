@@ -24,8 +24,10 @@ official = ["dep:tauri-plugin-updater"]
 tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
 prost = "0.13"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
-tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset", "unstable"] }
 serde = { version = "1", features = ["derive"] }
+# the browser window keeps sign-in cookies between runs (same version Tauri already uses)
+cookie = "0.18"
 serde_json = "1"
 regex = "1"
 chrono = { version = "0.4", features = ["clock"] }

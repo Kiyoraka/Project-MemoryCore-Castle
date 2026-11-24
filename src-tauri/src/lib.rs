@@ -69,6 +69,8 @@ mod resume;
 mod quota;
 mod alerts;
 mod bridges;
+mod browser;
+mod browser_tabs;
 mod roomalert;
 mod roomdraw;
 mod roomvoice;
@@ -316,6 +318,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![startup::SIGN_IN_ARG]),
         ))
+        .manage(browser::Browser::default())
         .manage(automations::Running::default())
         .manage(emulator::Phones::default())
         .manage(cmd_phone::Screens::default())
@@ -582,6 +585,16 @@ pub fn run() {
             story::story_beat,
             world::world_screens,
             world::world_apply,
+            browser::link_open,
+            browser::browser_open,
+            browser::browser_state,
+            browser::browser_switch,
+            browser::browser_close,
+            browser::browser_go,
+            browser::browser_step,
+            browser::browser_outside,
+            browser::browser_put_in_chat,
+            browser::browser_clear,
             world::castle_move_to_screen,
             world::world_music,
             world::world_identify,

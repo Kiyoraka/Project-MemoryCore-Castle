@@ -444,7 +444,8 @@ function typedText(line) {
 
 // a file put in the chat from outside (the DEV tab's FILES reader), as if dropped in the box
 const addPaths = (paths) => chat.value?.addPaths(paths)
-defineExpose({ wake, screenLines, writeToSession, addPaths })
+const addText = (text) => chat.value?.addText(text)
+defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
 </script>
 
 <template>

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TopBar from './components/TopBar.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
+import LinkMenu from './components/LinkMenu.vue'
 import ClockWidget from './components/widgets/ClockWidget.vue'
 import GaugeWidget from './components/widgets/GaugeWidget.vue'
 import WeatherWidget from './components/widgets/WeatherWidget.vue'
@@ -17,7 +18,7 @@ import CreditWidget from './components/widgets/CreditWidget.vue'
 import DatabaseOffer from './components/DatabaseOffer.vue'
 import { shouldOffer } from './components/database.js'
 import CompanionHeader from './components/CompanionHeader.vue'
-import { alertActiveRoom, nodePrepare, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
+import { alertActiveRoom, browserOpen, nodePrepare, onBrowserPutInChat, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
 import { prepareStudio } from './composables/useStudio.js'
 import { prepareLibrary } from './composables/useLibrary.js'
 import { loadUserThemes } from './composables/useThemes.js'
@@ -37,7 +38,7 @@ import AutomationsView from './views/AutomationsView.vue'
 import CalendarView from './views/CalendarView.vue'
 import FinanceView from './views/FinanceView.vue'
 import LauncherView from './views/LauncherView.vue'
-import { DEFAULT_PINS, badgesFor, cleanPins, headerTabs, opensLauncher, setPinned } from './launcher.js'
+import { DEFAULT_PINS, badgesFor, cleanPins, headerTabs, opensLauncher, setPinned, windowRoom } from './launcher.js'
 import { calendarCard, prepareCalendar, refreshCalendarCard } from './composables/useCalendar.js'
 import { automations, prepareAutomations } from './composables/useAutomations.js'
 import ThemeView from './views/ThemeView.vue'
@@ -90,10 +91,22 @@ const allTabs = [
   { id: 'automations', label: 'AUTOMATIONS' },
   { id: 'calendar', label: 'CALENDAR' },
   { id: 'finance', label: 'FINANCE' },
+  // tiles that open the BROWSER window instead of a room (launcher.js windowRoom)
+  { id: 'browser', label: 'BROWSER' },
+  { id: 'artifacts', label: 'ARTIFACTS' },
 ]
 // dev only: ?tab=<room> opens a room straight away (for checking a room in a browser)
 const devTab = import.meta.env.DEV ? new URLSearchParams(location.search).get('tab') : null
 const active = ref(devTab || 'home')
+// HOME's chat panel: the BROWSER window's Put in chat writes a page's address into its box
+const homePanel = ref(null)
+// BROWSER and ARTIFACTS (from APPS or a pinned tab) open the browser window; Castle stays where it was
+watch(active, (id, before) => {
+  const opens = windowRoom(id)
+  if (!opens) return
+  active.value = before && !windowRoom(before) ? before : 'home'
+  browserOpen(opens.url).catch(() => {})
+})
 // What HOME shows (memory_home), the backup card, the portrait and the CLI chip.
 const home = ref(null)
 let stopAutomations
@@ -587,6 +600,10 @@ let stopProviderEvents
 let stopOpenChat
 let stopOpenRoom
 onMounted(async () => {
+  onBrowserPutInChat((url) => {
+    active.value = 'home'
+    homePanel.value?.addText(url)
+  }).catch(() => null)
   window.addEventListener('keydown', onArrangeKey)
   window.addEventListener('keydown', onLauncherKey)
   stopProviderEvents = await onProviderChanged(async () => { await settingsSaved(); window.dispatchEvent(new Event('castle-provider-changed')) }).catch(() => null)
@@ -689,6 +706,7 @@ watch(settingsStamp, () => {
         <ThemeSound v-if="theme?.motionSoundUrl" :theme="theme" :visible="active === 'home'" :enabled="wallpaperSound" />
         <QuotaGlow v-if="theme?.quotaGlow" :theme="theme" :visible="active === 'home'" />
         <TerminalPanel
+          ref="homePanel"
           :settings-stamp="settingsStamp"
           :companion="companion"
           :cli="cli"
@@ -776,6 +794,7 @@ watch(settingsStamp, () => {
       <MeterAlert />
       <AmbientMusic />
       <UpdateChip @status="updateInfo = $event" @about="openSettings('about')" />
+      <LinkMenu />
       <SetupView v-if="setupOpen" :reopened="setupReopened" @done="setupDone" @close="setupOpen = false" />
     </main>
   </div>

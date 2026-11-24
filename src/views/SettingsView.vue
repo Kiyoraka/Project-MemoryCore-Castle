@@ -9,7 +9,7 @@ import AlertsPane from './AlertsPane.vue'
 import SentinelSettings from './SentinelSettings.vue'
 import ComfySettings from './ComfySettings.vue'
 import WidgetsView from './WidgetsView.vue'
-import { DEFAULT_PINS, setPinned } from '../launcher.js'
+import { DEFAULT_PINS, pinRows, setPinned } from '../launcher.js'
 import { offeredProviders } from '../components/providers.js'
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
 import ModalSheet from '../components/ModalSheet.vue'
@@ -64,6 +64,7 @@ import {
   setupCheckCli,
   setupInspect,
   voiceStudioStatus,
+  browserClear,
 } from '../api/castle.js'
 
 const props = defineProps({
@@ -399,8 +400,14 @@ const ROOM_GROUPS = [
     ],
   },
 ]
-// Pins: which rooms sit in the top bar beside HOME and APPS (the room launcher).
-const pinnable = computed(() => ROOM_GROUPS.flatMap((g) => g.rooms))
+// Pins: which rooms sit in the top bar beside HOME and APPS (the room launcher). Every tile in APPS can be
+// pinned, also the ones that cannot be switched off (the BROWSER and ARTIFACTS window tiles), and a pin
+// switched here keeps the pins made on the tiles.
+const PIN_ONLY = [
+  { id: 'browser', label: 'BROWSER' },
+  { id: 'artifacts', label: 'ARTIFACTS' },
+]
+const pinnable = computed(() => pinRows(Object.fromEntries([...ROOM_GROUPS.flatMap((g) => g.rooms), ...PIN_ONLY].map((r) => [r.id, r.label]))))
 const pinnedNow = computed(() => settings.value?.pinnedRooms ?? DEFAULT_PINS)
 function setPin(id, on) {
   return saveRow('pins', { pinnedRooms: setPinned(pinnedNow.value, id, on, pinnable.value.map((r) => r.id)) })
@@ -872,6 +879,21 @@ onMounted(async () => {
               </SettingRow>
               <SettingRow id="pins-reset" label="First pins" description="CHAT, PROJECTS and DEV.">
                 <button :disabled="locked" @click="saveRow('pins-reset', { pinnedRooms: [...DEFAULT_PINS] })">Put back</button>
+              </SettingRow>
+            </SettingGroup>
+
+            <SettingGroup id="browser" title="Browser" tip="Castle's own browser window opens on the right half of your screen; its full-screen button makes it fill the screen. Web pages there get no Castle permissions: they cannot read your memory, chats or files.">
+              <SettingRow id="link-open" label="Open links from chats" description="HOME chat, DEV chats and the CHAT room. Right-click a link to choose once.">
+                <SettingChoice :model-value="valueOf(settings, 'linkOpen')" :options="[{ value: 'castle', label: 'Castle\'s browser' }, { value: 'system', label: 'Your browser' }, { value: 'ask', label: 'Ask each time' }]" label="Open links from chats" :disabled="locked" @update:model-value="(v) => saveRow('link-open', { linkOpen: v })" />
+              </SettingRow>
+              <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
+                <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
+              </SettingRow>
+              <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
+                <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
+              </SettingRow>
+              <SettingRow id="browser-clear" label="Clear browsing data" description="Signs you out of every site in the browser window and clears its history. Castle's memory is not touched. Works while the browser window has a page open.">
+                <SettingConfirm label="Clear…" :disabled="locked" @confirm="rows.run('browser-clear', () => browserClear()).catch(() => {})" />
               </SettingRow>
             </SettingGroup>
 

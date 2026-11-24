@@ -55,6 +55,11 @@ if (devThemeRoom) {
   Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden' })
   Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: '#040817' })
   import('./worlds/WorldWindow.vue').then(({ default: WorldWindow }) => createApp(WorldWindow, { initial: view }).mount('#app'))
+} else if (view?.view === 'browser') {
+  // the BROWSER window's own toolbar page (browser.rs); the web pages are separate webviews
+  Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden' })
+  Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: '#050b1f' })
+  import('./browser/BrowserWindow.vue').then(({ default: BrowserWindow }) => createApp(BrowserWindow).mount('#app'))
 } else if (view?.view === 'identify') {
   // see-through, so only the number and its frame show over whatever is on that screen
   Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden', background: 'transparent' })

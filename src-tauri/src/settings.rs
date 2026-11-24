@@ -118,6 +118,8 @@ pub struct QuickAction {
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
 pub const ROOMS: [&str; 18] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance"];
+/// Tiles that open the BROWSER window rather than a room (launcher.js windowRoom): pinnable too.
+const WINDOW_TILES: [&str; 2] = ["browser", "artifacts"];
 /// Rooms that wait for the member's own switch in Settings > Rooms, for a new Castle and for one
 /// that never stored a choice for them.
 const ROOMS_OFF_AT_FIRST: [&str; 6] = ["library", "market", "messaging", "automations", "calendar", "finance"];
@@ -438,6 +440,13 @@ pub struct Settings {
     /// A Claude Code session whose model has used up its own weekly share (Claude's per-model limit)
     /// starts on another model until the share opens again (model_pick.rs). On by default.
     pub share_fallback: bool,
+    /// Where a link clicked in a chat opens: one of LINK_OPENS - `castle` the BROWSER window,
+    /// `system` the member's own browser, `ask` a small menu each time.
+    pub link_open: String,
+    /// The BROWSER window's pages keep their sign-ins between runs (off: every page is private).
+    pub browser_remember: bool,
+    /// What a new tab in the BROWSER window shows: one of BROWSER_NEW_TABS.
+    pub browser_new_tab: String,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -529,6 +538,10 @@ const TAB_ID_MAX: usize = 32;
 
 pub const DIARY_LOOKS: [&str; 3] = ["list", "calendar", "book"];
 pub const MAIN_STARTS: [&str; 3] = ["continue", "rested", "fresh"];
+/// Where a chat's links open (Settings > Rooms > Browser).
+pub const LINK_OPENS: [&str; 3] = ["castle", "system", "ask"];
+/// What a new tab in the BROWSER window shows.
+pub const BROWSER_NEW_TABS: [&str; 3] = ["shortcuts", "artifacts", "blank"];
 /// How long a talk may be quiet before `rested` starts a fresh session instead.
 pub const REST_HOURS: u64 = 6;
 pub const PROFILE_LOOKS: [&str; 2] = ["cards", "constellation"];
@@ -613,6 +626,9 @@ impl Default for Settings {
             diary_look: "list".into(),
             main_start: "rested".into(),
             share_fallback: true,
+            link_open: "castle".into(),
+            browser_remember: true,
+            browser_new_tab: "shortcuts".into(),
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -688,7 +704,7 @@ impl Settings {
         self.pinned_rooms = std::mem::take(&mut self.pinned_rooms)
             .into_iter()
             .map(|id| id.trim().to_string())
-            .filter(|id| ROOMS.contains(&id.as_str()) && !ALWAYS_SHOWN.contains(&id.as_str()))
+            .filter(|id| (ROOMS.contains(&id.as_str()) || WINDOW_TILES.contains(&id.as_str())) && !ALWAYS_SHOWN.contains(&id.as_str()))
             .filter(|id| pinned_seen.insert(id.clone()))
             .collect();
         self.world.volume = self.world.volume.clamp(0.0, 1.0);
@@ -710,6 +726,12 @@ impl Settings {
         }
         if !MAIN_STARTS.contains(&self.main_start.as_str()) {
             self.main_start = "rested".into();
+        }
+        if !LINK_OPENS.contains(&self.link_open.as_str()) {
+            self.link_open = "castle".into();
+        }
+        if !BROWSER_NEW_TABS.contains(&self.browser_new_tab.as_str()) {
+            self.browser_new_tab = "shortcuts".into();
         }
         if !PROFILE_LOOKS.contains(&self.profile_look.as_str()) {
             self.profile_look = "cards".into();
@@ -1151,6 +1173,9 @@ mod tests {
             diary_look: "book".into(),
             main_start: "continue".into(),
             share_fallback: false,
+            link_open: "system".into(),
+            browser_remember: false,
+            browser_new_tab: "blank".into(),
             emotion_room_voice: false,
             emotion_market_voice: false,
             profile_look: "constellation".into(),
@@ -1312,6 +1337,23 @@ mod tests {
         assert_eq!(Settings::default().last_seen_version, None);
         assert_eq!(Settings { last_seen_version: Some(" 0.2.0 ".into()), ..Settings::default() }.normalized().last_seen_version.as_deref(), Some("0.2.0"));
         assert_eq!(Settings { last_seen_version: Some("  ".into()), ..Settings::default() }.normalized().last_seen_version, None);
+    }
+
+    #[test]
+    fn the_browser_and_artifacts_tiles_can_be_pinned() {
+        let s = Settings { pinned_rooms: vec!["artifacts".into(), "browser".into(), "nowhere".into()], ..Settings::default() }.normalized();
+        assert_eq!(s.pinned_rooms, vec!["artifacts", "browser"]);
+    }
+
+    #[test]
+    fn links_open_in_castle_by_default_and_the_browser_keeps_sign_ins() {
+        let d = Settings::default();
+        assert_eq!((d.link_open.as_str(), d.browser_remember, d.browser_new_tab.as_str()), ("castle", true, "shortcuts"));
+        assert_eq!(Settings { link_open: "ask".into(), ..Settings::default() }.normalized().link_open, "ask");
+        assert_eq!(Settings { link_open: "nowhere".into(), browser_new_tab: "x".into(), ..Settings::default() }.normalized().link_open, "castle");
+        assert_eq!(Settings { browser_new_tab: "x".into(), ..Settings::default() }.normalized().browser_new_tab, "shortcuts");
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
     }
 
     #[test]

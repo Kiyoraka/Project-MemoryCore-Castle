@@ -653,3 +653,18 @@ export const automationMessageMatch = (trigger, text) => invoke('automation_mess
 export const automationDescribe = text => invoke('automation_describe', { text })
 
 export const automationHealth = () => invoke('automation_health')
+
+// The BROWSER window (CASTLE-12). A chat's link goes where Settings > Rooms > Browser says:
+// -> 'castle' | 'system' | 'ask' (the chat then shows its small menu).
+export const linkOpen = (url) => invoke('link_open', { url })
+export const browserOpen = (url = null) => invoke('browser_open', { url })
+export const browserState = () => invoke('browser_state')
+export const browserSwitch = (id) => invoke('browser_switch', { id })
+export const browserClose = (id) => invoke('browser_close', { id })
+export const browserGo = (input) => invoke('browser_go', { input })
+export const browserStep = (step) => invoke('browser_step', { step })
+export const browserOutside = (url) => invoke('browser_outside', { url })
+export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
+export const browserClear = () => invoke('browser_clear')
+export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
+export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))

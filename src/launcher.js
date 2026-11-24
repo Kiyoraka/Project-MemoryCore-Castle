@@ -23,7 +23,7 @@ export const LAUNCHER_TAB = { id: 'launcher', label: 'APPS', fixed: true, title:
 // Quiet group labels; group order and membership live here and nowhere else.
 export const GROUPS = [
   { id: 'companion', label: 'Companion', rooms: ['home', 'chat', 'myprofile', 'diary', 'appearance', 'finance'] },
-  { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'automations', 'calendar'] },
+  { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'automations', 'calendar', 'browser', 'artifacts'] },
   { id: 'create', label: 'Create', rooms: ['studio', 'story', 'world', 'library'] },
   { id: 'connect', label: 'Connect', rooms: ['messaging', 'market'] },
   { id: 'system', label: 'System', rooms: ['theme', 'apps'] },
@@ -50,6 +50,18 @@ export const HINTS = {
   market: 'Prices and a pretend shop',
   theme: 'How Castle looks',
   apps: 'Your Start-menu apps',
+  browser: 'Web pages beside Castle, on the right half of the screen',
+  artifacts: 'Your Claude artifacts: pages, decks and designs',
+}
+
+// Tiles that open the BROWSER window (CASTLE-12/13) instead of a room: url null is a new tab.
+const WINDOW_ROOMS = {
+  browser: { url: null },
+  artifacts: { url: 'https://claude.ai/code/artifacts' },
+}
+/** { url } for a tile that opens the browser window, or null for a room. */
+export function windowRoom(id) {
+  return Object.hasOwn(WINDOW_ROOMS, id ?? '') ? { ...WINDOW_ROOMS[id] } : null
 }
 
 /** The rooms (the visible tabs) in their groups. A room appears exactly once; one this list does not know
@@ -75,6 +87,15 @@ export function cleanPins(ids, known = []) {
     .map((id) => String(id).trim())
     .filter((id) => id && !FIXED.includes(id) && (real.size === 0 || real.has(id)) && !seen.has(id) && seen.add(id))
     .slice(0, MAX_PINS)
+}
+
+/** The rows of Settings > Rooms > Top bar: every room the launcher shows except HOME and APPS, in the
+ * launcher's own order, so the list matches the tiles. `labels` maps a room id to its name; a room
+ * with no name there is left out. */
+export function pinRows(labels = {}) {
+  return GROUPS.flatMap((g) => g.rooms)
+    .filter((id) => !FIXED.includes(id) && labels[id])
+    .map((id) => ({ id, label: labels[id] }))
 }
 
 /** The pins with one room pinned or unpinned. HOME and the launcher cannot be pinned. */

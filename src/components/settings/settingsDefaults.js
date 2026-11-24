@@ -34,6 +34,9 @@ export const SETTINGS_DEFAULTS = {
   diaryLook: 'list',
   mainStart: 'rested',
   shareFallback: true,
+  linkOpen: 'castle',
+  browserRemember: true,
+  browserNewTab: 'shortcuts',
   emotionRoomVoice: true,
   profileLook: 'cards',
 }
