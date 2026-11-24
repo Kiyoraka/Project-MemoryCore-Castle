@@ -12,6 +12,8 @@
 
 use crate::browser_tabs::{self, LinkWay, Tabs};
 use crate::settings::SettingsStore;
+use cookie::time::{Duration, OffsetDateTime};
+use cookie::{Cookie, Expiration};
 use std::sync::Mutex;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
@@ -28,6 +30,56 @@ const PAGE_STORE: [u8; 16] = *b"castle-browser01";
 /// The window's tabs, kept while it is open.
 #[derive(Default)]
 pub struct Browser(pub Mutex<Tabs>);
+
+/// Sites whose sign-in the browser keeps between runs while Remember sign-ins is on. claude.ai's
+/// sign-in cookie has no end date, so WebKit keeps it only in memory and it is gone once the
+/// window closes (F12: Artifacts asked for a sign-in after every restart).
+const KEEP_SIGN_INS: [&str; 1] = ["claude.ai"];
+/// How long a kept sign-in lasts; signing out on the site or Clear… ends it sooner.
+const KEEP_DAYS: i64 = 30;
+/// How often the open window saves them, so a quit right after signing in still keeps it.
+const KEEP_EVERY_SECS: u64 = 30;
+
+fn on_kept_site(host: &str) -> bool {
+    let host = host.trim_start_matches('.').to_ascii_lowercase();
+    KEEP_SIGN_INS.iter().any(|site| host == *site || host.ends_with(&format!(".{site}")))
+}
+
+/// The cookies to save again with an end date: only the kept sites' cookies that have none.
+fn to_keep(cookies: Vec<Cookie<'static>>, now: OffsetDateTime) -> Vec<Cookie<'static>> {
+    cookies
+        .into_iter()
+        .filter(|c| matches!(c.expires(), None | Some(Expiration::Session)) && c.max_age().is_none())
+        .filter(|c| c.domain().is_some_and(on_kept_site))
+        .map(|mut c| {
+            c.set_expires(now + Duration::days(KEEP_DAYS));
+            c
+        })
+        .collect()
+}
+
+/// Writes the kept sites' sign-in cookies to the pages' store with an end date, so WebKit saves
+/// them to disk. Blocks on WebKit: call it off the main thread.
+fn keep_sign_ins(app: &AppHandle) {
+    if !app.state::<SettingsStore>().get().browser_remember {
+        return;
+    }
+    // every page shares one store, so any open page reaches it
+    let ids: Vec<u32> = app.state::<Browser>().0.lock().unwrap().list.iter().map(|t| t.id).collect();
+    let Some(view) = ids.into_iter().find_map(|id| app.get_webview(&tab_label(id))) else { return };
+    let Ok(all) = view.cookies() else { return };
+    for cookie in to_keep(all, OffsetDateTime::now_utc()) {
+        let _ = view.set_cookie(cookie);
+    }
+}
+
+fn keep_sign_ins_soon(app: &AppHandle, after: std::time::Duration) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(after);
+        keep_sign_ins(&app);
+    });
+}
 
 fn tab_label(id: u32) -> String {
     format!("browser-tab-{id}")
@@ -77,8 +129,28 @@ fn window(app: &AppHandle) -> Result<Window, String> {
     let events = app.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => layout(&events),
+        WindowEvent::CloseRequested { api, .. } => {
+            // keep the sign-ins first, then close: the pages (and their store) go with the window
+            api.prevent_close();
+            let app = events.clone();
+            std::thread::spawn(move || {
+                keep_sign_ins(&app);
+                if let Some(window) = app.get_window(WINDOW) {
+                    let _ = window.destroy();
+                }
+            });
+        }
         WindowEvent::Destroyed => *events.state::<Browser>().0.lock().unwrap() = Tabs::default(),
         _ => {}
+    });
+    // while the window is open, save the sign-ins now and then (a quit skips CloseRequested)
+    let keeper = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(KEEP_EVERY_SECS));
+        if keeper.get_window(WINDOW).is_none() {
+            break;
+        }
+        keep_sign_ins(&keeper);
     });
     let monitor = app
         .get_webview_window("main")
@@ -168,6 +240,10 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
         .on_page_load(move |_, payload| {
             if payload.event() == PageLoadEvent::Finished {
                 let now = payload.url().to_string();
+                if payload.url().host_str().is_some_and(on_kept_site) {
+                    // a sign-in sets its cookie as the page settles
+                    keep_sign_ins_soon(&loads, std::time::Duration::from_secs(3));
+                }
                 if let Some(tab) = loads.state::<Browser>().0.lock().unwrap().get_mut(id) {
                     tab.url = Some(now);
                 }
@@ -357,4 +433,48 @@ pub async fn browser_clear(app: AppHandle) -> Result<(), String> {
     let open = tabs(&app).list.iter().find_map(|t| app.get_webview(&tab_label(t.id)));
     let view = open.ok_or("Open a page in the browser window first, then clear it from there.")?;
     view.clear_all_browsing_data().map_err(|_| "The browsing data could not be cleared.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cookie(name: &str, domain: &str, ends: Option<Expiration>) -> Cookie<'static> {
+        let mut c = Cookie::build((name.to_string(), "v")).domain(domain.to_string()).path("/").secure(true).http_only(true).build();
+        if let Some(ends) = ends {
+            c.set_expires(ends);
+        }
+        c
+    }
+
+    #[test]
+    fn a_claude_sign_in_without_an_end_date_is_kept_for_30_days() {
+        let now = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let later = Expiration::DateTime(now + Duration::days(300));
+        let kept = to_keep(
+            vec![
+                cookie("sessionKey", "claude.ai", Some(Expiration::Session)),
+                cookie("lastActiveOrg", ".claude.ai", None),
+                cookie("anthropic-device-id", "claude.ai", Some(later)),
+                cookie("sid", "example.com", Some(Expiration::Session)),
+                cookie("sid", "notclaude.ai", Some(Expiration::Session)),
+            ],
+            now,
+        );
+        let names: Vec<&str> = kept.iter().map(|c| c.name()).collect();
+        assert_eq!(names, ["sessionKey", "lastActiveOrg"], "only claude.ai cookies that would end with the window");
+        for c in &kept {
+            assert_eq!(c.expires_datetime(), Some(now + Duration::days(30)));
+            assert_eq!((c.secure(), c.http_only(), c.path()), (Some(true), Some(true), Some("/")), "the cookie's flags stay as the site set them");
+        }
+    }
+
+    #[test]
+    fn kept_sites_match_the_site_and_its_subdomains_only() {
+        assert!(on_kept_site("claude.ai"));
+        assert!(on_kept_site(".claude.ai"));
+        assert!(on_kept_site("api.Claude.ai"));
+        assert!(!on_kept_site("notclaude.ai"));
+        assert!(!on_kept_site("claude.ai.evil.com"));
+    }
 }
