@@ -10,6 +10,7 @@ import SentinelSettings from './SentinelSettings.vue'
 import ComfySettings from './ComfySettings.vue'
 import WidgetsView from './WidgetsView.vue'
 import { DEFAULT_PINS, setPinned } from '../launcher.js'
+import { offeredProviders } from '../components/providers.js'
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
 import ModalSheet from '../components/ModalSheet.vue'
 import BackupPanel from '../components/BackupPanel.vue'
@@ -652,7 +653,7 @@ onMounted(async () => {
                 <template v-if="cliCheck && !cliCheck.installed" #description>
                   <span class="warn">{{ cliCheck.label }} is not installed: <code>{{ cliCheck.installCommand }}</code></span>
                 </template>
-                <SettingChoice :model-value="settings.cli" :options="[{ value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }]" label="Thinks with" :disabled="locked" @update:model-value="switchCli" />
+                <SettingChoice :model-value="settings.cli" :options="offeredProviders(settings.cli).map((p) => ({ value: p.id, label: p.label }))" label="Thinks with" :disabled="locked" @update:model-value="switchCli" />
               </SettingRow>
               <SettingRow
                 id="only-this"

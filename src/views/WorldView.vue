@@ -16,6 +16,7 @@ import { askCompanion } from '../api/ask.js'
 import { listen } from '@tauri-apps/api/event'
 import { quotaWords } from '../world3d/energy.js'
 import { sendLatest } from '../components/sendlatest.js'
+import { providerLabel } from '../components/providers.js'
 import { castleMoveToScreen, chatMediaOpen, choosePicture, saveSettings, worldApply, worldDelete, worldIdentify, worldNew, worldPrepare, worldScreens } from '../api/castle.js'
 
 const props = defineProps({
@@ -52,7 +53,7 @@ const progress = ref({}) // slug -> the prepare helper's last line
 const preparing = ref({}) // slug -> true while it runs
 const confirmDelete = ref('') // slug waiting for a second press
 const quota = worldQuota // undefined = not asked yet, null = unknown
-const cliName = computed(() => (settings.value?.cli === 'codex' ? 'Codex' : 'Claude Code'))
+const cliName = computed(() => providerLabel(settings.value?.cli ?? 'claude'))
 const quotaLine = computed(() => {
   if (quota.value === undefined) return ''
   if (!quota.value) return `The crystal can't read your ${cliName.value} limit right now, so it keeps its normal glow.`

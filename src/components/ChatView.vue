@@ -16,6 +16,7 @@ import ChatEntries from './ChatEntries.vue'
 import ImageViewer from './ImageViewer.vue'
 import PlanViewer from './PlanViewer.vue'
 import { worldSignals } from '../world3d/signals.js'
+import { readsClaudeScreen, readsCodexAsk } from './providers.js'
 
 // CHAT: a session as a conversation between two people. This file reads the session's record and
 // the Log screen and holds the state; the conversation (ChatEntries), the choice card (ChatChoices)
@@ -34,7 +35,8 @@ const props = defineProps({
   room: { type: String, default: undefined },
   // the companion's name, for labels
   companion: { type: String, default: 'Your companion' },
-  // 'claude' or 'codex': answer buttons, send-now and the mode pills are Claude Code's; Codex asks in the Log
+  // a provider id (providers.js): answer buttons, send-now and the mode pills are Claude Code's;
+  // Codex's approval prompt is noticed; any other provider has the plain box, approvals in the Log
   cli: { type: String, default: 'claude' },
   // Bumped when Settings are saved: the mic's shortcut is read again
   settingsStamp: { type: Number, default: 0 },
@@ -87,7 +89,7 @@ const menu = ref(null)
 const codexAsking = ref(false)
 // Words Codex shows while it waits for an approval.
 const CODEX_ASK = /allow command|approve|apply (these )?changes|yes, proceed|\(y\/n\)|\[y\/n\]/i
-const isClaude = computed(() => props.cli !== 'codex')
+const isClaude = computed(() => readsClaudeScreen(props.cli))
 
 function readMenu() {
   if (!props.visible || !props.running) {
@@ -96,7 +98,7 @@ function readMenu() {
   }
   if (!isClaude.value) {
     menu.value = null
-    codexAsking.value = CODEX_ASK.test(props.readScreen(15).join('\n'))
+    codexAsking.value = readsCodexAsk(props.cli) && CODEX_ASK.test(props.readScreen(15).join('\n'))
     return
   }
   const lines = props.readScreen(40)

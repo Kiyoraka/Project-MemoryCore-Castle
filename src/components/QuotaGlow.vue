@@ -4,6 +4,7 @@
 // a faint ember when none is left. Sits behind HOME's panel and widgets; never takes a click.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { cliQuota } from '../api/castle.js'
+import { providerLabel } from './providers.js'
 import { energyLook, quotaWords, WARM } from '../world3d/energy.js'
 import { clipPath, coverRect, glowBoxes, readGlow } from '../themes/quotaglow.js'
 
@@ -27,8 +28,7 @@ const shown = computed(() => Boolean(glow.value && quota.value && boxes.value))
 const sparkles = computed(() => Math.round(2 + 10 * (energy.value ?? 0)))
 const words = computed(() => {
   if (!quota.value) return ''
-  const name = quota.value.cli === 'codex' ? 'Codex' : 'Claude Code'
-  return `${name} · ${quotaWords(quota.value)} this week`
+  return `${providerLabel(quota.value.cli)} · ${quotaWords(quota.value)} this week`
 })
 
 const px = (v) => `${v.toFixed(1)}px`

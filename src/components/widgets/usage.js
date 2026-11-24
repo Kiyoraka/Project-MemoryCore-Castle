@@ -35,6 +35,8 @@ const STATUS = {
   signed_out: 'Sign in to see usage',
   // Codex with an API key: no weekly limit, OpenAI bills each use
   api_key: 'API key · billed per use',
+  // Gemini and Grok: Castle cannot read their limits
+  not_measured: 'Usage is not measured for this provider',
   unknown: 'Usage not available yet',
 }
 

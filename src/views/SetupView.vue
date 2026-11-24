@@ -22,6 +22,7 @@ import {
 } from '../api/castle.js'
 import { builtInThemes } from '../themes/loader.js'
 import { isMac } from '../platform.js'
+import { drawsItself, providerLabel } from '../components/providers.js'
 import BackupPanel from '../components/BackupPanel.vue'
 import DatabasePanel from '../components/DatabasePanel.vue'
 import HelpersStatus from '../components/HelpersStatus.vue'
@@ -77,7 +78,7 @@ const form = reactive({
 const themes = builtInThemes()
 const styleText = computed(() => (form.style === 'custom' ? form.customStyle.trim() : form.style))
 const shownKeys = computed(() =>
-  form.keys.filter((k) => KEY_HELP[k.name] && !(k.name === 'openai' && form.cli === 'codex')),
+  form.keys.filter((k) => KEY_HELP[k.name] && !(k.name === 'openai' && drawsItself(form.cli))),
 )
 // the keys step's (?): where the keys are kept and who gets them
 const keysTip = computed(
@@ -157,7 +158,7 @@ async function createNew() {
 // ---------- Step 2: the CLI ----------
 
 async function checkCli() {
-  form.cliCheck = await attempt(`Looking for ${form.cli === 'codex' ? 'Codex' : 'Claude Code'}…`, () => setupCheckCli(form.cli))
+  form.cliCheck = await attempt(`Looking for ${providerLabel(form.cli)}…`, () => setupCheckCli(form.cli))
 }
 
 function pickCli(cli) {

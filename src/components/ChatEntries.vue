@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownText from './MarkdownText.vue'
 import { chooseLine, isDesignGroup } from './designpick.js'
 import { isCompanionVoice, songOf, soundName } from './chatItems.js'
+import { readsClaudeScreen } from './providers.js'
 
 // Chat's conversation: the member's bubbles right, the companion's left, plan cards, pictures side
 // by side, films, voice lines and songs, and the typing bubble (the card for a choice asked in the
@@ -145,7 +146,7 @@ defineExpose({ nearBottom, toBottom })
             </button>
           </div>
           <span class="time">
-            <button v-if="item.entry.state === 'queued' && cli === 'claude'" class="send-now" title="Send it now (Ctrl+X Ctrl+S)" @click="emit('send-now')">send now</button>
+            <button v-if="item.entry.state === 'queued' && readsClaudeScreen(cli)" class="send-now" title="Send it now (Ctrl+X Ctrl+S)" @click="emit('send-now')">send now</button>
             {{ clock(item.entry.at) }}
             <span v-if="item.entry.role === 'member' && item.entry.state" class="ticks" :class="item.entry.state" :title="TICK_TITLES[item.entry.state]">{{ item.entry.state === 'read' ? '✓✓' : '✓' }}</span>
           </span>
