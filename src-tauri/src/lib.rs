@@ -52,6 +52,7 @@ mod disks;
 mod weather;
 mod meter_watch;
 mod mirror;
+mod model_pick;
 mod plans;
 mod project_room;
 mod project_tree;

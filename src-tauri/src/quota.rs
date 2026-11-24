@@ -281,10 +281,13 @@ fn keychain_token() -> Option<String> {
     Some(found.0)
 }
 
-/// Claude Code's `/usage` answer, or why there is none.
-fn claude_answer() -> Result<Value, &'static str> {
+/// How long the USAGE card and the crystal wait for an answer.
+const CARD_WAIT: Duration = Duration::from_secs(15);
+
+/// Claude Code's `/usage` answer, or why there is none, waiting at most `wait`.
+fn claude_answer(wait: Duration) -> Result<Value, &'static str> {
     let token = claude_token().ok_or("signed_out")?;
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|_| "unknown")?;
+    let client = reqwest::blocking::Client::builder().timeout(wait).build().map_err(|_| "unknown")?;
     let answer = client.get(CLAUDE_USAGE).bearer_auth(token).header("anthropic-beta", "oauth-2025-04-20").send().map_err(|_| "unknown")?;
     if !answer.status().is_success() {
         return Err("unknown");
@@ -340,14 +343,64 @@ static CLAUDE: Mutex<Option<ClaudeCache>> = Mutex::new(None);
 /// The shared Claude Code answer, asked again only when it is over five minutes old. The lock is
 /// held while asking, so the card and the crystal starting together still make one ask.
 fn claude_cached() -> ClaudeCache {
+    claude_cached_within(CARD_WAIT)
+}
+
+/// `claude_cached`, waiting at most `wait` when it has to ask.
+fn claude_cached_within(wait: Duration) -> ClaudeCache {
     let mut slot = CLAUDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let now = Instant::now();
     if let Some(cache) = slot.as_ref().filter(|c| still_fresh(c, now)) {
         return cache.clone();
     }
-    let fresh = remember(slot.take(), claude_answer(), now, now_ms());
+    let fresh = remember(slot.take(), claude_answer(wait), now, now_ms());
     *slot = Some(fresh.clone());
     fresh
+}
+
+/// A model's own weekly share (Claude's per-model limit, such as "Fable") that is used up, and when
+/// it opens again in milliseconds since 1970.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpentShare {
+    pub name: String,
+    pub until_ms: i64,
+}
+
+/// Every model share the answer says is used up. The plan-wide week has no model and is never a
+/// share; an unreadable reset counts as an hour from now, so the share is asked about again soon.
+pub fn spent_shares(answer: &Value, now: i64) -> Vec<SpentShare> {
+    let Some(limits) = answer.get("limits").and_then(Value::as_array) else { return Vec::new() };
+    limits
+        .iter()
+        .filter(|l| l.get("group").and_then(Value::as_str) == Some("weekly"))
+        .filter(|l| l.get("percent").and_then(Value::as_f64).is_some_and(|p| p >= 100.0))
+        .filter_map(|l| {
+            let name = l.pointer("/scope/model/display_name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty())?;
+            let until_ms = l.get("resets_at").and_then(Value::as_str).and_then(iso_ms).unwrap_or(now + 3_600_000);
+            Some(SpentShare { name: name.to_string(), until_ms })
+        })
+        .collect()
+}
+
+/// The spent shares of the member's Claude account, for a wake about to start. It reads the shared
+/// answer, asking at most `wait` when that is old, and gives nothing on any failure: a wake is never
+/// stopped by it. A debug build takes `CASTLE_FAKE_SPENT_SHARE=<name>:<iso time>` instead, so the
+/// fallback can be seen without a spent account; a release never reads it.
+pub fn claude_spent_shares(wait: Duration) -> Vec<SpentShare> {
+    #[cfg(debug_assertions)]
+    if let Some(fake) = std::env::var("CASTLE_FAKE_SPENT_SHARE").ok().and_then(|v| fake_share(&v)) {
+        return vec![fake];
+    }
+    match claude_cached_within(wait).good {
+        Some((_, answer)) => spent_shares(&answer, now_ms()),
+        None => Vec::new(),
+    }
+}
+
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+fn fake_share(text: &str) -> Option<SpentShare> {
+    let (name, until) = text.split_once(':')?;
+    Some(SpentShare { name: name.trim().to_string(), until_ms: iso_ms(until)? }).filter(|s| !s.name.is_empty())
 }
 
 fn claude_quota() -> Option<Quota> {
@@ -845,5 +898,32 @@ mod tests {
         assert_eq!(iso_ms("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(iso_ms("1970-01-01T08:00:00+08:00"), Some(0));
         assert_eq!(iso_ms("2026-11-12T21:00:00.125837+00:00"), iso_ms("2026-11-12T21:00:00Z"));
+    }
+    #[test]
+    fn only_a_used_up_model_share_is_spent() {
+        let now = iso_ms("2026-11-25T00:00:00Z").unwrap();
+        let answer = serde_json::json!({"limits": [
+            {"group":"weekly","kind":"weekly_all","percent":100.0,"resets_at":"2026-11-27T05:00:00Z"},
+            {"group":"weekly","kind":"weekly_scoped","percent":100.0,"resets_at":"2026-11-27T05:00:00Z","scope":{"model":{"display_name":"Fable"}}},
+            {"group":"weekly","kind":"weekly_scoped","percent":99.9,"resets_at":"2026-11-27T05:00:00Z","scope":{"model":{"display_name":"Opus"}}},
+            {"group":"weekly","kind":"weekly_scoped","percent":120.0,"resets_at":"soon","scope":{"model":{"display_name":"Mythos"}}},
+            {"group":"session","kind":"five_hour","percent":100.0,"scope":{"model":{"display_name":"Sonnet"}}}
+        ]});
+        assert_eq!(
+            spent_shares(&answer, now),
+            vec![
+                SpentShare { name: "Fable".into(), until_ms: iso_ms("2026-11-27T05:00:00Z").unwrap() },
+                SpentShare { name: "Mythos".into(), until_ms: now + 3_600_000 },
+            ],
+            "the plan-wide week, an open share and the five-hour window are not spent shares"
+        );
+        assert!(spent_shares(&serde_json::json!({"five_hour": null}), now).is_empty());
+    }
+
+    #[test]
+    fn a_fake_share_is_read_from_its_words() {
+        assert_eq!(fake_share("Fable:2026-11-27T05:00:00Z"), Some(SpentShare { name: "Fable".into(), until_ms: iso_ms("2026-11-27T05:00:00Z").unwrap() }));
+        assert_eq!(fake_share(":2026-11-27T05:00:00Z"), None);
+        assert_eq!(fake_share("Fable"), None);
     }
 }
