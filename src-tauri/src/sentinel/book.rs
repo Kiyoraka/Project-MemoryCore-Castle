@@ -51,8 +51,38 @@ pub struct Thing {
 
 impl Thing {
     pub fn fingerprint(&self) -> String {
-        print_of(&self.kind, &self.parts)
+        print_of(&self.kind, &self.print_parts())
     }
+
+    /// The parts the mark is made of: a scheduled task's name without what Windows renews (its
+    /// action stays whole), everything else as it is.
+    fn print_parts(&self) -> Vec<String> {
+        let mut parts = self.parts.clone();
+        if self.kind == "task" {
+            if let Some(name) = parts.first_mut() {
+                *name = stable_task(name);
+            }
+        }
+        parts
+    }
+
+    /// The mark this thing had before the steady task mark (Castle 0.5.x and older), when it
+    /// differs: a task known or open under it moves to the new mark instead of being raised again.
+    pub fn legacy_print(&self) -> Option<String> {
+        let old = print_of(&self.kind, &self.parts);
+        (old != self.fingerprint()).then_some(old)
+    }
+}
+
+/// A scheduled task's path and name with the parts Windows renews taken out: a `-{GUID}` and any
+/// run of twelve or more digits. Windows' own tips tasks (`\SoftLanding\<SID>\...`) come back
+/// every day with both renewed; an account SID's parts are ten digits, so they stay.
+pub fn stable_task(name: &str) -> String {
+    static GUID: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static NUMBER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let guid = GUID.get_or_init(|| regex::Regex::new(r"(?i)-?\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}").unwrap());
+    let number = NUMBER.get_or_init(|| regex::Regex::new(r"\d{12,}").unwrap());
+    number.replace_all(&guid.replace_all(name, ""), "#").into_owned()
 }
 
 /// The fingerprint of a thing: sha256 of `kind|part|part`, each lowercased and trimmed, cut to 40.
@@ -122,6 +152,10 @@ pub enum Change {
     Reopen { id: u64, thing: Thing, why: String },
     /// No longer on the machine.
     Gone { id: u64 },
+    /// Known under its old mark: known under the new one too, as it was (baseline or member).
+    Rekey { old: String, new: String },
+    /// A finding stored under its old mark moves to the new one.
+    Remark { id: u64, print: String },
 }
 
 /// Decides what a look means against what the book holds.
@@ -138,10 +172,26 @@ pub fn plan(found: &[Thing], covered: &HashSet<String>, known: &HashSet<String>,
         if !present.insert(print.clone()) {
             continue;
         }
+        let legacy = thing.legacy_print();
+        let mut row = stored.get(&print);
+        if let Some(old) = &legacy {
+            present.insert(old.clone());
+            if row.is_none() {
+                if let Some(old_row) = stored.get(old) {
+                    changes.push(Change::Remark { id: old_row.id, print: print.clone() });
+                    row = Some(old_row);
+                }
+            }
+            if !known.contains(&print) && known.contains(old) {
+                changes.push(Change::Rekey { old: old.clone(), new: print.clone() });
+                if thing.inventory {
+                    continue;
+                }
+            }
+        }
         if thing.inventory && known.contains(&print) {
             continue;
         }
-        let row = stored.get(&print);
         if thing.inventory && taking_baseline && row.is_none() {
             changes.push(Change::Baseline { print, kind: thing.kind.clone(), title: thing.title.clone() });
             continue;
@@ -268,9 +318,11 @@ pub fn collect(conn: &mut Conn, found: &[Thing], covered: &HashSet<String>, full
                 .map_err(sql("refreshing a finding"))?;
             }
             Change::Reopen { id, thing, why } => {
+                // the fix carries today's real argument (a renewed task's path)
+                let (fix_move, fix_arg) = split_fix(&thing);
                 conn.exec_drop(
-                    "UPDATE sentinel_findings SET state = 'open', state_why = ?, hint = ?, detail = ?, last_seen = NOW(), closed_at = NULL WHERE id = ?",
-                    (why, thing.hint, cut(&thing.detail, 1000), id),
+                    "UPDATE sentinel_findings SET state = 'open', state_why = ?, hint = ?, detail = ?, fix_move = ?, fix_arg = ?, last_seen = NOW(), closed_at = NULL WHERE id = ?",
+                    (why, thing.hint, cut(&thing.detail, 1000), fix_move, fix_arg, id),
                 )
                 .map_err(sql("opening a finding again"))?;
                 out.opened.push(id);
@@ -279,6 +331,16 @@ pub fn collect(conn: &mut Conn, found: &[Thing], covered: &HashSet<String>, full
             Change::Gone { id } => {
                 conn.exec_drop("UPDATE sentinel_findings SET state = 'gone', closed_at = NOW() WHERE id = ?", (id,)).map_err(sql("closing a finding"))?;
                 out.changed += 1;
+            }
+            Change::Rekey { old, new } => {
+                conn.exec_drop(
+                    "INSERT IGNORE INTO sentinel_known (fingerprint, kind, title, accepted_by) SELECT ?, kind, title, accepted_by FROM sentinel_known WHERE fingerprint = ?",
+                    (new, old),
+                )
+                .map_err(sql("carrying a known task to its steady mark"))?;
+            }
+            Change::Remark { id, print } => {
+                conn.exec_drop("UPDATE sentinel_findings SET fingerprint = ? WHERE id = ?", (print, id)).map_err(sql("moving a finding to its steady mark"))?;
             }
         }
     }
@@ -433,6 +495,44 @@ mod tests {
 
     fn row(id: u64, kind: &str, state: &str) -> Stored {
         Stored { id, kind: kind.into(), state: state.into(), fix_move: None, closed_for: None }
+    }
+
+    const SOFT: &str = "\\SoftLanding\\S-1-5-21-1234567890-1234567890-1234567890-1002\\";
+
+    fn task(name: &str, action: &str) -> Thing {
+        Thing { kind: "task".into(), parts: vec![format!("{SOFT}{name}"), action.into()], hint: LOOK, title: format!("Scheduled task {SOFT}{name}"), detail: String::new(), fix: Some(("disable-task".into(), Some(format!("{SOFT}{name}")))), inventory: true }
+    }
+
+    #[test]
+    fn a_renewed_softlanding_task_keeps_its_mark_and_its_action_stays_whole() {
+        let today = task("ActionCenterTriggerTask-128000000001627409-render-{8e2c3a5f-1111-2222-3333-444455556666}", "{AF28889E-9F8A-4C20-A1B5-0E3C4F3C9A11}");
+        let tomorrow = task("ActionCenterTriggerTask-128000000009999999-render-{43963bad-aaaa-bbbb-cccc-ddddeeeeffff}", "{AF28889E-9F8A-4C20-A1B5-0E3C4F3C9A11}");
+        assert_eq!(today.fingerprint(), tomorrow.fingerprint());
+        assert_eq!(stable_task(&today.parts[0]), format!("{SOFT}ActionCenterTriggerTask-#-render"));
+        assert!(stable_task(SOFT).contains("1234567890-1002"), "an account SID's ten-digit parts stay");
+        let other_action = task("ActionCenterTriggerTask-128000000001627409-render-{8e2c3a5f-1111-2222-3333-444455556666}", "{00000000-9F8A-4C20-A1B5-0E3C4F3C9A11}");
+        assert_ne!(today.fingerprint(), other_action.fingerprint(), "the action is never stripped");
+        assert!(tomorrow.fix.as_ref().unwrap().1.as_deref().unwrap().ends_with("{43963bad-aaaa-bbbb-cccc-ddddeeeeffff}"), "the fix keeps today's real path");
+        assert!(today.legacy_print().is_some());
+        assert_eq!(task("Kettle Brewer", "kettle.exe").legacy_print(), None, "a plain name keeps its old mark");
+        assert_eq!(thing("port", "80", true).legacy_print(), None);
+    }
+
+    #[test]
+    fn a_task_known_or_open_under_its_old_mark_moves_to_the_steady_one() {
+        let t = task("SoftLandingDeferralTask-{724494fb-1111-2222-3333-444455556666}", "{AF28889E-9F8A-4C20-A1B5-0E3C4F3C9A11}");
+        let (old, new) = (t.legacy_print().unwrap(), t.fingerprint());
+        // known (the starting picture took it): carried over, nothing raised
+        let known = HashSet::from([old.clone()]);
+        let changes = plan(std::slice::from_ref(&t), &covered(&["task"]), &known, &HashMap::new(), true, true);
+        assert_eq!(changes, vec![Change::Rekey { old: old.clone(), new: new.clone() }]);
+        // open under the old mark: moved, then seen; never gone, never opened twice
+        let stored = HashMap::from([(old.clone(), row(9, "task", OPEN))]);
+        let changes = plan(std::slice::from_ref(&t), &covered(&["task"]), &HashSet::new(), &stored, true, true);
+        assert_eq!(changes, vec![Change::Remark { id: 9, print: new.clone() }, Change::Seen { id: 9, thing: t.clone() }]);
+        // already on the new mark: nothing to carry
+        let known = HashSet::from([old, new]);
+        assert!(plan(std::slice::from_ref(&t), &covered(&["task"]), &known, &HashMap::new(), true, true).is_empty());
     }
 
     #[test]

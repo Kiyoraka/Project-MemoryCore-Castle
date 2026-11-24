@@ -476,7 +476,12 @@ mod tests {
     #[ignore]
     fn live_the_book_the_click_and_the_journal() {
         use mysql::prelude::Queryable;
-        let spec = std::env::var("CASTLE_TEST_DB").expect("set CASTLE_TEST_DB");
+        let spec = std::env::var("CASTLE_TEST_DB").unwrap_or_else(|_| {
+            // platform: windows-only - an on-demand live test run on Windows, where Castle's settings live under APPDATA
+            let folder = std::env::var("APPDATA").unwrap() + "/com.memorycore.castle/settings.json";
+            let port = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(folder).unwrap()).unwrap()["dbPort"].as_u64().unwrap();
+            format!("{port}:root:{}", crate::key::db_root().unwrap_or_default())
+        });
         let mut parts = spec.splitn(3, ':');
         let port: u16 = parts.next().unwrap().parse().unwrap();
         let (admin, admin_pw) = (parts.next().unwrap().to_string(), parts.next().unwrap_or("").to_string());
@@ -544,6 +549,23 @@ mod tests {
         assert_eq!(known.as_deref(), Some("member"));
         let again = book::collect(&mut conn, &[port80, firewall, task], &covered, true).unwrap();
         assert!(again.opened.is_empty());
+
+        // a SoftLanding task the member kept under its old, raw mark keeps its word under the steady mark
+        let renewed = book::Thing {
+            kind: "task".into(),
+            parts: vec!["\\SoftLanding\\S-1-5-21-1-2-3-1002\\SoftLandingDeferralTask-128000000001627409-{724494fb-1111-2222-3333-444455556666}".into(), "{AF28889E-9F8A-4C20-A1B5-0E3C4F3C9A11}".into()],
+            hint: book::LOOK,
+            title: "Scheduled task SoftLandingDeferralTask".into(),
+            detail: String::new(),
+            fix: None,
+            inventory: true,
+        };
+        let old = renewed.legacy_print().unwrap();
+        conn.exec_drop("INSERT INTO sentinel_known (fingerprint, kind, title, accepted_by) VALUES (?, 'task', 'old mark', 'member')", (old,)).unwrap();
+        let after = book::collect(&mut conn, std::slice::from_ref(&renewed), &covered, true).unwrap();
+        assert!(after.opened.is_empty(), "nothing raised on the update");
+        let carried: Option<String> = conn.exec_first("SELECT accepted_by FROM sentinel_known WHERE fingerprint = ?", (renewed.fingerprint(),)).unwrap();
+        assert_eq!(carried.as_deref(), Some("member"));
 
         let _ = std::fs::remove_dir_all(&dir);
         conn.query_drop(format!("DROP DATABASE `{}`", access.name)).unwrap();

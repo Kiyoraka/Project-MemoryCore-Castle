@@ -17,6 +17,8 @@ pub const FULL_KINDS: [&str; 8] = ["port", "dbport", "startup", "task", "service
 
 /// Signatures older than this many days are worth a look.
 pub const OLD_SIGNATURES_DAYS: i64 = 3;
+/// The folder of the Sentinel's own scheduled tasks (install.ps1), lowercased.
+pub const SENTINEL_TASKS: &str = "\\memorycore castle sentinel\\";
 
 /// One look at the machine.
 #[derive(Debug, Clone, Default)]
@@ -271,14 +273,17 @@ pub fn things_from(json: &Value, sockets: &[Socket], db_port: Option<u16>, full:
     // --- scheduled tasks ---
     for t in list(json.get("tasks")) {
         let full_name = format!("{}{}", s(t, "path"), s(t, "name"));
-        let microsoft = s(t, "path").to_lowercase().starts_with("\\microsoft\\");
+        let path = s(t, "path").to_lowercase();
+        // Windows' own tasks and the Sentinel's own (its Tick, Alarm and Hand) are notes, never a
+        // switch-off: the hand refuses both anyway
+        let quiet = path.starts_with("\\microsoft\\") || path.starts_with(SENTINEL_TASKS);
         things.push(thing(
             "task",
             vec![full_name.clone(), s(t, "actions").into()],
-            if microsoft { NOTE } else { LOOK },
+            if quiet { NOTE } else { LOOK },
             format!("Scheduled task {full_name}"),
             format!("Runs: {}. State: {}. Author: {}.", none_if_empty(s(t, "actions")), s(t, "state"), none_if_empty(s(t, "author"))),
-            if microsoft { None } else { Some(("disable-task", Some(full_name))) },
+            if quiet { None } else { Some(("disable-task", Some(full_name))) },
             true,
         ));
     }
@@ -432,6 +437,14 @@ mod tests {
         assert_eq!((microsoft.hint, microsoft.fix.clone()), (NOTE, None), "a Microsoft task is never offered to switch off");
         assert_eq!(look.things[2].fix, Some(("disable-task".into(), Some("\\Stranger".into()))));
         assert!(look.covered.contains("task"));
+    }
+
+    #[test]
+    fn the_sentinels_own_tasks_are_notes_without_a_switch_off() {
+        let j = json!({ "tasks": [{"path": "\\MemoryCore Castle Sentinel\\", "name": "Tick", "actions": "castle.exe --sentinel-tick", "state": "Ready"}] });
+        let look = things_from(&j, &[], None, true);
+        let tick = look.things.iter().find(|t| t.kind == "task").unwrap();
+        assert_eq!((tick.hint, tick.fix.clone()), (NOTE, None));
     }
 
     #[test]
