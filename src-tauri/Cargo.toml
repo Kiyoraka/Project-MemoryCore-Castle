@@ -12,12 +12,18 @@ crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
+protoc-bin-vendored = "3"
 
 [features]
 # official release builds only (scripts/release.ps1): the signed self-updater
 official = ["dep:tauri-plugin-updater"]
 
 [dependencies]
+# DEV > Phone: the Android emulator's gRPC channel (screen frames, touches, keys)
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

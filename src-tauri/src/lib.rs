@@ -6,6 +6,7 @@ mod appearance_db;
 mod library_db;
 mod spiral;
 mod mobile;
+mod emulator_grpc;
 mod apps;
 mod shell;
 mod thumbs;
