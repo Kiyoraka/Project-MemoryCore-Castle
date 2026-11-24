@@ -476,6 +476,9 @@ export const devNewSession = (folder) => invoke('dev_new_session', { folder })
 export const devRemoveProject = (folder) => invoke('dev_remove_project', { folder })
 export const devWake = (slot, cols, rows) => invoke('dev_wake', { slot, cols, rows })
 export const devWrite = (slot, data) => invoke('dev_write', { slot, data })
+// DEV > Phone: Mobile setup for a tab's project, and a phone made from an installed image
+export const mobileCheck = (slot) => invoke('mobile_check', { slot })
+export const mobileCreatePhone = (name, image) => invoke('mobile_create_phone', { name, image })
 export const devResize = (slot, cols, rows) => invoke('dev_resize', { slot, cols, rows })
 // the tab's screen so far, to draw the Log again
 export const devSnapshot = (slot) => invoke('dev_snapshot', { slot })

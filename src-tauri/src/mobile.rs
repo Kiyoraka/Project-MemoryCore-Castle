@@ -417,6 +417,19 @@ fn make_avd(tool: &Path, name: &str, image: &str, device: Option<&str>) -> Resul
     Err(said.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_string).unwrap_or_else(|| "avdmanager refused.".into()))
 }
 
+/// DEV > Phone: Mobile setup for one tab's project (no Phone button when it is not a mobile project).
+#[tauri::command]
+pub async fn mobile_check(slot: usize, store: tauri::State<'_, crate::settings::SettingsStore>) -> Result<Check, String> {
+    let folder = crate::dev::folder_of(&store.get(), slot)?;
+    tauri::async_runtime::spawn_blocking(move || check(&folder)).await.map_err(|_| "Mobile setup could not be read.".to_string())
+}
+
+/// Mobile setup's Create: a phone made from an installed Android image.
+#[tauri::command]
+pub async fn mobile_create_phone(name: String, image: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || create_phone(&name, &image)).await.map_err(|_| "avdmanager could not run.".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

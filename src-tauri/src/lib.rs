@@ -364,6 +364,8 @@ pub fn run() {
             dev::dev_remove_project,
             dev::dev_wake,
             dev::dev_write,
+            mobile::mobile_check,
+            mobile::mobile_create_phone,
             dev::dev_resize,
             dev::dev_snapshot,
             dev::dev_chat_poll,

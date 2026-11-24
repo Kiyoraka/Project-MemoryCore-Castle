@@ -56,7 +56,7 @@ fn host(hosts: &DevHosts, slot: usize) -> Result<&PtyHost, String> {
     hosts.0.get(slot).ok_or_else(|| "That DEV tab does not exist.".to_string())
 }
 
-fn folder_of(settings: &Settings, slot: usize) -> Result<PathBuf, String> {
+pub(crate) fn folder_of(settings: &Settings, slot: usize) -> Result<PathBuf, String> {
     settings
         .dev_tabs
         .get(slot)
