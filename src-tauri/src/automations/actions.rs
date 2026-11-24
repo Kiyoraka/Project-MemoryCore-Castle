@@ -100,7 +100,7 @@ mod tests {
 }
 
 /// Use a fresh CLI process, no user config/MCP/apps/shell, and bounded, drained pipes. None for a
-/// provider whose isolated run Castle does not know yet (Gemini, Grok: Task 8).
+/// provider whose isolated run Castle does not know yet (Gemini, Grok: see oneshot::run_as).
 fn cli_args(cli: crate::settings::Cli, model: Option<&str>) -> Option<Vec<String>> {
     let mut args: Vec<String> = match cli {
         crate::settings::Cli::Claude => [
@@ -198,7 +198,7 @@ fn run_isolated(
     model: Option<&str>,
 ) -> Result<String, String> {
     use std::process::{Command, Stdio};
-    let args = cli_args(cli, model).ok_or_else(|| format!("Briefings need Claude Code or Codex; {} cannot run one yet.", cli.label()))?;
+    let args = cli_args(cli, model).ok_or_else(|| format!("Briefings run on Claude Code or Codex; {} cannot yet be run safely in the background.", cli.label()))?;
     let program = crate::env::find_on_path(cli.command())
         .ok_or("The selected companion provider is not installed.")?;
     let mut cmd = if program

@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime};
 
 pub mod claude;
 pub mod codex;
+pub mod grok;
 
 /// How many entries the first read hands the screen, so a long session opens quickly.
 pub const FIRST_READ_LIMIT: usize = 300;

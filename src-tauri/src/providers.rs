@@ -1056,7 +1056,8 @@ fn auth_output(cli: Cli) -> Option<std::process::Output> {
     let args: &[&str] = match cli {
         Cli::Codex => &["login", "status"],
         Cli::Claude => &["auth", "status", "--json"],
-        // their status commands are read on this PC first (Phase 4); until then Castle cannot tell
+        // Grok has no status command (its sign-in is a file, read in `authenticated`); agy's is
+        // not known, so Castle cannot tell and its own sign-in shows in the Log
         Cli::Gemini | Cli::Grok => return None,
     };
     let program = crate::env::find_on_path(cli.command())?;
@@ -1102,14 +1103,15 @@ fn auth_output(cli: Cli) -> Option<std::process::Output> {
 }
 
 fn authenticated(cli: Cli) -> Option<bool> {
-    let out = auth_output(cli)?;
     match cli {
-        Cli::Codex => Some(out.status.success()),
-        Cli::Claude => serde_json::from_slice::<serde_json::Value>(&out.stdout)
+        Cli::Codex => Some(auth_output(cli)?.status.success()),
+        Cli::Claude => serde_json::from_slice::<serde_json::Value>(&auth_output(cli)?.stdout)
             .ok()?
             .get("loggedIn")?
             .as_bool(),
-        Cli::Gemini | Cli::Grok => None,
+        // installed is all Castle can say; its own sign-in shows in the Log
+        Cli::Gemini => None,
+        Cli::Grok => crate::env::find_on_path(cli.command()).map(|_| crate::transcript::grok::signed_in()),
     }
 }
 

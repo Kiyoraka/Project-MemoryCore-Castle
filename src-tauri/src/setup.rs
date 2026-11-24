@@ -321,15 +321,26 @@ fn in_keychain(cli: Cli) -> bool {
     false
 }
 
-/// The file each CLI keeps once the member has signed in.
+/// The file each CLI keeps once the member has signed in. Gemini (`agy`) keeps its Google sign-in
+/// in Windows Credential Manager, not a file Castle can look at: unknown, and its own sign-in shows
+/// in the Log.
 fn credentials_file(cli: Cli) -> Option<PathBuf> {
     let home = crate::env::home_dir()?;
     Some(match cli {
         Cli::Claude => home.join(".claude").join(".credentials.json"),
         Cli::Codex => std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".codex")).join("auth.json"),
-        // their sign-ins are read in Task 8 (Grok's file, agy's status command): until then unknown
-        Cli::Gemini | Cli::Grok => return None,
+        Cli::Grok => crate::transcript::grok::auth_file()?,
+        Cli::Gemini => return None,
     })
+}
+
+/// Whether the member has signed in, as far as Castle can tell without running anything.
+fn signed_in(cli: Cli) -> Option<bool> {
+    match cli {
+        // the browser sign-in's file, or an xAI key in the member's own environment
+        Cli::Grok => Some(crate::transcript::grok::signed_in()),
+        Cli::Claude | Cli::Codex | Cli::Gemini => credentials_file(cli).map(|f| f.is_file() || in_keychain(cli)),
+    }
 }
 
 pub fn check_cli(cli: Cli) -> CliCheck {
@@ -347,7 +358,7 @@ pub fn check_cli(cli: Cli) -> CliCheck {
         label: cli.label(),
         installed: program.is_some(),
         version,
-        signed_in: credentials_file(cli).map(|f| f.is_file() || in_keychain(cli)),
+        signed_in: signed_in(cli),
         install_command,
         sign_in_hint,
     }

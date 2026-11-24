@@ -36,15 +36,27 @@ pub fn model_args(cli: Cli, model: Option<&str>) -> Vec<String> {
         Some(m) => match cli {
             Cli::Claude => vec!["--model".into(), m],
             Cli::Codex => vec!["-m".into(), m],
-            // their model flags come with their background runs (Task 8)
+            // no background runs for them yet (see `run_as`), so no model flag either
             Cli::Gemini | Cli::Grok => Vec::new(),
         },
         None => Vec::new(),
     }
 }
 
+/// Whether this CLI may run a background job. A background run reads other people's words (room
+/// guests, the market), so it runs with no tools (Claude Code) or read-only (Codex). Grok's way to
+/// switch its tools off and agy's headless mode are not known yet (docs/provider-records.md), so
+/// they are refused in words, never run with their tools on.
+pub fn runs_in_background(cli: Cli) -> Result<(), String> {
+    match cli {
+        Cli::Claude | Cli::Codex => Ok(()),
+        Cli::Gemini | Cli::Grok => Err(format!("This runs on Claude Code or Codex; {} cannot yet be run safely in the background.", cli.label())),
+    }
+}
+
 /// `run`, on a chosen model (None: the CLI's own default).
 pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Duration, model: Option<&str>) -> Result<String, String> {
+    runs_in_background(cli)?;
     let program = env::find_on_path(cli.command()).ok_or_else(|| format!("{} is not installed.", cli.label()))?;
     let script = program.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
     // platform: windows-only - a .cmd / .bat launcher exists only on Windows
@@ -63,8 +75,7 @@ pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Dur
         Cli::Claude => command.args(["-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", rules_file]).args(&model),
         // Codex reads AGENTS.md in this folder as its instructions
         Cli::Codex => command.arg("exec").args(&model).args(["--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message"]).arg(&answer_file).arg("-"),
-        // background runs for them come with Task 8; said, never run down the wrong path
-        Cli::Gemini | Cli::Grok => return Err(format!("This needs Claude Code or Codex; {} cannot run it in the background yet.", cli.label())),
+        Cli::Gemini | Cli::Grok => unreachable!("refused by runs_in_background above"),
     };
     command.current_dir(folder).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     for name in NEVER_INHERITED {
@@ -125,5 +136,14 @@ mod tests {
         assert_eq!(model_args(Cli::Codex, Some("gpt-5")), vec!["-m", "gpt-5"]);
         assert!(model_args(Cli::Claude, None).is_empty());
         assert!(model_args(Cli::Codex, Some("--bad")).is_empty());
+    }
+
+    #[test]
+    fn gemini_and_grok_are_refused_in_words_before_anything_runs() {
+        assert!(runs_in_background(Cli::Claude).is_ok() && runs_in_background(Cli::Codex).is_ok());
+        for cli in [Cli::Gemini, Cli::Grok] {
+            let refusal = run_as(cli, Path::new("C:/nowhere"), "rules.md", "hi", Duration::from_secs(1), None).unwrap_err();
+            assert!(refusal.contains("Claude Code or Codex") && refusal.contains(cli.label()), "{refusal}");
+        }
     }
 }
