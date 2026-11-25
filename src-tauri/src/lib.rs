@@ -78,6 +78,7 @@ mod browser_private;
 mod browser_guard;
 mod browser_native;
 mod browser_safe;
+mod browser_suggest;
 mod browser_tabs;
 mod browser_welcome;
 mod chrome_import;
@@ -630,6 +631,8 @@ pub fn run() {
             browser::browser_outside,
             browser::browser_danger_back,
             browser::browser_danger_open,
+            browser_suggest::browser_suggest,
+            browser_suggest::browser_forget_search,
             browser::browser_put_in_chat,
             browser::browser_clear,
             world::castle_move_to_screen,

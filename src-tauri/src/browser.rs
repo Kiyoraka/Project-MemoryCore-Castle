@@ -666,6 +666,8 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
 #[tauri::command]
 pub async fn browser_go(app: AppHandle, input: String) -> Result<(), String> {
     let url = browser_tabs::address(&input).ok_or("Type an address or something to search for.")?;
+    // a search is kept for the suggestions (never while browsing privately)
+    crate::browser_suggest::remember_typed(&app, &input);
     if !browser_tabs::may_load(&url) {
         return Err("That address could not be opened.".into());
     }

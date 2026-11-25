@@ -3,7 +3,9 @@
 //!
 //! - **History**: Chrome's `History` is copied first (Chrome is never touched or locked) and read:
 //!   web pages only - the site, the page's path and its title, how often and when - never the part of
-//!   an address after `?` or `#`, never what was typed. Into the member's own `browser_visits`.
+//!   an address after `?` or `#`. Into the member's own `browser_visits`. Chrome's own list of past
+//!   search words (`keyword_search_terms`) comes too, into `browser_searches` only, for the address
+//!   bar's suggestions; a page's address still never keeps its query.
 //! - **Bookmarks**: a copy of Chrome's `Bookmarks` file, web addresses only, with their folders.
 //! - **Passwords**: never Chrome's own password file. Only the file the member exports with Chrome's
 //!   own Export passwords (their Windows PIN). Castle's code reads it, seals each password into the
@@ -134,12 +136,49 @@ pub fn keep_history(c: &mut Conn, pages: &[Page]) -> Result<u32, String> {
     Ok(pages.len() as u32)
 }
 
-/// Brings one profile's history over. The number of pages.
+/// At most this many past searches are brought over (the newest).
+pub const SEARCHES_MAX: usize = 2000;
+
+/// Chrome's past search words from a History copy: (term, how often, last time), one row per search
+/// whatever its case or spacing, newest first.
+pub fn read_search_terms(file: &Path) -> Result<Vec<(String, u32, String)>, String> {
+    let db = rusqlite::Connection::open_with_flags(file, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|_| "Chrome's history could not be opened.".to_string())?;
+    let mut statement = db
+        .prepare("SELECT k.term, u.visit_count, u.last_visit_time FROM keyword_search_terms k JOIN urls u ON u.id = k.url_id ORDER BY u.last_visit_time DESC LIMIT 20000")
+        .map_err(|_| "Chrome's searches could not be read.".to_string())?;
+    let rows = statement
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+        .map_err(|_| "Chrome's searches could not be read.".to_string())?;
+    let mut out: Vec<(String, u32, String)> = Vec::new();
+    for (term, count, last) in rows.flatten() {
+        let term: String = term.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
+        let Some(last) = chrome_time(last) else { continue };
+        if term.is_empty() {
+            continue;
+        }
+        let visits = count.clamp(1, u32::MAX as i64) as u32;
+        match out.iter_mut().find(|(t, _, _)| t.to_lowercase() == term.to_lowercase()) {
+            Some(row) => row.1 = row.1.saturating_add(visits),
+            None => out.push((term, visits, last)),
+        }
+        if out.len() >= SEARCHES_MAX {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// Brings one profile's history over, its past searches with it. The number of pages.
 pub fn import_history(c: &mut Conn, profile: &str) -> Result<u32, String> {
     let root = chrome_root().ok_or("Chrome is not on this PC.")?;
     let copy = copy_of(&profile_dir(&root, profile)?.join("History"))?;
     let pages = read_history(&copy.0)?;
-    keep_history(c, &pages)
+    let kept = keep_history(c, &pages)?;
+    // an older History without the searches table brings the pages alone
+    if let Ok(searches) = read_search_terms(&copy.0) {
+        let _ = crate::browser_suggest::keep_searches(c, &searches);
+    }
+    Ok(kept)
 }
 
 /// The bookmarks in Chrome's Bookmarks JSON: (title, url, folder), web addresses only. Pure.
@@ -308,6 +347,30 @@ mod tests {
     #[test]
     fn chrome_time_counts_from_1601() {
         assert_eq!(chrome_time(13_380_000_000_000_000).as_deref(), Some("2024-12-30 02:40:00"));
+    }
+
+    #[test]
+    fn chromes_past_searches_come_as_one_row_per_search() {
+        let dir = std::env::temp_dir().join(format!("castle-chrome-searches-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("History");
+        let _ = std::fs::remove_file(&file);
+        let db = rusqlite::Connection::open(&file).unwrap();
+        db.execute_batch(
+            "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, last_visit_time INTEGER);
+             CREATE TABLE keyword_search_terms (keyword_id INTEGER, url_id INTEGER, term TEXT, normalized_term TEXT);
+             INSERT INTO urls (id, url, title, visit_count, last_visit_time) VALUES
+               (1, 'https://www.google.com/search?q=google+meet', 'google meet', 3, 13380000000000000),
+               (2, 'https://www.google.com/search?q=Google+Meet', 'Google Meet', 2, 13370000000000000),
+               (3, 'https://www.google.com/search?q=tauri', 'tauri', 1, 13360000000000000);
+             INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term) VALUES
+               (1, 1, 'google  meet', 'google meet'), (1, 2, 'Google Meet', 'google meet'), (1, 3, 'tauri', 'tauri'), (1, 9, 'orphan', 'orphan');",
+        )
+        .unwrap();
+        drop(db);
+        let rows = read_search_terms(&file).unwrap();
+        assert_eq!(rows, vec![("google meet".to_string(), 5, "2024-12-30 02:40:00".to_string()), ("tauri".to_string(), 1, chrome_time(13360000000000000).unwrap())]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

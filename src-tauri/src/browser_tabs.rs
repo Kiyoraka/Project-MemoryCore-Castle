@@ -109,6 +109,14 @@ pub fn address(input: &str) -> Option<String> {
     Some(format!("https://duckduckgo.com/?q={}", search_words(input)))
 }
 
+/// The words typed, when the address bar made them a web search (trimmed, spaces made single, at
+/// most 200 characters); None for an address. What the suggestions keep (browser_suggest.rs).
+pub fn search_term(input: &str) -> Option<String> {
+    let words = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    let url = address(&words)?;
+    url.starts_with("https://duckduckgo.com/?q=").then(|| words.chars().take(200).collect())
+}
+
 /// Words for a search address: letters, digits and `-_.~` as they are, a space as `+`, the rest
 /// percent-encoded, so nothing typed can end the query or start another part of the address.
 fn search_words(words: &str) -> String {
@@ -337,6 +345,16 @@ mod tests {
         assert_eq!(address("   "), None);
         assert_eq!(address("javascript:alert(1)").as_deref(), Some("https://duckduckgo.com/?q=javascript%3Aalert%281%29"), "never a script");
         assert_eq!(address("file:///etc/passwd").as_deref(), Some("https://duckduckgo.com/?q=file%3A%2F%2F%2Fetc%2Fpasswd"));
+    }
+
+    #[test]
+    fn only_words_that_became_a_search_are_search_words() {
+        assert_eq!(search_term("  google   meet ").as_deref(), Some("google meet"));
+        assert_eq!(search_term("github.com"), None);
+        assert_eq!(search_term("https://x.example/?q=1"), None);
+        assert_eq!(search_term("localhost:5173"), None);
+        assert_eq!(search_term("   "), None);
+        assert_eq!(search_term(&"a ".repeat(300)).map(|t| t.chars().count()), Some(200));
     }
 
     #[test]

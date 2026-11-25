@@ -28,7 +28,7 @@ export function stepWords(step, companion = 'your companion') {
     case 'history':
       return {
         title: 'Bring your history from Chrome?',
-        body: 'Castle reads a copy of Chrome\'s history, so Chrome is never touched: the sites and pages you visited and their titles. Never what you typed, never the part of an address after ? or #. It stays in your own memory database on this PC, and fills Most visited on the new tab.',
+        body: 'Castle reads a copy of Chrome\'s history, so Chrome is never touched: the sites and pages you visited and their titles, and the words you searched for, so the address bar can suggest them. Never the part of an address after ? or #. It stays in your own memory database on this PC, and fills Most visited on the new tab.',
         yes: 'Bring my history',
       }
     case 'bookmarks':

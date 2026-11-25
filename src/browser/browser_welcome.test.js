@@ -24,7 +24,8 @@ describe('the browser welcome, one step at a time', () => {
   })
 
   it('each step says what is read and what never is, in the companion\'s name', () => {
-    expect(stepWords('history', 'Shana').body).toContain('Never what you typed')
+    expect(stepWords('history', 'Shana').body).toContain('the words you searched for')
+    expect(stepWords('history', 'Shana').body).toContain('Never the part of an address after ? or #')
     const pw = stepWords('passwords', 'Shana')
     expect(pw.body).toContain('never sees a password')
     expect(pw.body).toContain('Windows PIN')

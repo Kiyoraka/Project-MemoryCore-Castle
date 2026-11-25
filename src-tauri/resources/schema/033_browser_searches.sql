@@ -1,0 +1,10 @@
+CREATE TABLE browser_searches (
+ id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ term VARCHAR(200) NOT NULL,
+ term_key CHAR(64) NOT NULL,
+ count INT UNSIGNED NOT NULL DEFAULT 1,
+ first_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ last_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY ux_browser_searches (term_key),
+ KEY ix_browser_searches_last (last_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
