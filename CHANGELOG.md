@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Castle's browser shows what is new in your tabs: a site like WhatsApp Web or Gmail gets a mint count on its tab, and the BROWSER tile (and its top-bar tab) shows the total and glows like CHAT when something arrives while the browser is not in front. Only the tab's title is read, never the page.
+
 - Castle's browser holds a dangerous site back before it loads and shows a red DANGER screen in its place: the threat, which guards caught it, **Go back to safety**, and **Open anyway** for that one page. Google Safe Browsing joins the guards with your own free key (Settings > Keys); Google's lists stay on your computer and only a short hash of an address is ever sent. Suspicious sites still open with the amber line.
 
 - Fixed: Sign in with Google, Apple or Microsoft in Castle's browser no longer gets stuck in a new tab. The sign-in opens its own small window, which closes by itself once you are signed in, and the site shows you signed in.

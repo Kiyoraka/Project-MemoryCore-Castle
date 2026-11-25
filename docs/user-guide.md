@@ -1019,6 +1019,15 @@ small window shares the browser's sign-ins, so with **Remember sign-ins** off it
 plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
 never gets a small window: it opens as a tab, where its warning shows.
 
+### What is new in your tabs
+
+A site that says it has something new (WhatsApp Web, Gmail, Messenger, Discord and most others
+put a number in their tab's title, like "(3) WhatsApp") gets a mint count and a soft gold glow on
+its tab. The **BROWSER** tile in APPS, and its tab in the top bar if you pinned it, shows the total,
+and glows like CHAT when something new arrives while the browser window is not in front; open
+BROWSER and the glow goes, while the count follows the sites. Hover it to see which sites have
+news. Castle reads only the tab's title, never the page, and keeps nothing of it.
+
 ### The DANGER screen
 
 A site the guards know is dangerous never loads: the browser holds it back before a single part
