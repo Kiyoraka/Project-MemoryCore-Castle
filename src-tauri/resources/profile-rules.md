@@ -22,6 +22,7 @@ One reading of {{USER_NAME}} for that month, from how the pages read: what {{USE
 - **No health numbers.** Weight, blood pressure, sleep hours, medicine and the like are never a score and never a line. A score comes from how the diary reads, never from a measurement.
 - **Nothing intimate or private is ever quoted.** Write about the person, never repeat a passage. No names of other people.
 - When a month says little about a word, leave that word out.
+- **Browsing, when it is there, is evidence about interests and patterns only.** Never quote an address or a page title, never judge a site, never a diagnosis, and never anything about the companion's own traits.
 
 ## How to answer
 

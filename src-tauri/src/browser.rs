@@ -114,12 +114,12 @@ fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, priv
     std::thread::spawn(move || {
         let has_login = asked.is_ok() && rx.recv_timeout(std::time::Duration::from_secs(3)).is_ok_and(|json| json.trim() == "true");
         let title = tabs(&app).list.iter().find(|t| t.id == id).map(|t| t.title.clone()).unwrap_or_default();
-        let checked = site_check(&app, &url, &title, has_login, private);
+        let checked = site_check(&app, &url, &title, has_login, Some(private));
         show_warning(&app, id, &url, checked.as_ref());
         // a sign-in page on a host she has not judged: she is asked now, then the page is checked again
         if let Some(c) = checked.filter(|c| c.has_login && !c.marked) {
             if crate::sentinel::site_judge::judge_one(&app.state::<SettingsStore>(), &c.host) {
-                let again = site_check(&app, &url, &title, false, true);
+                let again = site_check(&app, &url, &title, false, None);
                 show_warning(&app, id, &url, again.as_ref());
             }
         }
@@ -147,14 +147,19 @@ pub struct Checked {
 /// The check of one page: the visit kept (only while the Sentinel is on, never while browsing
 /// privately), then the worst of the rules, the Sentinel's mark and her active patterns. Without a
 /// memory database the rules alone speak.
-fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, private: bool) -> Option<Checked> {
+/// `keep`: Some(private) keeps the visit as the switches say; None only checks (a page checked again).
+fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, keep: Option<bool>) -> Option<Checked> {
     let (host, path, title) = crate::sites::visit_of(url, title)?;
     let settings = app.state::<SettingsStore>().get();
     let mut conn = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
     let (mut mark, mut patterns) = (None, Vec::new());
     if let Some(c) = conn.as_mut() {
-        if settings.sentinel.on && !private {
+        if settings.sentinel.on && keep == Some(false) {
             let _ = crate::sites::keep_visit(c, &host, &path, &title, has_login);
+        }
+        // private browsing remembered for the member's own companion, only on their switch
+        if keep == Some(true) && settings.browser_private_remember {
+            let _ = crate::browser_private::remember(c, &host, &path, &title);
         }
         mark = crate::sites::mark_of(c, &host).ok().flatten();
         patterns = crate::sites::active_patterns(c).unwrap_or_default();

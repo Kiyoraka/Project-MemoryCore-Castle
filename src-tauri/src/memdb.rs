@@ -19,7 +19,7 @@ pub const HOST: &str = "127.0.0.1";
 pub const ENV_KEYS: [&str; 5] = ["MEMORY_DB_HOST", "MEMORY_DB_PORT", "MEMORY_DB_NAME", "MEMORY_DB_USER", "MEMORY_DB_PASSWORD"];
 
 /// The migrations, in order. A released file is never edited; a change is a new entry.
-pub const MIGRATIONS: [(&str, &str); 30] = [
+pub const MIGRATIONS: [(&str, &str); 31] = [
     ("001_core", include_str!("../resources/schema/001_core.sql")),
     ("002_imported_files", include_str!("../resources/schema/002_imported_files.sql")),
     ("003_memory_skills", include_str!("../resources/schema/003_memory_skills.sql")),
@@ -50,6 +50,7 @@ pub const MIGRATIONS: [(&str, &str); 30] = [
     ("028_finance", include_str!("../resources/schema/028_finance.sql")),
     ("029_sentinel_network", include_str!("../resources/schema/029_sentinel_network.sql")),
     ("030_browser_sites", include_str!("../resources/schema/030_browser_sites.sql")),
+    ("031_browser_private", include_str!("../resources/schema/031_browser_private.sql")),
 ];
 
 /// How to reach one database.
@@ -321,6 +322,7 @@ mod tests {
         assert!(MIGRATIONS[27].1.contains("UNIQUE KEY ux_finance_receipts_picture (picture_sha256)"), "one picture is filed once");
         assert!(MIGRATIONS[28].0 == "029_sentinel_network" && MIGRATIONS[28].1.trim_start().starts_with("CREATE TABLE sentinel_network_sent"));
         assert!(MIGRATIONS[29].0 == "030_browser_sites" && MIGRATIONS[29].1.trim_start().starts_with("CREATE TABLE browser_visits"));
+        assert!(MIGRATIONS[30].0 == "031_browser_private" && MIGRATIONS[30].1.trim_start().starts_with("CREATE TABLE browser_private_visits"));
     }
 
     #[test]

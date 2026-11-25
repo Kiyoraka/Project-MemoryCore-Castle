@@ -36,6 +36,7 @@ export const SETTINGS_DEFAULTS = {
   shareFallback: true,
   linkOpen: 'castle',
   browserRemember: true,
+  browserPrivateRemember: false,
   browserNewTab: 'shortcuts',
   emotionRoomVoice: true,
   profileLook: 'cards',

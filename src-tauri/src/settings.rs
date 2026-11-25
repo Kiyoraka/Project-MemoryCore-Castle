@@ -464,6 +464,10 @@ pub struct Settings {
     pub link_open: String,
     /// The BROWSER window's pages keep their sign-ins between runs (off: every page is private).
     pub browser_remember: bool,
+    /// Private browsing (Remember sign-ins off) is remembered for the member's own companion: kept in
+    /// their own memory database for 30 days, never in any history, read only for their profile.
+    /// Off until the member turns it on.
+    pub browser_private_remember: bool,
     /// What a new tab in the BROWSER window shows: one of BROWSER_NEW_TABS.
     pub browser_new_tab: String,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
@@ -648,6 +652,7 @@ impl Default for Settings {
             unknown: BTreeMap::new(),
             link_open: "castle".into(),
             browser_remember: true,
+            browser_private_remember: false,
             browser_new_tab: "shortcuts".into(),
             emotion_room_voice: true,
             emotion_market_voice: true,
@@ -1196,6 +1201,7 @@ mod tests {
             unknown: BTreeMap::from([("aNewerSetting".to_string(), serde_json::json!(1))]),
             link_open: "system".into(),
             browser_remember: false,
+            browser_private_remember: true,
             browser_new_tab: "blank".into(),
             emotion_room_voice: false,
             emotion_market_voice: false,
@@ -1402,6 +1408,7 @@ mod tests {
         assert_eq!(Settings { browser_new_tab: "x".into(), ..Settings::default() }.normalized().browser_new_tab, "shortcuts");
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
+        assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");
     }
 
     #[test]

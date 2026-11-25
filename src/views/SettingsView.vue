@@ -895,6 +895,9 @@ onMounted(async () => {
               <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
                 <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
               </SettingRow>
+              <SettingRow id="browser-private-remember" :label="`Private browsing: remember for ${companionLabel}`" :description="`When Remember sign-ins is off, the sites you open are kept in your own memory database on this PC for 30 days, never shown in any history. Only ${companionLabel} reads them, for your profile reading, never for its own traits.`">
+                <SettingSwitch :model-value="valueOf(settings, 'browserPrivateRemember')" :label="`Private browsing: remember for ${companionLabel}`" :disabled="locked" @update:model-value="(on) => saveRow('browser-private-remember', { browserPrivateRemember: on })" />
+              </SettingRow>
               <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
                 <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
               </SettingRow>

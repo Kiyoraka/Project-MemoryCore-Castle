@@ -73,6 +73,7 @@ mod quota;
 mod alerts;
 mod bridges;
 mod browser;
+mod browser_private;
 mod browser_tabs;
 mod roomalert;
 mod roomdraw;

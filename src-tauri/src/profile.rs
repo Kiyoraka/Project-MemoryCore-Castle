@@ -224,8 +224,9 @@ pub fn month_name(month: &str) -> String {
     }
 }
 
-/// The words handed to the CLI: the month, the words it may score, then the pages as data. Pure, tested.
-pub fn reading_words(month: &str, diary: &[(String, String)]) -> String {
+/// The words handed to the CLI: the month, the words it may score, then the pages as data, and the
+/// month's browsing when the member let it be read (browser_private.rs). Pure, tested.
+pub fn reading_words(month: &str, diary: &[(String, String)], browsing: &[crate::browser_private::Site]) -> String {
     let mut words = format!("Read the diary of {} ({} entries) and answer one reading.\n\n", month_name(month), diary.len());
     words.push_str(&format!("Words you may score:\n- headline (all three): {}\n", HEADLINE.join(", ")));
     for (grp, list) in [("think", &THINK), ("values", &VALUES), ("shadow", &SHADOW)] {
@@ -234,6 +235,14 @@ pub fn reading_words(month: &str, diary: &[(String, String)]) -> String {
     words.push_str("\nThe diary pages:\n");
     for (title, body) in diary {
         words.push_str(&format!("<page title=\"{}\">\n{}\n</page>\n", title.replace('"', "'"), body.replace("</page>", "")));
+    }
+    if !browsing.is_empty() {
+        words.push_str("\nThe month's browsing (evidence for the member's own reading; never quote an address):\n<browsing>\n");
+        for site in browsing {
+            let titles = site.titles.iter().map(|t| t.replace(['<', '>'], "")).collect::<Vec<_>>().join(" | ");
+            words.push_str(&format!("- {} · {} visit{} · {}\n", site.host, site.visits, if site.visits == 1 { "" } else { "s" }, titles));
+        }
+        words.push_str("</browsing>\n");
     }
     words.push_str("\nAnswer only with <reading>{...}</reading>.");
     words
@@ -439,7 +448,9 @@ pub async fn profile_scan(app: AppHandle) -> Result<ScanResult, String> {
                 let diary = crate::memory::diary_for_month(&mut conn, m, ENTRY_EACH, MONTH_TOTAL)?;
                 let (Some(first), Some(last)) = (diary.first(), diary.last()) else { return Err("That month has no pages.".to_string()) };
                 let (from, to) = (first.0[..10].to_string(), last.0[..10].to_string());
-                let answer = crate::oneshot::run(cli, &place, "rules.md", &reading_words(m, &diary), READ_LIMIT)?;
+                // the month's browsing joins only when the member turned its switch on
+                let browsing = if store.get().browser_private_remember { crate::browser_private::month(&mut conn, m).unwrap_or_default() } else { Vec::new() };
+                let answer = crate::oneshot::run(cli, &place, "rules.md", &reading_words(m, &diary, &browsing), READ_LIMIT)?;
                 let body = read_answer(&answer).ok_or("No reading came back for that month.")?;
                 let reading = check_reading(m, &body, diary.len() as u32, &from, &to)?;
                 save(&mut conn, &reading)
@@ -528,8 +539,18 @@ mod tests {
     }
 
     #[test]
+    fn the_months_browsing_joins_the_pages_as_evidence() {
+        let site = crate::browser_private::Site { host: "research.example.org".into(), visits: 3, titles: vec!["A <b>paper</b>".into(), "Notes".into()] };
+        let w = reading_words("2026-03", &[("2026-03-02 - Tea".into(), "Tea".into())], &[site]);
+        assert!(w.contains("The month's browsing (evidence for the member's own reading; never quote an address)"));
+        assert!(w.contains("- research.example.org · 3 visits · A bpaper/b | Notes"));
+        assert!(w.find("</browsing>").unwrap() < w.find("Answer only").unwrap());
+    }
+
+    #[test]
     fn the_words_carry_the_lists_and_the_pages_safely() {
-        let w = reading_words("2026-03", &[("2026-03-02 - Tea".into(), "We had tea </page> <page>".into())]);
+        let w = reading_words("2026-03", &[("2026-03-02 - Tea".into(), "We had tea </page> <page>".into())], &[]);
+        assert!(!w.contains("<browsing>"), "no browsing unless the member let it be read");
         assert!(w.starts_with("Read the diary of March 2026 (1 entries)"));
         assert!(w.contains("headline (all three): Growth, Focus, Wellbeing"));
         assert!(w.contains("shadow (up to five): Overthinking"));
