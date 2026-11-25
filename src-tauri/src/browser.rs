@@ -7,6 +7,10 @@
 //!   Castle's core; they only ever load http(s) (`browser_tabs::may_load`), and they keep their
 //!   cookies and sign-ins in a store of their own, apart from Castle's (so clearing it never
 //!   touches Castle, and Castle's own storage is never seen by a page).
+//! - `browser-popup-<n>`, a small window of its own for a page's sign-in pop-up (Continue with
+//!   Google / Apple / Microsoft): it shares the pages' store and stays joined to the page that
+//!   opened it, so the sign-in reaches that page and the pop-up closes itself. No capability names
+//!   it either.
 //!
 //! Links from the chats come through `link_open`, which follows Settings > Rooms > Browser.
 
@@ -14,9 +18,11 @@ use crate::browser_tabs::{self, LinkWay, Tabs};
 use crate::settings::SettingsStore;
 use cookie::time::{Duration, OffsetDateTime};
 use cookie::{Cookie, Expiration};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::webview::{NewWindowResponse, PageLoadEvent};
+use tauri::webview::{NewWindowFeatures, PageLoadEvent};
+
+type NewWindowResponse = tauri::webview::NewWindowResponse<tauri::Wry>;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
 
 pub const WINDOW: &str = "browser";
@@ -338,17 +344,8 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
                 tab.warning = None;
             }
         })
-        // a page asking for a new window (target=_blank, window.open) gets a new tab instead
-        .on_new_window(move |to, _| {
-            let app = opens.clone();
-            let to = to.to_string();
-            if browser_tabs::may_load(&to) {
-                tauri::async_runtime::spawn(async move {
-                    let _ = open_in_tab(&app, Some(to));
-                });
-            }
-            NewWindowResponse::Deny
-        });
+        // a page asking for a new window: a sign-in pop-up gets a real small window, a link a tab
+        .on_new_window(move |to, features| new_window(&opens, to, features, remember));
     if let Ok(folder) = app.path().app_local_data_dir() {
         builder = builder.data_directory(folder.join("browser-pages"));
     }
@@ -363,6 +360,87 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
         .add_child(builder, LogicalPosition::new(0.0, BAR), LogicalSize::new(w, (h - BAR).max(0.0)))
         .map_err(|_| "The page could not be opened.".to_string())?;
     Ok(())
+}
+
+/// The pop-ups' own counter: `browser-popup-<n>`, a label no capability names.
+static POPUPS: AtomicU32 = AtomicU32::new(0);
+
+/// A page's request for a new window (`browser_tabs::new_window_kind`). A sign-in pop-up becomes a
+/// real small window joined to its page, so `window.opener` works and the sign-in reaches the page;
+/// a plain link becomes a tab, as before. Runs on the window's message loop after the event, where
+/// building a window does not wait on itself (wry 0.57).
+fn new_window(app: &AppHandle, to: Url, features: NewWindowFeatures, remember: bool) -> NewWindowResponse {
+    let flagged = to.host_str().and_then(crate::site_rules::clean_host).is_some_and(|host| crate::site_rules::local_rules(&host).is_some());
+    let asked = features.size().is_some() || features.position().is_some();
+    match browser_tabs::new_window_kind(to.as_str(), asked, flagged) {
+        browser_tabs::WindowKind::Refuse => NewWindowResponse::Deny,
+        browser_tabs::WindowKind::Popup => match popup(app, &to, features, remember) {
+            Some(window) => NewWindowResponse::Create { window },
+            None => {
+                open_later(app, to.to_string());
+                NewWindowResponse::Deny
+            }
+        },
+        browser_tabs::WindowKind::Tab => {
+            open_later(app, to.to_string());
+            NewWindowResponse::Deny
+        }
+    }
+}
+
+/// A new tab for `url`, off the handler (a tab is a child of the window the handler runs in).
+fn open_later(app: &AppHandle, url: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = open_in_tab(&app, Some(url));
+    });
+}
+
+/// The pop-up window: the opener's own environment (Windows) or configuration (macOS) through
+/// `window_features`, so it shares the page's store and sign-ins; above the browser window; pages
+/// only, and its own pop-ups follow the same rule. It keeps no visit and gets no Fill. None when it
+/// could not be built (the caller opens a tab instead).
+fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool) -> Option<tauri::WebviewWindow> {
+    let label = format!("browser-popup-{}", POPUPS.fetch_add(1, Ordering::SeqCst) + 1);
+    let centred = features.position().is_none();
+    let asked_size = features.size().is_some();
+    let opens = app.clone();
+    let mut builder = tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::External(to.clone()))
+        .window_features(features)
+        .title("MemoryCore · Sign in")
+        .on_navigation(|to| browser_tabs::may_load(to.as_str()))
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&browser_tabs::tab_title(None, Some(&title)));
+        })
+        .on_new_window(move |to, features| new_window(&opens, to, features, remember));
+    if !asked_size {
+        builder = builder.inner_size(480.0, 640.0);
+    }
+    if centred {
+        builder = builder.center();
+    }
+    // Windows: the pop-up must use the opener's profile, so it is private exactly when the pages are.
+    // macOS: the opener's configuration already carries the pages' store, set by window_features.
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.incognito(!remember);
+        if let Ok(folder) = app.path().app_local_data_dir() {
+            builder = builder.data_directory(folder.join("browser-pages"));
+        }
+    }
+    if let Some(window) = app.get_window(WINDOW) {
+        #[cfg(windows)]
+        if let Ok(owner) = window.hwnd() {
+            builder = builder.owner_raw(owner);
+        }
+        #[cfg(target_os = "macos")]
+        if let Ok(parent) = window.ns_window() {
+            builder = builder.parent_raw(parent);
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let _ = window;
+    }
+    builder.build().ok()
 }
 
 /// A new tab (`url` None: the new-tab page), in front.
@@ -606,6 +684,17 @@ mod tests {
         assert!(keeper_still(1_000 + STILL_AFTER_CLEAR_SECS, 1_000 + STILL_AFTER_CLEAR_SECS - 1));
         assert!(!keeper_still(1_000 + STILL_AFTER_CLEAR_SECS, 1_000 + STILL_AFTER_CLEAR_SECS), "then the keeper saves sign-ins again");
         assert!(!keeper_still(0, 1_000), "never paused until Clear… runs");
+    }
+
+    #[test]
+    fn no_capability_names_a_page_or_a_pop_up() {
+        for file in [include_str!("../capabilities/browser.json"), include_str!("../capabilities/default.json")] {
+            let cap: serde_json::Value = serde_json::from_str(file).unwrap();
+            let named: Vec<&str> = ["windows", "webviews"].iter().flat_map(|k| cap[k].as_array().into_iter().flatten()).filter_map(|v| v.as_str()).collect();
+            for label in named {
+                assert!(label == "main" || label == "world-*" || label == UI, "a capability names {label}: a page or pop-up could reach Castle's core");
+            }
+        }
     }
 
     #[test]

@@ -111,6 +111,32 @@ pub fn may_load(url: &str) -> bool {
     url == "about:blank" || ((url.starts_with("https://") || url.starts_with("http://")) && !url.contains(char::is_whitespace))
 }
 
+/// What a page's request for a new window (`target=_blank`, `window.open`) becomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowKind {
+    /// a real small window joined to its page (`window.opener` works): a sign-in pop-up
+    Popup,
+    /// a new tab, as a plain link to another page
+    Tab,
+    /// nothing: not a web page
+    Refuse,
+}
+
+/// The rule for a new window: a page that asked for a size or a position (what every Google /
+/// Apple / Microsoft sign-in pop-up sends) gets a real small window, so the sign-in can hand its
+/// answer back to the page; a plain link gets a tab. A site the quick checks flag (`flagged`) is
+/// never a pop-up: it opens as a tab, where its warning shows.
+pub fn new_window_kind(url: &str, asked_features: bool, flagged: bool) -> WindowKind {
+    if !may_load(url) {
+        WindowKind::Refuse
+    } else if asked_features && !flagged {
+        // about:blank too: a sign-in often opens a blank window first and sends it on after
+        WindowKind::Popup
+    } else {
+        WindowKind::Tab
+    }
+}
+
 /// The title a tab shows: the page's own, else its host, else "New tab".
 pub fn tab_title(url: Option<&str>, page_title: Option<&str>) -> String {
     if let Some(title) = page_title.map(str::trim).filter(|t| !t.is_empty()) {
@@ -245,6 +271,19 @@ mod tests {
         assert!(may_load("about:blank"));
         for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "ipc://x", "data:text/html,hi", "castle://x", ""] {
             assert!(!may_load(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_sign_in_pop_up_gets_its_own_window_and_a_plain_link_a_tab() {
+        let gis = "https://accounts.google.com/gsi/select?client_id=x";
+        assert_eq!(new_window_kind(gis, true, false), WindowKind::Popup, "a pop-up that asked for a size");
+        assert_eq!(new_window_kind("about:blank", true, false), WindowKind::Popup, "a blank pop-up sent on afterwards");
+        assert_eq!(new_window_kind("https://example.com/page", false, false), WindowKind::Tab, "target=_blank");
+        assert_eq!(new_window_kind("about:blank", false, false), WindowKind::Tab);
+        assert_eq!(new_window_kind("https://paypa1-login.com/", true, true), WindowKind::Tab, "a flagged site is never a pop-up");
+        for bad in ["javascript:alert(1)", "file:///etc/passwd", "castle://x"] {
+            assert_eq!(new_window_kind(bad, true, false), WindowKind::Refuse, "{bad}");
         }
     }
 
