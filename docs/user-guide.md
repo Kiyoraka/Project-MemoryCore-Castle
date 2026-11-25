@@ -55,6 +55,20 @@ If the download cannot happen (no internet, for example), Castle still opens and
 - **Hide** it with the **–** button at the top right, or press **Ctrl + Alt + M**. Press the keys again to bring it back.
 - Castle lives in the system tray (bottom right of the taskbar). Click its crystal icon to show or hide it. Right-click it for **Open Castle**, **Wake companion** and **Quit**.
 - Closing the window only hides Castle. Use **Quit** in the tray to end it; if your companion's session is running, Castle asks first.
+- **Start with Windows** (Settings > Start-up) opens Castle after you sign in. Each time Castle starts, it checks that Windows' start-up and the Start menu open this Castle, and points them back at it if they open another copy.
+
+### Two copies of Castle
+
+Install Castle from its download page, not from inside another app. An installer run from inside some apps (packaged ones, like the Claude desktop app) is quietly given that app's private folder, so a second, older Castle can be left there, and Windows may start it at sign-in.
+
+Castle tells you when this happens:
+- The real Castle points Windows' start-up and the Start menu back at itself, and says so under **Start with Windows**.
+- A leftover copy says, on the top bar and in **Settings > About**, that it is a leftover and where the real one is. It never takes the start-up back.
+- When two copies are installed, **Settings > About** and the update chip name both.
+
+Once Castle opens from the right place after a restart, the leftover's folder can be deleted. Your memory, keys and database are not in it.
+
+An older Castle never resets settings a newer one chose: settings it does not know are kept as they are. If an older Castle opens what a newer one used, the top bar says **Older Castle** and About says which version used it last; open the newer one.
 
 ### Waking your companion
 

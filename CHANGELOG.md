@@ -4,6 +4,10 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Fixed: after an in-app update, a second, older copy of Castle could still open at every sign-in (an installer run from inside another app leaves one in that app's private folder). Castle now points Windows' start-up and the Start menu back at itself, a leftover copy says so and where the real one is, and Settings > About names both copies. Thanks to Ari and Mei for the careful report.
+
+- An older Castle no longer resets settings a newer one chose: settings it does not know are kept on every save, and opening what a newer Castle used is said plainly.
+
 - Your companion hears your push: push from a DEV tab and at your next message she says once how many commits went where, and checks your project's live site if it names one. Nothing new is written into your project (Claude Code sessions).
 
 - In DEV, a code file past 1,000 lines gets a proposal from your companion to split it into a short main file and a few focused ones, done only on your yes. It is Castle's own skill, Shard, kept in your memory database and listed in Settings > Database > Skills.
