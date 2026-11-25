@@ -228,8 +228,8 @@ pub async fn browser_forget_search(app: AppHandle, term: String) -> Result<(), S
 }
 
 /// Keeps a search typed in the address bar, off the window's thread; nothing while browsing privately.
-pub fn remember_typed(app: &AppHandle, input: &str) {
-    let Some(term) = search_to_keep(input, app.state::<SettingsStore>().get().browser_remember) else { return };
+pub fn remember_typed(app: &AppHandle, input: &str, private: bool) {
+    let Some(term) = search_to_keep(input, crate::browser_tabs::may_keep(app.state::<SettingsStore>().get().browser_remember, private)) else { return };
     let app = app.clone();
     std::thread::spawn(move || {
         if let Some(mut c) = conn(&app) {

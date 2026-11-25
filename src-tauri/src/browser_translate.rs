@@ -604,8 +604,8 @@ pub fn sites_after(sites: &[String], host: &str, on: bool) -> Vec<String> {
 /// leaves its site in Settings.
 #[tauri::command]
 pub fn browser_translate_site(app: AppHandle, id: u32, on: bool, store: State<'_, SettingsStore>) -> Result<Vec<String>, String> {
-    if !store.get().browser_remember {
-        return Err("Browsing is private (Remember sign-ins is off), so no site is kept.".into());
+    if !store.get().browser_remember || app.state::<Browser>().0.lock().unwrap().list.iter().any(|t| t.id == id && t.private) {
+        return Err("This browsing is private, so no site is kept.".into());
     }
     let url = app.state::<Browser>().0.lock().unwrap().list.iter().find(|t| t.id == id).and_then(|t| t.url.clone()).ok_or("Open a page first.")?;
     let host = host_of(&url);
@@ -624,7 +624,8 @@ pub fn browser_translate_site(app: AppHandle, id: u32, on: bool, store: State<'_
 /// browsing privately).
 pub fn translate_if_always(app: &AppHandle, id: u32, url: &str) {
     let s = app.state::<SettingsStore>().get();
-    if !s.browser_remember || s.cli != Cli::Claude || !s.browser_translate_sites.contains(&host_of(url)) {
+    let private = app.state::<Browser>().0.lock().unwrap().list.iter().any(|t| t.id == id && t.private);
+    if !s.browser_remember || private || s.cli != Cli::Claude || !s.browser_translate_sites.contains(&host_of(url)) {
         return;
     }
     let (app, lang) = (app.clone(), s.browser_language.clone());

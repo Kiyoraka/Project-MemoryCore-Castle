@@ -537,7 +537,9 @@ fn phone_layouts(app: &AppHandle, tabs: &Tabs) {
 /// The web page for tab `id`, made the first time the tab gets an address.
 fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), String> {
     let page: Url = url.parse().map_err(|_| "That address could not be opened.".to_string())?;
-    let remember = app.state::<SettingsStore>().get().browser_remember;
+    // a private tab (or Remember sign-ins off) keeps nothing
+    let tab_private = tabs(app).list.iter().any(|t| t.id == id && t.private);
+    let remember = browser_tabs::may_keep(app.state::<SettingsStore>().get().browser_remember, tab_private);
     let titles = app.clone();
     let loads = app.clone();
     let opens = app.clone();
@@ -588,8 +590,9 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     if let Ok(folder) = app.path().app_local_data_dir() {
         builder = builder.data_directory(folder.join("browser-pages"));
     }
+    // macOS: the kept store for a page that keeps; a private page gets WebKit's own store that keeps nothing
     #[cfg(target_os = "macos")]
-    {
+    if remember {
         builder = builder.data_store_identifier(PAGE_STORE);
     }
     #[cfg(not(target_os = "macos"))]
@@ -621,22 +624,22 @@ fn new_window(app: &AppHandle, to: Url, features: NewWindowFeatures, remember: b
         browser_tabs::WindowKind::Popup => match popup(app, &to, features, remember) {
             Some(window) => NewWindowResponse::Create { window },
             None => {
-                open_later(app, to.to_string());
+                open_later(app, to.to_string(), !remember);
                 NewWindowResponse::Deny
             }
         },
         browser_tabs::WindowKind::Tab => {
-            open_later(app, to.to_string());
+            open_later(app, to.to_string(), !remember);
             NewWindowResponse::Deny
         }
     }
 }
 
 /// A new tab for `url`, off the handler (a tab is a child of the window the handler runs in).
-fn open_later(app: &AppHandle, url: String) {
+fn open_later(app: &AppHandle, url: String, private: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = open_in_tab(&app, Some(url));
+        let _ = open_in_tab_with(&app, Some(url), private);
     });
 }
 
@@ -657,7 +660,7 @@ fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool)
         .on_navigation(move |to| {
             let held = to.host_str().and_then(crate::site_rules::clean_host).is_some_and(|host| crate::browser_guard::check(to.as_str(), &host).is_some());
             if held {
-                open_later(&guards, to.to_string());
+                open_later(&guards, to.to_string(), !remember);
             }
             browser_tabs::may_load(to.as_str()) && !held
         })
@@ -697,13 +700,18 @@ fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool)
 
 /// A new tab (`url` None: the new-tab page), in front.
 fn open_in_tab(app: &AppHandle, url: Option<String>) -> Result<(), String> {
+    open_in_tab_with(app, url, false)
+}
+
+/// A new tab, private or not (`url` None: the new-tab page), in front.
+fn open_in_tab_with(app: &AppHandle, url: Option<String>, private: bool) -> Result<(), String> {
     if let Some(url) = &url {
         if !browser_tabs::may_load(url) {
             return Err("That address could not be opened.".into());
         }
     }
     let window = window(app)?;
-    let id = app.state::<Browser>().0.lock().unwrap().open(url.clone()).ok_or(format!("All {} tabs are open - close one first.", browser_tabs::MAX_TABS))?;
+    let id = app.state::<Browser>().0.lock().unwrap().open_with(url.clone(), private).ok_or(format!("All {} tabs are open - close one first.", browser_tabs::MAX_TABS))?;
     if let Some(url) = url {
         if let Err(problem) = add_page(app, &window, id, &url) {
             app.state::<Browser>().0.lock().unwrap().close(id);
@@ -738,10 +746,10 @@ fn outside(url: &str) -> Result<(), String> {
 
 /// Opens the window: on a page (a link the member chose, the Artifacts tile) or a new tab.
 #[tauri::command]
-pub async fn browser_open(app: AppHandle, url: Option<String>) -> Result<(), String> {
+pub async fn browser_open(app: AppHandle, url: Option<String>, private: Option<bool>) -> Result<(), String> {
     match url {
         Some(url) if browser_tabs::link_way("castle", &url) == LinkWay::Refuse => Err("That link does not open from Castle.".into()),
-        url => open_in_tab(&app, url),
+        url => open_in_tab_with(&app, url, private.unwrap_or(false)),
     }
 }
 
@@ -794,7 +802,8 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
 pub async fn browser_go(app: AppHandle, input: String, id: Option<u32>) -> Result<(), String> {
     let url = browser_tabs::address(&input).ok_or("Type an address or something to search for.")?;
     // a search is kept for the suggestions (never while browsing privately)
-    crate::browser_suggest::remember_typed(&app, &input);
+    let private = tabs(&app).list.iter().any(|t| Some(t.id) == id.or(tabs(&app).active) && t.private);
+    crate::browser_suggest::remember_typed(&app, &input, private);
     if !browser_tabs::may_load(&url) {
         return Err("That address could not be opened.".into());
     }

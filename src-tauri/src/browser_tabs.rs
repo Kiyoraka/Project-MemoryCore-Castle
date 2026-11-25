@@ -31,6 +31,13 @@ pub struct Tab {
     pub lang: String,
     /// the language the page is being read in (browser_translate.rs); None: its own words
     pub translated: Option<String>,
+    /// a private tab: keeps nothing (no visit, no search, no sign-in after it closes)
+    pub private: bool,
+}
+
+/// Whether a tab may keep anything (pure): only while Remember sign-ins is on and the tab is not private.
+pub fn may_keep(remember: bool, private: bool) -> bool {
+    remember && !private
 }
 
 /// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
@@ -71,13 +78,17 @@ impl Default for Tabs {
 impl Tabs {
     /// A new tab at the end, in front; its id, or None when MAX_TABS are open.
     pub fn open(&mut self, url: Option<String>) -> Option<u32> {
+        self.open_with(url, false)
+    }
+    /// A new tab, private or not, at the end and in front; its id, or None when MAX_TABS are open.
+    pub fn open_with(&mut self, url: Option<String>, private: bool) -> Option<u32> {
         if self.list.len() >= MAX_TABS {
             return None;
         }
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false, lang: String::new(), translated: None });
+        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false, lang: String::new(), translated: None, private });
         self.active = Some(id);
         Some(id)
     }
@@ -580,6 +591,18 @@ mod tests {
         assert_eq!(tabs.panes, vec![a, b, c, d]);
         assert!(tabs.beside_new().is_err(), "four on screen: no fifth");
         assert_eq!(tabs.widths, vec![0.25; 4]);
+    }
+
+    #[test]
+    fn a_private_tab_keeps_nothing() {
+        let mut tabs = Tabs::default();
+        let p = tabs.open_with(Some("https://a.example/".into()), true).unwrap();
+        let n = tabs.open(None).unwrap();
+        assert!(tabs.list.iter().find(|t| t.id == p).unwrap().private);
+        assert!(!tabs.list.iter().find(|t| t.id == n).unwrap().private);
+        assert!(may_keep(true, false));
+        assert!(!may_keep(true, true), "a private tab keeps nothing");
+        assert!(!may_keep(false, false), "Remember sign-ins off keeps nothing");
     }
 
     #[test]
