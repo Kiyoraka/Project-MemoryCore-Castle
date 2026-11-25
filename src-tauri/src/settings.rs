@@ -476,6 +476,11 @@ pub struct Settings {
     pub browser_site_check: bool,
     /// What a new tab in the BROWSER window shows: one of BROWSER_NEW_TABS.
     pub browser_new_tab: String,
+    /// The language the browser translates pages into (browser_translate::LANGUAGES), English first.
+    pub browser_language: String,
+    /// Sites whose pages are translated by themselves (the browser's Always switch); never added
+    /// while Remember sign-ins is off.
+    pub browser_translate_sites: Vec<String>,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -662,6 +667,8 @@ impl Default for Settings {
             browser_welcome: BTreeMap::new(),
             browser_site_check: false,
             browser_new_tab: "shortcuts".into(),
+            browser_language: "en".into(),
+            browser_translate_sites: Vec::new(),
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -762,6 +769,9 @@ impl Settings {
         }
         if !LINK_OPENS.contains(&self.link_open.as_str()) {
             self.link_open = "castle".into();
+        }
+        if crate::browser_translate::language_name(&self.browser_language).is_none() {
+            self.browser_language = "en".into();
         }
         if !BROWSER_NEW_TABS.contains(&self.browser_new_tab.as_str()) {
             self.browser_new_tab = "shortcuts".into();
@@ -1213,6 +1223,8 @@ mod tests {
             browser_welcome: BTreeMap::from([("history".to_string(), "yes".to_string())]),
             browser_site_check: true,
             browser_new_tab: "blank".into(),
+            browser_language: "ja".into(),
+            browser_translate_sites: vec!["ncode.syosetu.com".into()],
             emotion_room_voice: false,
             emotion_market_voice: false,
             profile_look: "constellation".into(),

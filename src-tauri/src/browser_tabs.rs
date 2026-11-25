@@ -27,6 +27,10 @@ pub struct Tab {
     pub unread: u32,
     /// the page is being shown its phone layout (three or four side by side)
     pub phone: bool,
+    /// the page's own language, as it says (empty when it says none)
+    pub lang: String,
+    /// the language the page is being read in (browser_translate.rs); None: its own words
+    pub translated: Option<String>,
 }
 
 /// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
@@ -73,7 +77,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false });
+        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false, lang: String::new(), translated: None });
         self.active = Some(id);
         Some(id)
     }

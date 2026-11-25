@@ -56,7 +56,29 @@ pub fn runs_in_background(cli: Cli) -> Result<(), String> {
 
 /// `run`, on a chosen model (None: the CLI's own default).
 pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Duration, model: Option<&str>) -> Result<String, String> {
+    run_with(cli, folder, rules_file, words, limit, model, false)
+}
+
+/// `run_as` with one tool: Claude Code may Read files, and only inside `folder` (a read outside the
+/// working folder asks for a permission no one is there to give, so it is refused). For a picture
+/// put in a fresh folder of its own (the browser's manga bubbles). Claude Code only: Codex's sandbox
+/// could read the whole disk.
+pub fn run_reading(folder: &Path, rules_file: &str, words: &str, limit: Duration) -> Result<String, String> {
+    run_with(Cli::Claude, folder, rules_file, words, limit, None, true)
+}
+
+/// The arguments that start Claude Code for one background run: no tools (or only Read), no MCP
+/// servers, no user-level settings.
+pub fn claude_args(rules_file: &str, read: bool) -> Vec<String> {
+    let tools = if read { "Read" } else { "" };
+    ["-p", "--tools", tools, "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", rules_file].iter().map(|a| a.to_string()).collect()
+}
+
+fn run_with(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Duration, model: Option<&str>, read: bool) -> Result<String, String> {
     runs_in_background(cli)?;
+    if read && cli != Cli::Claude {
+        return Err("Only Claude Code may read a file in the background.".into());
+    }
     let program = env::find_on_path(cli.command()).ok_or_else(|| format!("{} is not installed.", cli.label()))?;
     let script = program.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
     // platform: windows-only - a .cmd / .bat launcher exists only on Windows
@@ -77,7 +99,7 @@ pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Dur
     let model = model_args(cli, fallback.as_ref().map(|f| f.model).or(model));
     match cli {
         // no tools at all, no MCP servers, no user-level settings or memory - only this folder
-        Cli::Claude => command.args(["-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "project", "--output-format", "text", "--system-prompt-file", rules_file]).args(&model),
+        Cli::Claude => command.args(claude_args(rules_file, read)).args(&model),
         // Codex reads AGENTS.md in this folder as its instructions
         Cli::Codex => command.arg("exec").args(&model).args(["--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message"]).arg(&answer_file).arg("-"),
         Cli::Gemini | Cli::Grok => unreachable!("refused by runs_in_background above"),
@@ -123,6 +145,15 @@ pub fn run_as(cli: Cli, folder: &Path, rules_file: &str, words: &str, limit: Dur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_background_run_has_no_tools_or_only_read() {
+        let none = claude_args("rules.md", false);
+        assert_eq!(none[1..3], ["--tools".to_string(), String::new()], "no tools at all");
+        let read = claude_args("rules.md", true);
+        assert_eq!(read[1..3], ["--tools".to_string(), "Read".to_string()], "Read alone, nothing that writes or runs");
+        assert!(read.contains(&"--strict-mcp-config".to_string()) && read.contains(&"project".to_string()));
+    }
 
     #[test]
     fn a_model_name_can_never_carry_another_flag() {

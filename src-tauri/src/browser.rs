@@ -270,6 +270,11 @@ fn tabs(app: &AppHandle) -> Tabs {
     app.state::<Browser>().0.lock().unwrap().clone()
 }
 
+/// Tells the toolbar what changed (for the browser's other modules).
+pub(crate) fn tell_now(app: &AppHandle) {
+    tell(app);
+}
+
 /// The last unread summary the main window heard, so it hears only a change.
 static UNREAD_SAID: Mutex<(u32, String)> = Mutex::new((0, String::new()));
 
@@ -499,6 +504,16 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
                 // Open anyway lets one page load: used up now that it has
                 let passed = payload.url().host_str().and_then(crate::site_rules::clean_host).is_some_and(|h| crate::browser_guard::take_pass(id, &h));
                 check_site(&loads, &view, id, now.clone(), !remember, passed);
+                // the page's own language, so the translate row can offer the member's
+                let langs = loads.clone();
+                let _ = view.eval_with_callback("(document.documentElement.lang || '').toLowerCase()", move |json| {
+                    let lang: String = serde_json::from_str(&json).unwrap_or_default();
+                    if let Some(tab) = langs.state::<Browser>().0.lock().unwrap().get_mut(id) {
+                        tab.lang = lang.chars().take(20).collect();
+                    }
+                    tell(&langs);
+                });
+                crate::browser_translate::translate_if_always(&loads, id, &now);
                 if payload.url().host_str().is_some_and(on_kept_site) {
                     // a sign-in sets its cookie as the page settles
                     keep_sign_ins_soon(&loads, std::time::Duration::from_secs(3));
@@ -508,8 +523,10 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
                 }
                 tell(&loads);
             } else if let Some(tab) = loads.state::<Browser>().0.lock().unwrap().get_mut(id) {
-                // a new page starts: the last page's warning is not this one's
+                // a new page starts: the last page's warning, language and translation are not this one's
                 tab.warning = None;
+                tab.lang.clear();
+                tab.translated = None;
             }
         })
         // a page asking for a new window: a sign-in pop-up gets a real small window, a link a tab

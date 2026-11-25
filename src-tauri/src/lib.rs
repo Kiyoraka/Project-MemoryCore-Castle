@@ -79,6 +79,7 @@ mod browser_guard;
 mod browser_native;
 mod browser_safe;
 mod browser_suggest;
+mod browser_translate;
 mod browser_tabs;
 mod browser_welcome;
 mod chrome_import;
@@ -638,6 +639,11 @@ pub fn run() {
             browser::browser_phone_view,
             browser_suggest::browser_suggest,
             browser_suggest::browser_forget_search,
+            browser_translate::browser_translate,
+            browser_translate::browser_translate_off,
+            browser_translate::browser_translate_settings,
+            browser_translate::browser_translate_language,
+            browser_translate::browser_translate_site,
             browser::browser_put_in_chat,
             browser::browser_clear,
             world::castle_move_to_screen,
