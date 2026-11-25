@@ -687,6 +687,7 @@ Each theme keeps its own places: change theme and the cards sit where that theme
 - **Changes** is a timeline with one dot for each month, the newest on the right. A dot glows when your type changed or a tile moved by ten or more. Click a dot to see that month everywhere on the page.
 - **It is only for you.** The page opens blurred and blurs again whenever Castle is hidden; press **Show my profile** or the eye to look. Nothing of it is ever said in the Foundation chat room.
 - It is a gentle reading of how your diary reads, never a diagnosis. Health numbers are never used, and private passages are never quoted.
+- **Your browsing, if you allow it.** With **Settings > Browser > Private browsing: remember for <companion>** on (off to begin with), the sites you open in Castle's browser while **Remember sign-ins** is off are kept in your own memory database on this PC for 30 days, never shown in any history. Each month's reading then also looks at that month's browsing (private and normal) as one more sign of what interested you, never quoting an address. It shapes only your reading, never your companion's own traits, and it never leaves your computer.
 - Your companion reads with your own Claude Code or Codex, so each month uses a little of your own usage.
 - MY PROFILE lives in your memory database (Settings › Database). **Export** and **Move back to files** carry your readings as `profile/readings.json`, and moving in again brings them back. You can switch the room off in **Settings › Rooms**.
 
@@ -746,7 +747,7 @@ A **Flutter** project (a `pubspec.yaml` with a `flutter:` section) or an **Andro
 
 ### When you push
 
-Push from a DEV tab (or from your own terminal while the tab is open) and your companion hears it at your next message: one line saying how many commits went where, said once. If your project names its live address (in its CLAUDE.md, or the plan), she opens it once and tells you whether it answers. She never pushes or deploys herself. Castle keeps the last push it saw inside the project's `.git` folder, so nothing new appears in your project. It works with Claude Code, whose sessions read Castle's own settings; Codex sessions do not hear it.
+Push from a DEV tab (or from your own terminal while the tab is open) and your companion hears it within a minute: Castle sees the push land and, once the tab is quiet, says *"My push landed."* in it for you, so she reports it without you writing a thing: one line saying how many commits went where, said once. A fetch of someone else's commits never wakes her. If your project names its live address (in its CLAUDE.md, or the plan), she opens it once and tells you whether it answers. She never pushes or deploys herself. Castle keeps the last push it saw inside the project's `.git` folder, so nothing new appears in your project. It works with Claude Code, whose sessions read Castle's own settings; Codex sessions do not hear it.
 
 ### Long files
 

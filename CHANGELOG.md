@@ -4,6 +4,10 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Your companion hears your push the moment it lands: Castle says "My push landed." in the quiet DEV tab for you, and she reports it with no message from you.
+
+- A new switch, off to begin with: Private browsing: remember for your companion (Settings > Browser). Private sites are kept 30 days in your own memory database, never in any history, and MY PROFILE's monthly reading may read them as one more sign of what interested you. Never your companion's own traits, and nothing leaves your computer.
+
 - A session that fills up no longer stays stuck on "Prompt is too long": a DEV tab compacts itself and carries on, and your companion's own chat is never compacted. At 85% she asks to start fresh, and Chat keeps every word while she comes back with her memory and your latest talk. If her chat fills up anyway, she starts fresh by herself and answers your last message.
 
 - Castle's browser checks every page for phishing as it loads: a coral or amber line under the address says why a site looks dangerous or suspicious (a brand on the wrong domain, a look-alike name, a disguised name). With the Sentinel on, your companion also judges the sites you visit by name, asks at once about a sign-in page it has not seen, and writes down the patterns it learns; the Sentinel's panel lists them with Mark safe and Switch off. Private browsing is checked too, and never kept.
