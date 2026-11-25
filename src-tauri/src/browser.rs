@@ -20,7 +20,7 @@ use cookie::time::{Duration, OffsetDateTime};
 use cookie::{Cookie, Expiration};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::webview::{NewWindowFeatures, PageLoadEvent};
+use tauri::webview::{DownloadEvent, NewWindowFeatures, PageLoadEvent};
 
 type NewWindowResponse = tauri::webview::NewWindowResponse<tauri::Wry>;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
@@ -544,9 +544,12 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     let loads = app.clone();
     let opens = app.clone();
     let navs = app.clone();
+    let downloads = app.clone();
     let mut builder = WebviewBuilder::new(tab_label(id), WebviewUrl::External(page))
         .incognito(!remember)
         .on_navigation(move |to| guard_navigation(&navs, id, to))
+        // every download a page starts goes to Castle's downloader (downloads.rs)
+        .on_download(move |view, event| on_download(&downloads, id, !remember, view, event))
         .on_document_title_changed(move |_, title| {
             if let Some(tab) = titles.state::<Browser>().0.lock().unwrap().get_mut(id) {
                 tab.title = browser_tabs::tab_title(tab.url.as_deref(), Some(&title));
@@ -609,6 +612,36 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     Ok(())
 }
 
+// ---------- every download a page starts comes to the downloader ----------
+
+/// A page's download: Castle's downloader takes it (with the page's cookies, read off the main thread,
+/// and the page as the referrer); one made inside the page (`blob:` / `data:`) or the fallback after a
+/// refusal is the webview's own, into the member's folder.
+fn on_download(app: &AppHandle, id: u32, private: bool, view: tauri::Webview, event: DownloadEvent<'_>) -> bool {
+    match event {
+        DownloadEvent::Requested { url, destination } => {
+            let text = url.to_string();
+            let referer = tabs(app).list.iter().find(|t| t.id == id).and_then(|t| t.url.clone()).unwrap_or_default();
+            if text.starts_with("blob:") || text.starts_with("data:") || crate::downloads::native_allowed(&text) {
+                let suggested = destination.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                *destination = crate::downloads::begin_native(app, &text, &suggested, &referer, private, id);
+                return true;
+            }
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let pairs: Vec<(String, String)> = view.cookies_for_url(url).map(|list| list.iter().map(|c| (c.name().to_string(), c.value().to_string())).collect()).unwrap_or_default();
+                let _ = crate::downloads::add_from_page(&app, &text, &referer, &crate::downloads::cookie_header(&pairs), private, id);
+            });
+            false
+        }
+        DownloadEvent::Finished { url, success, .. } => {
+            crate::downloads::finish_native(url.as_str(), success);
+            true
+        }
+        _ => true,
+    }
+}
+
 /// The pop-ups' own counter: `browser-popup-<n>`, a label no capability names.
 static POPUPS: AtomicU32 = AtomicU32::new(0);
 
@@ -667,7 +700,12 @@ fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool)
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&browser_tabs::tab_title(None, Some(&title)));
         })
-        .on_new_window(move |to, features| new_window(&opens, to, features, remember));
+        .on_new_window(move |to, features| new_window(&opens, to, features, remember))
+        // a pop-up's download is no tab's (tab 0): the downloader takes it like a page's
+        .on_download({
+            let app = app.clone();
+            move |view, event| on_download(&app, 0, !remember, view, event)
+        });
     if !asked_size {
         builder = builder.inner_size(480.0, 640.0);
     }
