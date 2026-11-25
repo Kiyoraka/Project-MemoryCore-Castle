@@ -16,6 +16,22 @@ pub struct Tab {
     pub title: String,
     /// what the site check found for the page shown (site_rules.rs); None when nothing is wrong
     pub warning: Option<crate::site_rules::Warning>,
+    /// a dangerous page held back before it loaded: the DANGER screen shows in its place
+    pub danger: Option<Danger>,
+}
+
+/// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Danger {
+    /// the address that was held back
+    pub url: String,
+    /// phishing, malware, unwanted, harmful, or dangerous (a mark with no kind)
+    pub threat: String,
+    /// why, in one line
+    pub reason: String,
+    /// the guards that caught it: sentinel, lookalike, google, smartscreen
+    pub caught_by: Vec<String>,
 }
 
 /// Every tab and the one in front.
@@ -37,7 +53,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None });
+        self.list.push(Tab { id, url, title, warning: None, danger: None });
         self.active = Some(id);
         Some(id)
     }

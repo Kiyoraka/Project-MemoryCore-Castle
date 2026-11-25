@@ -110,8 +110,10 @@ const LOGIN_PROBE: &str = "!!document.querySelector('input[type=password]')";
 
 /// After a page loads: one look for a password box, the visit kept (never while browsing privately),
 /// and the site's check - the rules, the Sentinel's mark and her patterns - shown on the tab. A page
-/// that does not answer the look counts as no password box. Off the window's thread.
-fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, private: bool) {
+/// that does not answer the look counts as no password box. A page found dangerous only now (her
+/// judgment of a sign-in page) is held back like one caught before it loaded, unless it was opened
+/// with Open anyway (`passed`). Off the window's thread.
+fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, private: bool, passed: bool) {
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let asked = view.eval_with_callback(LOGIN_PROBE, move |json| {
         let _ = tx.send(json);
@@ -122,11 +124,13 @@ fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, priv
         let title = tabs(&app).list.iter().find(|t| t.id == id).map(|t| t.title.clone()).unwrap_or_default();
         let checked = site_check(&app, &url, &title, has_login, Some(private));
         show_warning(&app, id, &url, checked.as_ref());
+        hold_back_after_load(&app, id, &url, checked.as_ref(), passed);
         // a sign-in page on a host she has not judged: she is asked now, then the page is checked again
         if let Some(c) = checked.filter(|c| c.has_login && !c.marked) {
             if crate::sentinel::site_judge::judge_one(&app.state::<SettingsStore>(), &c.host) {
                 let again = site_check(&app, &url, &title, false, None);
                 show_warning(&app, id, &url, again.as_ref());
+                hold_back_after_load(&app, id, &url, again.as_ref(), passed);
             }
         }
     });
@@ -140,6 +144,77 @@ fn show_warning(app: &AppHandle, id: u32, url: &str, checked: Option<&Checked>) 
         }
     }
     tell(app);
+}
+
+/// A loaded page the check found dangerous: the page is emptied and the DANGER screen takes its
+/// place, as if it had been caught before it loaded. Not for a page opened with Open anyway.
+fn hold_back_after_load(app: &AppHandle, id: u32, url: &str, checked: Option<&Checked>, passed: bool) {
+    let Some(c) = checked.filter(|c| c.warning.as_ref().is_some_and(|w| w.verdict == crate::site_rules::Verdict::Dangerous)) else { return };
+    if passed || tabs(app).list.iter().find(|t| t.id == id).and_then(|t| t.url.as_deref()) != Some(url) {
+        return;
+    }
+    let danger = crate::browser_guard::check(url, &c.host).unwrap_or_else(|| browser_tabs::Danger {
+        url: url.to_string(),
+        threat: "dangerous".into(),
+        reason: c.warning.as_ref().map(|w| w.reason.clone()).unwrap_or_default(),
+        caught_by: vec!["sentinel".into()],
+    });
+    if let Some(view) = app.get_webview(&tab_label(id)) {
+        let _ = view.navigate("about:blank".parse().unwrap());
+    }
+    hold_back(app, id, danger);
+}
+
+/// Shows the DANGER screen for a tab: its page is hidden and Castle's own page draws the screen.
+fn hold_back(app: &AppHandle, id: u32, danger: browser_tabs::Danger) {
+    if let Some(tab) = app.state::<Browser>().0.lock().unwrap().get_mut(id) {
+        tab.danger = Some(danger);
+    }
+    // laid out off the page's own navigation event
+    let app = app.clone();
+    std::thread::spawn(move || {
+        layout(&app);
+        tell(&app);
+    });
+}
+
+/// Before every navigation of a page: web pages only, then the guard (browser_guard.rs). A page the
+/// guard knows is dangerous is held back at once; one whose address hashes to a prefix on Google's
+/// lists waits for Google's answer off the window's thread, then is held back or let through once.
+fn guard_navigation(app: &AppHandle, id: u32, to: &Url) -> bool {
+    if !browser_tabs::may_load(to.as_str()) {
+        return false;
+    }
+    let Some(host) = to.host_str().and_then(crate::site_rules::clean_host) else { return true };
+    if crate::browser_guard::has_pass(id, &host) {
+        return true;
+    }
+    if let Some(danger) = crate::browser_guard::check(to.as_str(), &host) {
+        hold_back(app, id, danger);
+        return false;
+    }
+    if crate::browser_guard::take_cleared(id, to.as_str()) || crate::browser_safe::local_hits(to.as_str()).is_empty() {
+        return true;
+    }
+    let (app, url) = (app.clone(), to.to_string());
+    std::thread::spawn(move || {
+        let key = crate::key::load(crate::browser_safe::KEY);
+        match crate::browser_safe::confirm(&url, key.as_deref()) {
+            Some(threat) => {
+                crate::browser_guard::note_google(&host, threat.word());
+                if let Some(danger) = crate::browser_guard::check(&url, &host) {
+                    hold_back(&app, id, danger);
+                }
+            }
+            None => {
+                crate::browser_guard::clear_once(id, &url);
+                if let (Some(view), Ok(page)) = (app.get_webview(&tab_label(id)), url.parse()) {
+                    let _ = view.navigate(page);
+                }
+            }
+        }
+    });
+    false
 }
 
 /// What a page's check found.
@@ -169,9 +244,16 @@ fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, keep: Op
         }
         mark = crate::sites::mark_of(c, &host).ok().flatten();
         patterns = crate::sites::active_patterns(c).unwrap_or_default();
+        crate::browser_guard::learn(&host, mark.as_ref().map(|(w, by_member)| (w, *by_member)), &patterns);
     }
     let member_safe = mark.as_ref().is_some_and(|(w, by_member)| *by_member && w.verdict == crate::site_rules::Verdict::Safe);
-    let warning = crate::site_rules::verdict_for(&host, mark.as_ref().map(|(w, _)| w), member_safe, &patterns);
+    let mut warning = crate::site_rules::verdict_for(&host, mark.as_ref().map(|(w, _)| w), member_safe, &patterns);
+    // a page Google listed, opened anyway: the coral line says so
+    if let Some(threat) = crate::browser_guard::google_of(&host).filter(|_| !member_safe) {
+        if warning.as_ref().is_none_or(|w| w.verdict != crate::site_rules::Verdict::Dangerous) {
+            warning = Some(crate::site_rules::Warning { verdict: crate::site_rules::Verdict::Dangerous, reason: format!("Google Safe Browsing lists this site ({threat})") });
+        }
+    }
     Some(Checked { host, has_login, marked: mark.is_some(), warning })
 }
 
@@ -242,6 +324,19 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         }
         keep_sign_ins(&keeper);
     });
+    // the guard's memory of marks and patterns, and Google's lists kept fresh (with a key)
+    let guard = app.clone();
+    std::thread::spawn(move || {
+        let settings = guard.state::<SettingsStore>().get();
+        if let Some(mut c) = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m))) {
+            if let Ok((dangerous, member_safe)) = crate::sites::guard_marks(&mut c) {
+                crate::browser_guard::remember(dangerous, member_safe, crate::sites::active_patterns(&mut c).unwrap_or_default());
+            }
+        }
+        if let Ok(folder) = guard.path().app_local_data_dir() {
+            crate::browser_safe::start(folder.join("safe-browsing"));
+        }
+    });
     let monitor = app
         .get_webview_window("main")
         .and_then(|main| main.current_monitor().ok().flatten())
@@ -296,13 +391,14 @@ fn layout(app: &AppHandle) {
     let Some(window) = app.get_window(WINDOW) else { return };
     let (w, h) = logical_size(&window);
     let tabs = tabs(app);
-    let page = tabs.current().is_some_and(|t| t.url.is_some());
+    // a tab held back by the guard shows Castle's own page whole: the DANGER screen
+    let page = tabs.current().is_some_and(|t| t.url.is_some() && t.danger.is_none());
     if let Some(ui) = app.get_webview(UI) {
         let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if page { BAR } else { h }).into() });
     }
     for tab in &tabs.list {
         let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        if Some(tab.id) == tabs.active && tab.url.is_some() {
+        if Some(tab.id) == tabs.active && tab.url.is_some() && tab.danger.is_none() {
             let _ = view.set_bounds(Rect { position: LogicalPosition::new(0.0, BAR).into(), size: LogicalSize::new(w, (h - BAR).max(0.0)).into() });
             let _ = view.show();
         } else {
@@ -318,9 +414,10 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     let titles = app.clone();
     let loads = app.clone();
     let opens = app.clone();
+    let navs = app.clone();
     let mut builder = WebviewBuilder::new(tab_label(id), WebviewUrl::External(page))
         .incognito(!remember)
-        .on_navigation(|to| browser_tabs::may_load(to.as_str()))
+        .on_navigation(move |to| guard_navigation(&navs, id, to))
         .on_document_title_changed(move |_, title| {
             if let Some(tab) = titles.state::<Browser>().0.lock().unwrap().get_mut(id) {
                 tab.title = browser_tabs::tab_title(tab.url.as_deref(), Some(&title));
@@ -330,7 +427,9 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
         .on_page_load(move |view, payload| {
             if payload.event() == PageLoadEvent::Finished {
                 let now = payload.url().to_string();
-                check_site(&loads, &view, id, now.clone(), !remember);
+                // Open anyway lets one page load: used up now that it has
+                let passed = payload.url().host_str().and_then(crate::site_rules::clean_host).is_some_and(|h| crate::browser_guard::take_pass(id, &h));
+                check_site(&loads, &view, id, now.clone(), !remember, passed);
                 if payload.url().host_str().is_some_and(on_kept_site) {
                     // a sign-in sets its cookie as the page settles
                     keep_sign_ins_soon(&loads, std::time::Duration::from_secs(3));
@@ -356,9 +455,11 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     #[cfg(not(target_os = "macos"))]
     let _ = PAGE_STORE;
     let (w, h) = logical_size(window);
-    window
+    let view = window
         .add_child(builder, LogicalPosition::new(0.0, BAR), LogicalSize::new(w, (h - BAR).max(0.0)))
         .map_err(|_| "The page could not be opened.".to_string())?;
+    // the platform's own phishing warning, switched on and proven
+    crate::browser_native::harden(&view);
     Ok(())
 }
 
@@ -405,10 +506,18 @@ fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool)
     let centred = features.position().is_none();
     let asked_size = features.size().is_some();
     let opens = app.clone();
+    let guards = app.clone();
     let mut builder = tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::External(to.clone()))
         .window_features(features)
         .title("MemoryCore · Sign in")
-        .on_navigation(|to| browser_tabs::may_load(to.as_str()))
+        // a pop-up going to a site the guard knows is dangerous goes to a tab instead, where the DANGER screen shows
+        .on_navigation(move |to| {
+            let held = to.host_str().and_then(crate::site_rules::clean_host).is_some_and(|host| crate::browser_guard::check(to.as_str(), &host).is_some());
+            if held {
+                open_later(&guards, to.to_string());
+            }
+            browser_tabs::may_load(to.as_str()) && !held
+        })
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&browser_tabs::tab_title(None, Some(&title)));
         })
@@ -514,6 +623,7 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
     if let Some(view) = app.get_webview(&tab_label(id)) {
         let _ = view.close();
     }
+    crate::browser_guard::forget_tab(id);
     let empty = {
         let state = app.state::<Browser>();
         let mut tabs = state.0.lock().unwrap();
@@ -568,6 +678,51 @@ pub async fn browser_step(app: AppHandle, step: String) -> Result<(), String> {
         _ => return Err("Back, forward or reload.".into()),
     };
     done.map_err(|_| "The page did not answer.".to_string())
+}
+
+/// Go back to safety: the DANGER screen goes, and the tab shows the page it was on before, or the
+/// new-tab page when there was none.
+#[tauri::command]
+pub async fn browser_danger_back(app: AppHandle, id: u32) -> Result<(), String> {
+    let before = app.get_webview(&tab_label(id)).and_then(|v| v.url().ok());
+    {
+        let state = app.state::<Browser>();
+        let mut tabs = state.0.lock().unwrap();
+        let tab = tabs.get_mut(id).ok_or("That tab is not open.")?;
+        let held = tab.danger.take().and_then(|d| d.url.parse::<Url>().ok()).and_then(|u| u.host_str().map(str::to_string));
+        let shown = before.filter(|u| matches!(u.scheme(), "http" | "https") && u.host_str().map(str::to_string) != held).map(|u| u.to_string());
+        tab.title = browser_tabs::tab_title(shown.as_deref(), None);
+        tab.url = shown;
+        tab.warning = None;
+    }
+    layout(&app);
+    tell(&app);
+    Ok(())
+}
+
+/// Open anyway: one page of that site loads in this tab, with the coral line on top.
+#[tauri::command]
+pub async fn browser_danger_open(app: AppHandle, id: u32) -> Result<(), String> {
+    let window = window(&app)?;
+    let url = {
+        let state = app.state::<Browser>();
+        let mut tabs = state.0.lock().unwrap();
+        let tab = tabs.get_mut(id).ok_or("That tab is not open.")?;
+        let danger = tab.danger.take().ok_or("That tab is not held back.")?;
+        tab.url = Some(danger.url.clone());
+        danger.url
+    };
+    let page: Url = url.parse().map_err(|_| "That address could not be opened.".to_string())?;
+    if let Some(host) = page.host_str().and_then(crate::site_rules::clean_host) {
+        crate::browser_guard::grant_pass(id, &host);
+    }
+    match app.get_webview(&tab_label(id)) {
+        Some(view) => view.navigate(page).map_err(|_| "That address could not be opened.".to_string())?,
+        None => add_page(&app, &window, id, &url)?,
+    }
+    layout(&app);
+    tell(&app);
+    Ok(())
 }
 
 /// The page in front in the member's own browser.
@@ -695,6 +850,16 @@ mod tests {
                 assert!(label == "main" || label == "world-*" || label == UI, "a capability names {label}: a page or pop-up could reach Castle's core");
             }
         }
+    }
+
+    #[test]
+    fn the_pages_keep_the_engines_own_phishing_warning() {
+        // a second set of browser arguments on the pages' store would be ignored by WebView2, and
+        // the main window's switch that turns SmartScreen off must never reach the pages
+        let source = include_str!("browser.rs");
+        let needle = concat!(".additional_", "browser_args(");
+        assert!(!source.contains(needle), "the pages are built with no browser arguments of their own");
+        assert!(source.contains("crate::browser_native::harden(&view)"), "every page has its warning switched on");
     }
 
     #[test]

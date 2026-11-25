@@ -69,3 +69,12 @@ windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications", "F
 # (and the CPU gauge reads processor time with GetSystemTimes, from Threading; DEV's live servers
 # read the listening ports from IP Helper)
 windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Media_Audio", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_Security"] }
+# the browser's pages: SmartScreen switched on and proven, the phone view's user agent and the
+# bubble reader's picture (browser_native.rs); the copy wry already uses
+webview2-com = "0.39"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# the browser's pages on macOS: Safari's fraud warning and the phone view's user agent
+# (browser_native.rs); the copies wry already uses
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "WKWebView", "WKWebViewConfiguration", "WKPreferences"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }

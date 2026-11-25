@@ -89,6 +89,23 @@ pub fn add_pattern(c: &mut Conn, kind: &str, value: &str, verdict: Verdict, why:
     id.ok_or_else(|| "The pattern could not be read back.".to_string())
 }
 
+/// What the browser's guard keeps in memory, so a page can be held back before it loads without
+/// asking the database: the hosts marked dangerous (with why), and the hosts the member marked safe.
+pub fn guard_marks(c: &mut Conn) -> Result<(Vec<(String, String)>, Vec<String>), String> {
+    let rows: Vec<(String, String, String, String)> = c
+        .query("SELECT host, verdict, reason, marked_by FROM sentinel_site_marks WHERE verdict = 'dangerous' OR (marked_by = 'member' AND verdict = 'safe') LIMIT 5000")
+        .map_err(sql("reading the marks for the guard"))?;
+    let (mut dangerous, mut member_safe) = (Vec::new(), Vec::new());
+    for (host, verdict, reason, by) in rows {
+        if by == "member" && verdict == "safe" {
+            member_safe.push(host);
+        } else {
+            dangerous.push((host, reason));
+        }
+    }
+    Ok((dangerous, member_safe))
+}
+
 /// The patterns that still count.
 pub fn active_patterns(c: &mut Conn) -> Result<Vec<Pattern>, String> {
     let rows: Vec<(String, String, String, String)> = c.query("SELECT kind, value, verdict, why FROM sentinel_site_patterns WHERE active = 1").map_err(sql("reading the patterns"))?;

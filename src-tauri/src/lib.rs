@@ -75,6 +75,8 @@ mod bridges;
 mod browser;
 mod browser_library;
 mod browser_private;
+mod browser_guard;
+mod browser_native;
 mod browser_safe;
 mod browser_tabs;
 mod browser_welcome;
@@ -626,6 +628,8 @@ pub fn run() {
             browser::browser_go,
             browser::browser_step,
             browser::browser_outside,
+            browser::browser_danger_back,
+            browser::browser_danger_open,
             browser::browser_put_in_chat,
             browser::browser_clear,
             world::castle_move_to_screen,
