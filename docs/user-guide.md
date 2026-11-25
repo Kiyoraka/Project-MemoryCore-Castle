@@ -840,6 +840,17 @@ One castle's sighting protects every castle. **Settings > Sentinel > Join the Ae
 - The helper's own rules still hold: it never blocks this computer, its router or the loopback.
 - The line under the shield says whether you joined and how many addresses the network blocked today.
 
+### Websites: is this a phishing site?
+
+Every page you open in Castle's browser is checked as it loads, and a warning line appears under the address when something is wrong: **Dangerous** (coral) or **Suspicious** (amber), with the reason, for example *"The Sentinel marked this site dangerous: a PayPal sign-in on a made-up name"*. A safe site shows nothing. The line never blocks the page; what you do next is yours.
+
+- **The quick checks** run on every page, with or without the Sentinel and with no AI: a disguised name (letters from another alphabet), a bare number address, a famous brand's name on a domain that is not the brand's, and a name one or two letters away from a well-known site (`paypa1.com`, `gooogle.com`).
+- **The Sentinel's judgment** (only while **Let your companion keep watch** is on): Castle keeps the sites you visit in your own memory database on this computer, the site's name, the page's path and its title, never the part of an address after `?` or `#`, so no sign-in link or token is kept. At each patrol your companion is handed the names of the sites it has not judged yet and marks each safe, suspicious or dangerous. A sign-in page on a site it has not judged is asked about at once, so the warning can appear while you are still on that page.
+- **What it learns:** when a dangerous site shows a pattern that would catch others like it (a name ending, a word in the name, a look-alike of a real site), your companion writes it down with why and which site taught it, and every later page is checked against it. That is the learning: written-down patterns. The model itself is not retrained.
+- **Private browsing** (when **Remember sign-ins** is off): every page is still checked and a sign-in page is still asked about, but nothing about your visit is kept: only your companion's mark for the site, which says what the site is, never that you were there.
+- **What leaves your computer:** only the site's name, in your companion's own turn on your own subscription, the same way a patrol's findings do. Your companion never opens the site; it judges by the name alone.
+- **On the Sentinel's panel**, **Websites** lists the sites it warned about and the patterns it learned. **Mark safe** on a site makes your word stand over your companion's from then on; **Switch off** on a pattern stops it matching (it is kept with its why, never deleted).
+
 ### The model
 
 **Settings > Sentinel > The model**: the recommended one (Sonnet for Claude Code, Codex's own model for Codex), or **Another model** with any name your CLI knows. **How often** sets the time between patrols, from 15 minutes to 12 hours.
