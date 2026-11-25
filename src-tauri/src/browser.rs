@@ -27,29 +27,32 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalP
 
 pub const WINDOW: &str = "browser";
 pub const UI: &str = "browser-ui";
-/// The tabs and toolbar above a page, in logical pixels, until the UI page says otherwise
-/// (`browser_chrome`: a row under the toolbar makes it taller).
-const BAR: f64 = 94.0;
 
-/// What Castle's own page asks of the layout: how tall its bar is now, and whether something of its
-/// own (the suggestions under the address bar) is open over the pages, which then step aside.
-static CHROME: Mutex<Chrome> = Mutex::new(Chrome { bar: BAR, overlay: false, area: None, shown: true });
+/// Where Castle's own page put each page on screen (browser_show): tab id and its box (x, y, width,
+/// height, logical pixels in the host window). A tab not listed is hidden.
+static PLACED: Mutex<Vec<(u32, (f64, f64, f64, f64))>> = Mutex::new(Vec::new());
 
-/// What Castle's own page says about the layout.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Chrome {
-    /// the bar's height above the pages (its own window)
-    bar: f64,
-    /// something of Castle's own is open over the pages, which step aside
-    overlay: bool,
-    /// inside Castle: the room's page area in the main window (x, y, width, height, logical)
-    area: Option<(f64, f64, f64, f64)>,
-    /// inside Castle: the room is in front and no sheet covers it
-    shown: bool,
+/// A page's box as Castle's page measured it.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub struct Placed {
+    pub id: u32,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
 }
 
-fn bar_height() -> f64 {
-    CHROME.lock().unwrap().bar
+/// The placements kept (pure, tested): whole pixels, tabs that are open, boxes at least 2 px each way,
+/// one box per tab.
+pub fn placements(asked: &[Placed], open: &[u32]) -> Vec<(u32, (f64, f64, f64, f64))> {
+    let mut out: Vec<(u32, (f64, f64, f64, f64))> = Vec::new();
+    for p in asked {
+        let ok = [p.x, p.y, p.w, p.h].iter().all(|v| v.is_finite()) && p.w >= 2.0 && p.h >= 2.0 && open.contains(&p.id) && !out.iter().any(|(id, _)| *id == p.id);
+        if ok {
+            out.push((p.id, (p.x.round(), p.y.round(), p.w.round(), p.h.round())));
+        }
+    }
+    out
 }
 
 /// Whether the browser lives inside Castle (Settings > Rooms > BROWSER > Browser opens).
@@ -67,15 +70,6 @@ fn host(app: &AppHandle) -> Option<Window> {
     }
 }
 
-/// Where the pages go (pure, tested): under the bar in the browser's own window; inside Castle, the
-/// room's page area, and nowhere while the room is not in front.
-pub fn page_area(castle: bool, size: (f64, f64), bar: f64, area: Option<(f64, f64, f64, f64)>, shown: bool) -> Option<(f64, f64, f64, f64)> {
-    if castle {
-        area.filter(|a| shown && a.2 > 0.0 && a.3 > 0.0)
-    } else {
-        Some((0.0, bar, size.0, (size.1 - bar).max(0.0)))
-    }
-}
 /// Where the Artifacts tile and the new-tab shortcut go (CASTLE-13).
 pub const ARTIFACTS: &str = "https://claude.ai/code/artifacts";
 /// The pages' own store on macOS (WKWebsiteDataStore): fixed, so sign-ins stay between runs.
@@ -402,7 +396,7 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         }
         WindowEvent::Destroyed => {
             *events.state::<Browser>().0.lock().unwrap() = Tabs::default();
-            *CHROME.lock().unwrap() = Chrome { bar: BAR, overlay: false, area: None, shown: true };
+            PLACED.lock().unwrap().clear();
             // the pages are gone, and so is their news
             tell_unread(&events, (0, String::new()));
         }
@@ -485,34 +479,24 @@ fn logical_size(window: &Window) -> (f64, f64) {
     window.inner_size().map(|s| s.to_logical::<f64>(scale)).map(|s| (s.width, s.height)).unwrap_or((960.0, 800.0))
 }
 
-/// The toolbar on top and the pages on screen below it, each in its column (one, or the group side
-/// by side). Castle's own page lies under the pages: it is the whole window when a column has no
-/// page to show (a new tab, a DANGER screen: drawn there, in that column) or when it has something
-/// open over the pages, which then step aside.
+/// Each page in the box Castle's own page measured for it (browser_show); every other page hidden. In
+/// the browser's own window its toolbar page fills the window under the pages, so a column with no page
+/// to show (a new tab, a DANGER screen) is drawn there by Castle's page itself.
 fn layout(app: &AppHandle) {
     let Some(window) = host(app) else { return };
     let castle = in_castle(app);
     let (w, h) = logical_size(&window);
     let tabs = tabs(app);
-    let chrome = *CHROME.lock().unwrap();
-    let overlay = chrome.overlay;
-    let region = page_area(castle, (w, h), chrome.bar, chrome.area, chrome.shown);
-    let shown = tabs.on_screen();
-    let showable = |id: u32| tabs.list.iter().any(|t| t.id == id && t.url.is_some() && t.danger.is_none());
-    let every_page = !shown.is_empty() && shown.iter().all(|id| showable(*id));
-    // the browser's own window: its toolbar page lies under the pages (inside Castle the room is the toolbar)
     if let Some(ui) = app.get_webview(UI).filter(|_| !castle) {
-        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if every_page && !overlay { chrome.bar } else { h }).into() });
+        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, h).into() });
     }
-    let (rx, ry, rw, rh) = region.unwrap_or((0.0, 0.0, 0.0, 0.0));
-    let widths = if shown.len() > 1 { tabs.widths.clone() } else { Vec::new() };
-    let columns = browser_tabs::columns(rw, &widths);
+    let placed = PLACED.lock().unwrap().clone();
+    let showable = |id: u32| tabs.list.iter().any(|t| t.id == id && t.url.is_some() && t.danger.is_none());
     for tab in &tabs.list {
         let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        match shown.iter().position(|id| *id == tab.id).filter(|_| showable(tab.id) && !overlay && region.is_some()) {
-            Some(at) => {
-                let (x, cw) = columns.get(at).copied().unwrap_or((0.0, rw));
-                let _ = view.set_bounds(Rect { position: LogicalPosition::new(rx + x, ry).into(), size: LogicalSize::new(cw, rh).into() });
+        match placed.iter().find(|(id, _)| *id == tab.id).filter(|_| showable(tab.id)) {
+            Some((_, (x, y, pw, ph))) => {
+                let _ = view.set_bounds(Rect { position: LogicalPosition::new(*x, *y).into(), size: LogicalSize::new(*pw, *ph).into() });
                 let _ = view.show();
             }
             None => {
@@ -611,8 +595,9 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     #[cfg(not(target_os = "macos"))]
     let _ = PAGE_STORE;
     let (w, h) = logical_size(window);
-    // inside Castle a page starts off to the side until the layout puts it in the room
-    let (at, size) = if in_castle(app) { (LogicalPosition::new(-20000.0, -20000.0), LogicalSize::new(10.0, 10.0)) } else { (LogicalPosition::new(0.0, bar_height()), LogicalSize::new(w, (h - bar_height()).max(0.0))) };
+    // a page starts off to the side until Castle's page places it (browser_show)
+    let _ = (w, h);
+    let (at, size) = (LogicalPosition::new(-20000.0, -20000.0), LogicalSize::new(10.0, 10.0));
     let view = window
         .add_child(builder, at, size)
         .map_err(|_| "The page could not be opened.".to_string())?;
@@ -806,7 +791,7 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
 
 /// What was typed in the address bar, in the tab in front.
 #[tauri::command]
-pub async fn browser_go(app: AppHandle, input: String) -> Result<(), String> {
+pub async fn browser_go(app: AppHandle, input: String, id: Option<u32>) -> Result<(), String> {
     let url = browser_tabs::address(&input).ok_or("Type an address or something to search for.")?;
     // a search is kept for the suggestions (never while browsing privately)
     crate::browser_suggest::remember_typed(&app, &input);
@@ -814,10 +799,13 @@ pub async fn browser_go(app: AppHandle, input: String) -> Result<(), String> {
         return Err("That address could not be opened.".into());
     }
     let window = window(&app)?;
-    let id = match app.state::<Browser>().0.lock().unwrap().current().map(|t| t.id) {
-        Some(id) => id,
-        None => return open_in_tab(&app, Some(url)),
+    // the pane's own tab, or the tab in front
+    let chosen = {
+        let state = app.state::<Browser>();
+        let kept = state.0.lock().unwrap();
+        id.filter(|i| kept.list.iter().any(|t| t.id == *i)).or_else(|| kept.current().map(|t| t.id))
     };
+    let Some(id) = chosen else { return open_in_tab(&app, Some(url)) };
     match app.get_webview(&tab_label(id)) {
         Some(view) => view.navigate(url.parse().map_err(|_| "That address could not be opened.".to_string())?).map_err(|_| "That address could not be opened.".to_string())?,
         None => add_page(&app, &window, id, &url)?,
@@ -833,8 +821,13 @@ pub async fn browser_go(app: AppHandle, input: String) -> Result<(), String> {
 
 /// Back, forward or reload in the tab in front.
 #[tauri::command]
-pub async fn browser_step(app: AppHandle, step: String) -> Result<(), String> {
-    let Some(id) = app.state::<Browser>().0.lock().unwrap().current().map(|t| t.id) else { return Ok(()) };
+pub async fn browser_step(app: AppHandle, step: String, id: Option<u32>) -> Result<(), String> {
+    let chosen = {
+        let state = app.state::<Browser>();
+        let kept = state.0.lock().unwrap();
+        id.filter(|i| kept.list.iter().any(|t| t.id == *i)).or_else(|| kept.current().map(|t| t.id))
+    };
+    let Some(id) = chosen else { return Ok(()) };
     let Some(view) = app.get_webview(&tab_label(id)) else { return Ok(()) };
     let done = match step.as_str() {
         "back" => view.eval("history.back()"),
@@ -848,7 +841,17 @@ pub async fn browser_step(app: AppHandle, step: String) -> Result<(), String> {
 /// Side by side: the tab goes beside the page in front, up to four on screen.
 #[tauri::command]
 pub async fn browser_beside(app: AppHandle, id: u32) -> Result<(), String> {
-    app.state::<Browser>().0.lock().unwrap().place_beside(id)?;
+    // a tab already on screen opens a fresh tab beside the pages, as the Keep's Open on the right
+    let on_screen = tabs(&app).on_screen().contains(&id);
+    {
+        let state = app.state::<Browser>();
+        let mut kept = state.0.lock().unwrap();
+        if on_screen {
+            kept.beside_new()?;
+        } else {
+            kept.place_beside(id)?;
+        }
+    }
     layout(&app);
     tell(&app);
     Ok(())
@@ -883,19 +886,19 @@ pub async fn browser_phone_view(app: AppHandle, on: bool) -> Result<(), String> 
     Ok(())
 }
 
-/// Castle's own page tells the layout how tall its bar is and whether it has something open over the
-/// pages (the suggestions); the pages step aside while it does.
-/// Inside Castle it also gives the room's page area (`area`: x, y, width, height in the main window)
-/// and whether the room is in front with no sheet over it (`shown`); the pages hide when it is not.
+/// Castle's own page says where each page goes: the box it measured under that page's own toolbar.
+/// A tab left out is hidden; an empty list hides every page (a sheet or a list over the pages, or the
+/// room not in front).
 #[tauri::command]
-pub async fn browser_chrome(app: AppHandle, bar: f64, overlay: bool, area: Option<[f64; 4]>, shown: Option<bool>) -> Result<(), String> {
+pub async fn browser_show(app: AppHandle, placed: Vec<Placed>) -> Result<(), String> {
+    let open: Vec<u32> = tabs(&app).list.iter().map(|t| t.id).collect();
+    let next = placements(&placed, &open);
     {
-        let mut chrome = CHROME.lock().unwrap();
-        let next = Chrome { bar: bar.clamp(BAR, 400.0), overlay, area: area.map(|a| (a[0], a[1], a[2].max(0.0), a[3].max(0.0))), shown: shown.unwrap_or(true) };
-        if *chrome == next {
+        let mut kept = PLACED.lock().unwrap();
+        if *kept == next {
             return Ok(());
         }
-        *chrome = next;
+        *kept = next;
     }
     layout(&app);
     Ok(())
@@ -916,7 +919,7 @@ pub async fn browser_close_all(app: AppHandle) -> Result<(), String> {
         crate::browser_guard::forget_tab(id);
     }
     *app.state::<Browser>().0.lock().unwrap() = Tabs::default();
-    *CHROME.lock().unwrap() = Chrome { bar: BAR, overlay: false, area: None, shown: true };
+    PLACED.lock().unwrap().clear();
     if let Some(window) = app.get_window(WINDOW) {
         let _ = window.destroy();
     }
@@ -1117,13 +1120,16 @@ mod tests {
     }
 
     #[test]
-    fn the_pages_sit_under_the_bar_or_in_castles_room() {
-        assert_eq!(page_area(false, (1000.0, 800.0), 94.0, None, false), Some((0.0, 94.0, 1000.0, 706.0)), "its own window: under the bar, always");
-        let room = Some((20.0, 140.0, 1200.0, 600.0));
-        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, room, true), room, "inside Castle: the room's page area");
-        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, room, false), None, "the room not in front, or a sheet over it: hidden");
-        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, None, true), None, "no area told yet");
-        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, Some((0.0, 0.0, 0.0, 300.0)), true), None, "an empty area");
+    fn the_pages_go_where_castles_page_measured_them() {
+        let asked = [
+            Placed { id: 1, x: 10.4, y: 120.6, w: 600.2, h: 500.0 },
+            Placed { id: 2, x: 0.0, y: 0.0, w: 1.0, h: 400.0 },
+            Placed { id: 9, x: 0.0, y: 0.0, w: 300.0, h: 300.0 },
+            Placed { id: 1, x: 0.0, y: 0.0, w: 300.0, h: 300.0 },
+            Placed { id: 3, x: f64::NAN, y: 0.0, w: 300.0, h: 300.0 },
+        ];
+        assert_eq!(placements(&asked, &[1, 2, 3]), vec![(1, (10.0, 121.0, 600.0, 500.0))], "whole pixels; a sliver, an unknown tab, a second box and a broken one are dropped");
+        assert!(placements(&[], &[1]).is_empty(), "nothing listed hides every page");
     }
 
     #[test]

@@ -46,8 +46,13 @@ pub async fn browser_new_tab(app: AppHandle) -> Result<NewTab, String> {
 }
 
 /// The page in front: (its address, its host), read from the page's own webview.
-fn page_in_front(app: &AppHandle) -> Result<(u32, String, String), String> {
-    let id = app.state::<Browser>().0.lock().unwrap().current().map(|t| t.id).ok_or("No page is open.")?;
+/// `tab`: a pane's own tab (its toolbar), or None for the tab in front.
+fn page_in_front(app: &AppHandle, tab: Option<u32>) -> Result<(u32, String, String), String> {
+    let id = {
+        let state = app.state::<Browser>();
+        let kept = state.0.lock().unwrap();
+        tab.filter(|t| kept.list.iter().any(|x| x.id == *t)).or_else(|| kept.current().map(|t| t.id)).ok_or("No page is open.")?
+    };
     let view = app.get_webview(&tab_label(id)).ok_or("No page is open.")?;
     let url = view.url().map_err(|_| "The page did not answer.".to_string())?;
     if !matches!(url.scheme(), "https" | "http") {
@@ -82,9 +87,9 @@ pub async fn browser_bookmark_toggle(app: AppHandle, url: String, title: String)
 
 /// The saved logins for the page in front (usernames only): the Fill button shows when there are.
 #[tauri::command]
-pub async fn browser_logins(app: AppHandle) -> Result<Vec<Login>, String> {
+pub async fn browser_logins(app: AppHandle, tab: Option<u32>) -> Result<Vec<Login>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Ok((_, _, host)) = page_in_front(&app) else { return Ok(Vec::new()) };
+        let Ok((_, _, host)) = page_in_front(&app, tab) else { return Ok(Vec::new()) };
         let Ok(mut c) = conn(&app.state::<SettingsStore>()) else { return Ok(Vec::new()) };
         vault::logins_for(&mut c, &host)
     })
@@ -107,9 +112,9 @@ pub fn fill_script(username: &str, password: &str) -> String {
 /// Fill pressed: Castle's code opens that login and fills the page in front - only when the page's
 /// own site is the login's site or under it.
 #[tauri::command]
-pub async fn browser_fill(app: AppHandle, id: u64) -> Result<(), String> {
+pub async fn browser_fill(app: AppHandle, id: u64, tab: Option<u32>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (tab, _, host) = page_in_front(&app)?;
+        let (tab, _, host) = page_in_front(&app, tab)?;
         let mut c = conn(&app.state::<SettingsStore>())?;
         let (username, password) = vault::fill_secret(&mut c, &vault::key()?, id, &host)?;
         let view = app.get_webview(&tab_label(tab)).ok_or("The page is gone.")?;

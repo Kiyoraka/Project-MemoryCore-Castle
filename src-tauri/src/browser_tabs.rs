@@ -128,6 +128,22 @@ impl Tabs {
         self.active = Some(id);
         Ok(())
     }
+    /// The Keep's Open on the right on a tab already on screen: a fresh tab in a new column beside
+    /// the pages on screen, in front. Its id, or why not (four on screen, twelve tabs open).
+    pub fn beside_new(&mut self) -> Result<u32, String> {
+        let screen = self.on_screen();
+        if screen.len() >= MAX_PANES {
+            return Err(format!("{} pages are on screen - close one first.", MAX_PANES));
+        }
+        let id = self.open(None).ok_or(format!("All {MAX_TABS} tabs are open - close one first."))?;
+        if !screen.is_empty() {
+            self.panes = screen;
+            self.panes.push(id);
+            self.widths = vec![1.0 / self.panes.len() as f64; self.panes.len()];
+        }
+        self.active = Some(id);
+        Ok(id)
+    }
     /// Takes a tab out of the group: it is a tab on its own again. One page left is no group.
     pub fn unpane(&mut self, id: u32) {
         if let Some(at) = self.panes.iter().position(|p| *p == id) {
@@ -338,23 +354,6 @@ pub fn link_way(setting: &str, url: &str) -> LinkWay {
         "ask" => LinkWay::Ask,
         _ => LinkWay::Castle,
     }
-}
-
-/// Each column's left edge and width across `width`, from the shares in `widths` (one column for
-/// none).
-pub fn columns(width: f64, widths: &[f64]) -> Vec<(f64, f64)> {
-    let shares: Vec<f64> = if widths.is_empty() { vec![1.0] } else { widths.to_vec() };
-    let total: f64 = shares.iter().sum::<f64>().max(f64::EPSILON);
-    let mut x = 0.0;
-    shares
-        .iter()
-        .map(|s| {
-            let w = (width * s / total).round();
-            let col = (x, w);
-            x += w;
-            col
-        })
-        .collect()
 }
 
 /// Whether pages side by side get their phone layout: three or four on screen, while Phone view is on.
@@ -571,9 +570,20 @@ mod tests {
     }
 
     #[test]
+    fn open_on_the_right_on_a_tab_on_screen_makes_a_fresh_column() {
+        let mut tabs = Tabs::default();
+        let a = tabs.open(Some("https://a.example/".into())).unwrap();
+        let b = tabs.beside_new().unwrap();
+        assert_eq!((tabs.panes.clone(), tabs.active), (vec![a, b], Some(b)), "the page alone gains a fresh tab beside it");
+        let c = tabs.beside_new().unwrap();
+        let d = tabs.beside_new().unwrap();
+        assert_eq!(tabs.panes, vec![a, b, c, d]);
+        assert!(tabs.beside_new().is_err(), "four on screen: no fifth");
+        assert_eq!(tabs.widths, vec![0.25; 4]);
+    }
+
+    #[test]
     fn the_columns_follow_the_grips() {
-        assert_eq!(columns(1000.0, &[]), vec![(0.0, 1000.0)]);
-        assert_eq!(columns(900.0, &[1.0 / 3.0; 3]), vec![(0.0, 300.0), (300.0, 300.0), (600.0, 300.0)]);
         let mut tabs = Tabs::default();
         let a = tabs.open(Some("https://a.example/".into())).unwrap();
         let b = tabs.open(Some("https://b.example/".into())).unwrap();
