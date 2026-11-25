@@ -1019,6 +1019,25 @@ small window shares the browser's sign-ins, so with **Remember sign-ins** off it
 plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
 never gets a small window: it opens as a tab, where its warning shows.
 
+### Pages side by side
+
+Up to four pages fit side by side in the browser window. Hover a tab and press its **Side by side**
+button (a square split in two) to put it beside the page in front; do it again with another tab for
+three or four. The pages side by side become **one tab** in the strip: a stacked chip with a tiny
+map of its columns, the first page's name and how many more (*Threads +3*), and their news added
+up. Hover it to see the pages; click it to bring them all back. Clicking any other tab shows that
+tab alone, and the group waits until you come back.
+
+A thin row above the columns names each page. The toolbar (address bar, back, star, Fill) acts on
+the page outlined there: click a page's name to point it at that page. Drag the line between two
+names to make one column wider; the **x** on a name makes that page a tab on its own again, and
+closing a tab takes it out too.
+
+With **three or four** pages side by side each one is shown its **phone layout**, as on a phone, so
+narrow columns stay readable; the page reloads once to change. The **Phone view** switch at the
+right of the strip (shown only then, on to begin with) keeps them on their desktop layout instead.
+Back to two pages, they return to desktop by themselves. Sign-ins are kept through every change.
+
 ### Suggestions as you type
 
 Type in the address bar and, after a moment, a list opens under it from your own past: the words
