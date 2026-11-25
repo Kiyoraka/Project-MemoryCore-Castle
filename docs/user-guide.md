@@ -1053,6 +1053,14 @@ chat**, **Open in your browser**, and, with more than one page on screen, an **Ã
 column away while the tab stays open as a chip. The page you last clicked in has a violet outline;
 Ctrl+L selects its address. A suspicious site's warning shows as a banner under that page's toolbar.
 
+### Asking your companion about a page
+
+Each page's toolbar has **<companion>, read this**. Press it and choose **Summarize**, **Is it
+safe?** or **Help me fill this**: the page's visible words go to your companion at HOME with that
+ask, and the row says the answer is in HOME, with **Open HOME** to go there. Only when you ask, and
+never a bank's page or a page with a password box; the contents of the page's fields are never sent,
+and nothing is kept. Your companion has to be awake at HOME first.
+
 ### The bookmarks bar
 
 Under the chips sits the **bookmarks bar**: your folders as gold-folder pills, then the bookmarks

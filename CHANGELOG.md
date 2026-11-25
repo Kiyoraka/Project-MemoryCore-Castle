@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Ask your companion about a page: each toolbar's "read this" sends the page's words to HOME with Summarize, Is it safe? or Help me fill this, and the answer comes in HOME's chat. Never a bank or a password page.
+
 - A bookmarks bar in Castle's browser: your folders and bar bookmarks under the tabs, the star filing new ones on the bar, and Bring my Chrome bookmarks when it is empty.
 
 - A Passwords chip in Castle's browser: search your sealed logins, import Chrome's export, add one by hand, copy a password for 30 seconds (then the clipboard clears itself), or delete one. No password is ever shown or read by an AI.
