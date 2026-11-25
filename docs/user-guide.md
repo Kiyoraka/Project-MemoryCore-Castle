@@ -858,7 +858,7 @@ One castle's sighting protects every castle. **Settings > Sentinel > Join the Ae
 
 ### Websites: is this a phishing site?
 
-Every page you open in Castle's browser is checked before it loads. A **dangerous** site is held back and the red **DANGER** screen shows in its place (see **The DANGER screen** in chapter 21); a **suspicious** one opens with an amber line under the address, with the reason, for example *"The Sentinel marked this site suspicious: a bare number address"*. A safe site shows nothing. What you do next is yours: the DANGER screen's **Open anyway** opens the page once.
+Every page you open in Castle's browser is checked before it loads. A **dangerous** site is held back and the red **DANGER** screen shows in its place (see **The DANGER screen** in chapter 21); a **suspicious** one opens with an amber banner inside its pane, under the toolbar, with the reason, for example *"The Sentinel marked this site suspicious: a bare number address"*. A safe site shows nothing. What you do next is yours: the DANGER screen's **Open anyway** opens the page once.
 
 - **The quick checks** run on every page, with or without the Sentinel and with no AI: a disguised name (letters from another alphabet), a bare number address, a famous brand's name on a domain that is not the brand's, and a name one or two letters away from a well-known site (`paypa1.com`, `gooogle.com`).
 - **The Sentinel's judgment** (only while **Let your companion keep watch** is on): Castle keeps the sites you visit in your own memory database on this computer (it keeps them too while **MY PROFILE reads your browsing** is on, for your profile and the address bar's suggestions), the site's name, the page's path and its title, never the part of an address after `?` or `#`, so no sign-in link or token is kept. At each patrol your companion is handed the names of the sites it has not judged yet and marks each safe, suspicious or dangerous. A sign-in page on a site it has not judged is asked about at once, so the warning can appear while you are still on that page.
@@ -1041,19 +1041,27 @@ small window shares the browser's sign-ins, so with **Remember sign-ins** off it
 plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
 never gets a small window: it opens as a tab, where its warning shows.
 
+### Tabs and toolbars
+
+Each tab is a small chip at the top: its name (cut short when long), **⫼ Open on the right** and
+**×** Close, always there. A chip for a page on screen has a violet edge. Click a chip's name to
+show that tab; **+** opens a new tab, and a middle click closes one.
+
+Every page on screen has **its own toolbar**: back, forward, reload, its own address field (with its
+own suggestions), the star, Fill on a saved site's sign-in page, the translate button, **Put in
+chat**, **Open in your browser**, and, with more than one page on screen, an **×** that takes that
+column away while the tab stays open as a chip. The page you last clicked in has a violet outline;
+Ctrl+L selects its address. A suspicious site's warning shows as a banner under that page's toolbar.
+
 ### Pages side by side
 
-Up to four pages fit side by side in the browser window. Hover a tab and press its **Side by side**
-button (a square split in two) to put it beside the page in front; do it again with another tab for
-three or four. The pages side by side become **one tab** in the strip: a stacked chip with a tiny
-map of its columns, the first page's name and how many more (*Threads +3*), and their news added
-up. Hover it to see the pages; click it to bring them all back. Clicking any other tab shows that
-tab alone, and the group waits until you come back.
-
-A thin row above the columns names each page. The toolbar (address bar, back, star, Fill) acts on
-the page outlined there: click a page's name to point it at that page. Drag the line between two
-names to make one column wider; the **x** on a name makes that page a tab on its own again, and
-closing a tab takes it out too.
+Up to four pages fit side by side. Press **⫼ Open on the right** on a chip to put that tab in a new
+column on the right; on a tab already on screen it opens a fresh tab beside it. The pages side by
+side become **one chip** in the strip: a tiny map of its columns, the first page's name and how many
+more (*Threads +3*), and their news added up. Click it to bring them all back; its **▾** lists the
+pages, each with **Take out** to make it a tab on its own again. Clicking any other chip shows that
+tab alone, and the group waits until you come back. Drag the line between two columns to make one
+wider.
 
 With **three or four** pages side by side each one is shown its **phone layout**, as on a phone, so
 narrow columns stay readable; the page reloads once to change. The **Phone view** switch at the
