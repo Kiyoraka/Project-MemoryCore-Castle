@@ -450,32 +450,9 @@ const BUBBLE_SCRIPT: &str = r#"((boxes, imgW) => {
 #[cfg(windows)]
 async fn screenshot(app: &AppHandle, id: u32) -> Result<Vec<u8>, String> {
     use base64::Engine;
-    use windows::core::HSTRING;
     let view = app.get_webview(&tab_label(id)).ok_or("This tab has no page yet.")?;
-    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
-    view.with_webview(move |platform| {
-        let sent = tx.clone();
-        // SAFETY: the live page's own engine, used on the window's thread inside with_webview
-        let asked = unsafe {
-            platform.controller().CoreWebView2().and_then(|core| {
-                let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
-                    let _ = sent.send(result.map(|_| json).map_err(|e| e.to_string()));
-                    Ok(())
-                }));
-                core.CallDevToolsProtocolMethod(&HSTRING::from("Page.captureScreenshot"), &HSTRING::from(r#"{"format":"png"}"#), &handler)
-            })
-        };
-        if let Err(e) = asked {
-            let _ = tx.send(Err(e.to_string()));
-        }
-    })
-    .map_err(|_| "The page could not be pictured.".to_string())?;
-    let json = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(10)))
-        .await
-        .map_err(|_| "The page could not be pictured.".to_string())?
-        .map_err(|_| "The picture took too long.".to_string())??;
-    let v: Value = serde_json::from_str(&json).map_err(|_| "The picture came back in a shape Castle does not know.".to_string())?;
-    base64::engine::general_purpose::STANDARD.decode(v["data"].as_str().unwrap_or("")).map_err(|_| "The picture could not be read.".to_string())
+    let data = crate::browser_native::capture(&view, r#"{"format":"png"}"#, Duration::from_secs(10)).await?;
+    base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "The picture could not be read.".to_string())
 }
 
 /// How the bubbles' picture can be read on this computer: `claude` (the member thinks with Claude

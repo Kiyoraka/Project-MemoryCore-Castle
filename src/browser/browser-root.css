@@ -1,0 +1,17 @@
+/* the browser's windows have no App.vue around them: Castle's default colours on the root, where the
+   member's theme (applied on the root by theme.js) and App.vue's own theme both win over them */
+:root {
+  --background: #050b1f;
+  --bar-background: rgba(6, 12, 34, 0.92);
+  --panel-background: rgba(10, 20, 52, 0.78);
+  --widget-background: rgba(12, 24, 60, 0.62);
+  --line: rgba(150, 190, 255, 0.34);
+  --text: #eef3ff;
+  --text-dim: #a6b8de;
+  --accent: #8fb8ff;
+  --hover: rgba(150, 190, 255, 0.14);
+  --glass-blur: 14px;
+  --good: #8fe3b8;
+  --warn: #ffd59a;
+  --bad: #ff9aa8;
+}

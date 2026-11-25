@@ -347,3 +347,75 @@ export function besideSheet(box, sheet) {
   const w = right - box.x
   return w >= 2 ? { ...box, w } : null
 }
+
+// ---------- a tab in a window of its own (browser_out.rs): the drag and the out chips ----------
+
+/** The browser's home window, as a tab names it; any other window is one of its own. */
+export const HOME = 'home'
+/** How far a chip must move before a press becomes a drag (a smaller move is still a click). */
+export const DRAG_PX = 8
+
+/** Whether a tab lives in the home (a tab that names no window does). */
+export const atHome = (tab) => !tab?.window || tab.window === HOME
+
+/** The tabs as the home shows them: only its own tabs, its group and the tab in front among them. */
+export function homeView(tabs) {
+  const list = (tabs?.list ?? []).filter(atHome)
+  const ids = new Set(list.map((t) => t.id))
+  const panes = (tabs?.panes ?? []).filter((id) => ids.has(id))
+  return { ...tabs, list, panes: panes.length >= 2 ? panes : [], active: ids.has(tabs?.active) ? tabs.active : null }
+}
+
+/** Whether the pointer has moved far enough from where it went down to lift the chip. */
+export function dragPast(start, now, px = DRAG_PX) {
+  if (!start || !now) return false
+  return Math.hypot((now.x ?? 0) - (start.x ?? 0), (now.y ?? 0) - (start.y ?? 0)) > px
+}
+
+/** The room's edge to glow while a chip is dragged ('left', 'right', 'top' or 'bottom'): past an edge,
+ * the one the pointer went furthest past; inside, the nearest one once the pointer is within `reach`
+ * pixels of it; '' otherwise. `rect` is the room's box ({ left, top, right, bottom }). */
+export function nearEdge(rect, point, reach = 48) {
+  if (!rect || !point) return ''
+  const gaps = [
+    ['left', point.x - rect.left],
+    ['right', rect.right - point.x],
+    ['top', point.y - rect.top],
+    ['bottom', rect.bottom - point.y],
+  ]
+  const past = gaps.filter(([, d]) => d < 0).sort((a, b) => a[1] - b[1])
+  if (past.length) return past[0][0]
+  const [side, gap] = [...gaps].sort((a, b) => a[1] - b[1])[0]
+  return gap <= reach ? side : ''
+}
+
+/** The home's chips for its tabs that are out: one per window of its own (pages that went out together
+ * are one chip), with the first page's name and how many more, their news together, private when any
+ * page is, held back when any is under the DANGER screen. Pressing one brings its window forward. */
+export function outChips(list) {
+  const byWindow = new Map()
+  for (const t of list ?? []) {
+    if (atHome(t)) continue
+    if (!byWindow.has(t.window)) byWindow.set(t.window, [])
+    byWindow.get(t.window).push(t)
+  }
+  return [...byWindow.entries()].map(([window, members]) => {
+    const first = members[0].title || 'Page'
+    return {
+      window,
+      ids: members.map((t) => t.id),
+      title: members.length > 1 ? `${first} +${members.length - 1}` : first,
+      list: members.map((t) => t.title).join('\n'),
+      unread: members.reduce((n, t) => n + (Number(t.unread) || 0), 0),
+      private: members.some((t) => !!t.private),
+      danger: members.some((t) => !!t.danger),
+    }
+  })
+}
+
+/** What the drag's card says under itself for where a drop would go now; nothing while it would stay. */
+export function ghostLine(state) {
+  if (state === 'out') return 'Let go to open in a new window'
+  if (state === 'in') return 'Let go to bring it back'
+  return ''
+}

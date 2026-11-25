@@ -67,8 +67,9 @@ tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications", "Foundation"] }
 # the world windows ask which window is on top at a few points, to rest when covered
 # (and the CPU gauge reads processor time with GetSystemTimes, from Threading; DEV's live servers
-# read the listening ports from IP Helper)
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Media_Audio", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_Security"] }
+# read the listening ports from IP Helper; a dragged browser tab reads the mouse button, from
+# KeyboardAndMouse, to notice a release that never reached the page)
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Media_Audio", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_Security", "Win32_UI_Input_KeyboardAndMouse"] }
 # the browser's pages: SmartScreen switched on and proven, the phone view's user agent and the
 # bubble reader's picture (browser_native.rs); the copy wry already uses
 webview2-com = "0.39"

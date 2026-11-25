@@ -4,21 +4,28 @@
 // the tabs (each with Open on the right and its x), the pages side by side as one group chip with its
 // list, then the panes, each with its own toolbar (PaneBar.vue). This page measures the box under each
 // pane's toolbar and the core puts that tab's web page there (browser_show); while a list or a sheet is
-// open over the pages, or the room is not in front, every page hides.
+// open over the pages, or the room is not in front, every page hides. A chip dragged past the room's
+// edge (or Move to a new window) takes its tab into a window of its own (browser_out.rs); its chip
+// stays here, dimmer, and brings that window forward.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   browserBeside,
   browserClose,
   browserDangerBack,
   browserDangerOpen,
+  browserDragEnd,
+  browserDragStart,
   browserGo,
   browserImportBookmarks,
   browserImportHistory,
   browserImportPasswords,
   browserNewTab,
   browserOpen,
+  browserOutFocus,
   browserPasswordGuide,
   browserPhoneView,
+  browserPopIn,
+  browserPopOut,
   browserShow,
   browserState,
   browserSwitch,
@@ -32,18 +39,19 @@ import {
   devServers,
   downloadsList,
   getSettings,
+  onBrowserDragEnded,
+  onBrowserPoppedIn,
   onBrowserState,
   onDownloadsState,
-  userThemes,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
-import { DEFAULT_THEME_ID, applyTheme, builtInThemes, chooseTheme, fromUserFolders } from '../themes/loader.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import DownloadsSheet from './DownloadsSheet.vue'
 import PaneBar from './PaneBar.vue'
 import PasswordsSheet from './PasswordsSheet.vue'
-import { barOf, besideSheet, boundsOf, chipCount, chipTitle, columnsOf, dlRing, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
+import { HOME, barOf, besideSheet, boundsOf, chipCount, chipTitle, columnsOf, dlRing, dragPast, dragWidths, groupOf, homeView, libraryTiles, nearEdge, newTabShortcuts, onScreen, outChips, signInHint, singleTabs } from './browserview.js'
+import { wearTheme } from './theme.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 // inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
@@ -60,7 +68,9 @@ const newTab = ref('shortcuts')
 const companion = ref('Your companion')
 let stop = null
 
-const current = computed(() => tabs.value.list.find((t) => t.id === tabs.value.active) ?? null)
+// the home's own tabs: a tab in a window of its own is never a pane here, only a dim chip
+const home = computed(() => homeView(tabs.value))
+const current = computed(() => home.value.list.find((t) => t.id === home.value.active) ?? null)
 const shortcuts = computed(() => newTabShortcuts(servers.value, newTab.value))
 const hint = computed(() => signInHint(current.value?.url ?? ''))
 
@@ -74,10 +84,11 @@ async function act(work) {
 }
 
 // ---------- the chips and the group ----------
-const group = computed(() => groupOf(tabs.value))
-const singles = computed(() => singleTabs(tabs.value))
-const shownIds = computed(() => onScreen(tabs.value))
-const shownTabs = computed(() => shownIds.value.map((id) => tabs.value.list.find((t) => t.id === id)).filter(Boolean))
+const group = computed(() => groupOf(home.value))
+const singles = computed(() => singleTabs(home.value))
+const shownIds = computed(() => onScreen(home.value))
+const shownTabs = computed(() => shownIds.value.map((id) => home.value.list.find((t) => t.id === id)).filter(Boolean))
+const outs = computed(() => outChips(tabs.value.list))
 const many = computed(() => shownTabs.value.length > 1)
 const groupFocus = ref(null)
 watch(
@@ -206,7 +217,9 @@ async function readMarks() {
 }
 function openMark(url) {
   openFolder.value = ''
-  act(() => browserGo(url, tabs.value.active))
+  // the home's tab in front; with every tab out, a new home tab (never a page in a window of its own)
+  const id = home.value.active
+  act(() => (id == null ? browserOpen(url) : browserGo(url, id)))
 }
 const bringChrome = (profile = null) =>
   act(async () => {
@@ -313,14 +326,91 @@ function onKey(event) {
   event.preventDefault()
 }
 
-// the member's theme on this window's root: the built-in themes and the ones dropped into Castle's folder
-// (a dropped-in theme's folders are read only when the chosen one is not built in: they carry pictures)
-async function wearTheme(id) {
-  const wanted = id ?? DEFAULT_THEME_ID
-  const builtIn = builtInThemes()
-  const folders = builtIn.some((t) => t.id === wanted) ? [] : await userThemes().catch(() => [])
-  applyTheme(chooseTheme([...builtIn, ...fromUserFolders(folders).themes], wanted).theme)
+// ---------- a chip dragged out into a window of its own ----------
+const rootEl = ref(null)
+// the chip whose spot shows a dashed outline while it is dragged ('group' or a tab id)
+const lifted = ref('')
+// the room's edge glowing in the accent while a chip is dragged near or past it
+const edge = ref('')
+// the press on a chip: where it went down, its tabs and key, whether it became a drag, its start
+let press = null
+// the click that follows a drag never picks the tab
+let wasDrag = false
+function chipDown(event, ids, key) {
+  if (event.button !== 0) return
+  press = { x: event.clientX, y: event.clientY, ids, key, lifted: false, started: null }
+  try {
+    event.currentTarget.setPointerCapture(event.pointerId)
+  } catch {
+    // the drag still works inside the window
+  }
+  window.addEventListener('pointermove', chipMove)
+  window.addEventListener('pointerup', chipUp)
+  window.addEventListener('pointercancel', chipUp)
 }
+function chipMove(event) {
+  if (!press) return
+  const at = { x: event.clientX, y: event.clientY }
+  if (!press.lifted) {
+    if (!dragPast(press, at)) return
+    press.lifted = true
+    lifted.value = String(press.key)
+    press.started = browserDragStart(press.ids, HOME).then(
+      () => true,
+      (reason) => {
+        problem.value = String(reason)
+        return false
+      },
+    )
+  }
+  edge.value = nearEdge(rootEl.value?.getBoundingClientRect(), at)
+}
+/** The press over: its listeners gone and the chip back in its spot. Returns the press it ended. */
+function settleDrag() {
+  window.removeEventListener('pointermove', chipMove)
+  window.removeEventListener('pointerup', chipUp)
+  window.removeEventListener('pointercancel', chipUp)
+  const was = press
+  press = null
+  lifted.value = ''
+  edge.value = ''
+  return was
+}
+async function chipUp() {
+  const was = settleDrag()
+  if (!was?.lifted) return
+  wasDrag = true
+  setTimeout(() => (wasDrag = false), 0)
+  // the card is up first, so the drop always finds its drag
+  if (await was.started) act(() => browserDragEnd(HOME))
+}
+/** A chip's click, unless it ended a drag. */
+function tap(then) {
+  if (wasDrag) return (wasDrag = false)
+  then()
+}
+// the right-click menu: { x, y, ids, window } (window set for a chip that is out)
+const chipMenu = ref(null)
+watch(chipMenu, (open) => overlay('chip-menu', Boolean(open)))
+function openMenu(event, ids, win = '') {
+  chipMenu.value = { x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 90), ids: [...ids], window: win }
+}
+const closeMenu = () => (chipMenu.value = null)
+/** Move to a new window: the tab (or the whole group) into a window at the place one was last left. */
+function moveOut() {
+  const ids = chipMenu.value?.ids ?? []
+  closeMenu()
+  act(() => browserPopOut(ids, false))
+}
+function bringBack() {
+  const win = chipMenu.value?.window
+  closeMenu()
+  if (win) act(() => browserPopIn(win))
+}
+/** A chip that is out pressed: its window comes forward. */
+const focusOut = (win) => act(() => browserOutFocus(win))
+let stopPoppedIn = null
+let stopDragEnded = null
 
 onMounted(async () => {
   if (!props.embedded) document.title = 'MemoryCore · Browser'
@@ -329,6 +419,12 @@ onMounted(async () => {
   window.addEventListener('resize', schedule)
   window.addEventListener('keydown', onKey)
   stop = await onBrowserState((next) => (tabs.value = next))
+  // pages home again: shown at once (the core made two to four the group again)
+  stopPoppedIn = await onBrowserPoppedIn(async () => {
+    tabs.value = await browserState().catch(() => tabs.value)
+  })
+  // the core made the drop itself (the release went past every window): the chip settles
+  stopDragEnded = await onBrowserDragEnded((ended) => ended?.from === HOME && settleDrag())
   downloadsList()
     .then((list) => (dlItems.value = list))
     .catch(() => {})
@@ -359,28 +455,39 @@ onBeforeUnmount(() => {
   if (props.embedded) browserShow([]).catch(() => {})
   stop?.()
   stopDownloads?.()
+  stopPoppedIn?.()
+  stopDragEnded?.()
+  settleDrag()
 })
 </script>
 
 <template>
-  <div class="browser" :class="{ embedded }">
+  <div ref="rootEl" class="browser" :class="{ embedded }">
     <div class="chips" role="tablist" aria-label="Tabs">
-      <span v-if="group" class="chip group" :class="{ on: group.on, news: group.unread > 0 }">
-        <button class="name" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}`" @click="pickGroup">
+      <span v-if="group" class="chip group" :class="{ on: group.on, news: group.unread > 0, lifted: lifted === 'group' }">
+        <button class="name" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}\nDrag past the edge to open in a new window`" @pointerdown="chipDown($event, group.ids, 'group')" @click="tap(pickGroup)" @contextmenu.prevent="openMenu($event, group.ids)">
           <span class="minimap" aria-hidden="true"><i v-for="id in group.ids" :key="id"></i></span>
           {{ chipTitle(group.label) }}
           <span v-if="chipCount(group.unread)" class="unread" :aria-label="`${group.unread} new`">{{ chipCount(group.unread) }}</span>
         </button>
         <button class="mini" :aria-expanded="groupMenu" aria-label="The pages in this tab" title="The pages in this tab" @click="groupMenu = !groupMenu">▾</button>
       </span>
-      <span v-for="t in singles" :key="t.id" class="chip" :class="{ on: shownIds.includes(t.id), danger: t.danger, news: t.unread > 0, private: t.private }">
-        <button class="name" role="tab" :aria-selected="t.id === tabs.active" :title="t.private ? `Private - ${t.url || t.title}` : t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+      <span v-for="t in singles" :key="t.id" class="chip" :class="{ on: shownIds.includes(t.id), danger: t.danger, news: t.unread > 0, private: t.private, lifted: lifted === String(t.id) }">
+        <button class="name" role="tab" :aria-selected="t.id === tabs.active" :title="t.private ? `Private - ${t.url || t.title}` : t.url || t.title" @pointerdown="chipDown($event, [t.id], t.id)" @click="tap(() => pick(t.id))" @auxclick.middle="close(t.id)" @contextmenu.prevent="openMenu($event, [t.id])">
           <svg v-if="t.private" class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg>
           {{ chipTitle(t.title) }}
           <span v-if="chipCount(t.unread)" class="unread" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
         </button>
         <button class="mini" :aria-label="`Open ${t.title} on the right`" title="Open on the right" @click="beside(t.id)">⫼</button>
         <button class="mini" :aria-label="`Close ${t.title}`" title="Close" @click="close(t.id)">×</button>
+      </span>
+      <span v-for="o in outs" :key="o.window" class="chip out" :class="{ private: o.private, danger: o.danger, news: o.unread > 0 && !o.danger }">
+        <button class="name" :title="`In its own window - press to bring it forward\n${o.list}`" @click="focusOut(o.window)" @contextmenu.prevent="openMenu($event, o.ids, o.window)">
+          <span class="popped" aria-label="In its own window">⧉</span>
+          <svg v-if="o.private" class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg>
+          {{ chipTitle(o.title) }}
+          <span v-if="chipCount(o.unread)" class="unread" :aria-label="`${o.unread} new`">{{ chipCount(o.unread) }}</span>
+        </button>
       </span>
       <button class="chip plus" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">+</button>
       <button class="chip private-new" :title="`New private tab (${isMac ? '⌘⇧' : 'Ctrl+Shift+'}T) - keeps nothing`" @click="addPrivate"><svg class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg> Private</button>
@@ -426,6 +533,7 @@ onBeforeUnmount(() => {
       <button class="close" @click="groupMenu = false">Close</button>
     </div>
 
+    <p v-if="!shownTabs.length && outs.length" class="empty all-out">Your pages are in windows of their own - press a chip to bring one forward, or + for a new tab.</p>
     <div ref="panesEl" class="panes" :style="{ gridTemplateColumns: gridColumns }" @pointermove="drag" @pointerup="release" @pointercancel="release">
       <template v-for="(t, i) in shownTabs" :key="t.id">
         <PaneBar
@@ -488,32 +596,23 @@ onBeforeUnmount(() => {
         <div v-if="i < shownTabs.length - 1" class="grip" role="separator" aria-orientation="vertical" title="Drag to change the widths" @pointerdown="grab($event, i)"></div>
       </template>
     </div>
+    <template v-if="chipMenu">
+      <div class="menu-catch" @pointerdown="closeMenu" @contextmenu.prevent="closeMenu"></div>
+      <div class="chip-menu" role="menu" :style="{ left: `${chipMenu.x}px`, top: `${chipMenu.y}px` }">
+        <button v-if="!chipMenu.window" role="menuitem" @click="moveOut">Move to a new window</button>
+        <template v-else>
+          <button role="menuitem" @click="bringBack">Bring it back</button>
+          <button role="menuitem" @click="focusOut(chipMenu.window); closeMenu()">Show its window</button>
+        </template>
+      </div>
+    </template>
+    <div v-if="edge" class="edge-glow" :class="edge" aria-hidden="true"></div>
     <PasswordsSheet v-if="passwordsOpen" ref="sheetEl" @close="passwordsOpen = false" />
     <DownloadsSheet v-if="dlOpen" ref="sheetEl" :start="dlStart" @close="dlOpen = false" />
     <slot />
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>
 </template>
-
-<style>
-/* the browser window has no App.vue around it: Castle's default colours on the root, where the member's
-   theme (applied on the root, in BrowserWindow's start) and App.vue's own theme both win over them */
-:root {
-  --background: #050b1f;
-  --bar-background: rgba(6, 12, 34, 0.92);
-  --panel-background: rgba(10, 20, 52, 0.78);
-  --widget-background: rgba(12, 24, 60, 0.62);
-  --line: rgba(150, 190, 255, 0.34);
-  --text: #eef3ff;
-  --text-dim: #a6b8de;
-  --accent: #8fb8ff;
-  --hover: rgba(150, 190, 255, 0.14);
-  --glass-blur: 14px;
-  --good: #8fe3b8;
-  --warn: #ffd59a;
-  --bad: #ff9aa8;
-}
-</style>
 
 <style scoped>
 /* every chrome colour is the member's theme: its background, accent and text (status colours stay their own) */
@@ -1190,5 +1289,102 @@ onBeforeUnmount(() => {
 }
 .new-tab {
   overflow-y: auto;
+}
+
+/* ---------- a chip dragged out, and the chips of tabs in windows of their own ---------- */
+.chip .name {
+  touch-action: none;
+}
+/* the dragged chip's spot: a dashed outline, its words hidden */
+.chip.lifted {
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 85%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+.chip.lifted > * {
+  visibility: hidden;
+}
+/* a tab in a window of its own: dimmer, its frame dashed, the ⧉ mark */
+.chip.out {
+  opacity: 0.62;
+  border-style: dashed;
+}
+.chip.out:hover {
+  opacity: 0.9;
+}
+.chip .popped {
+  color: var(--accent);
+  font-size: 14px;
+}
+.all-out {
+  flex: 0;
+  margin: 30px auto;
+}
+.menu-catch {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+.chip-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(var(--glass-blur));
+}
+.chip-menu button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chip-menu button:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+/* the room's edge nearest the dragged chip glows in the accent */
+.edge-glow {
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 85%, transparent);
+  box-shadow:
+    0 0 18px 6px color-mix(in srgb, var(--accent) 70%, transparent),
+    0 0 46px 12px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.edge-glow.right {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+}
+.edge-glow.left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+.edge-glow.top {
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+}
+.edge-glow.bottom {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
 }
 </style>

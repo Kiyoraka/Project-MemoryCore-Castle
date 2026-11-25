@@ -296,3 +296,64 @@ describe('a side panel beside the pages', () => {
     expect(besideSheet({ x: 20, y: 100, w: 500, h: 900 }, { left: 1300 })).toEqual({ x: 20, y: 100, w: 500, h: 900 })
   })
 })
+
+import { DRAG_PX, HOME, atHome, dragPast, ghostLine, homeView, nearEdge, outChips } from './browserview.js'
+
+describe('a tab in a window of its own: the drag and the out chips', () => {
+  const list = [
+    { id: 1, title: 'Gmail', url: 'https://mail.example/', unread: 4, window: 'home' },
+    { id: 2, title: 'Threads', url: 'https://threads.example/', unread: 3, window: 'browser-out-1' },
+    { id: 3, title: 'Video', url: 'https://video.example/', unread: 0, window: 'browser-out-2' },
+    { id: 4, title: 'Secret', url: 'https://secret.example/', unread: 1, private: true, window: 'browser-out-2', danger: { url: 'x' } },
+    { id: 5, title: 'Old tab', url: null },
+  ]
+
+  it('lifts a chip only past eight pixels, so a click stays a click', () => {
+    expect(DRAG_PX).toBe(8)
+    const down = { x: 100, y: 20 }
+    expect(dragPast(down, { x: 105, y: 24 })).toBe(false)
+    expect(dragPast(down, { x: 108, y: 20 })).toBe(false)
+    expect(dragPast(down, { x: 109, y: 20 })).toBe(true)
+    expect(dragPast(down, { x: 94, y: 27 })).toBe(true)
+    expect(dragPast(null, down)).toBe(false)
+  })
+
+  it('glows the edge the pointer went furthest past, the nearest one close inside, and none in the middle', () => {
+    const room = { left: 14, top: 10, right: 1014, bottom: 810 }
+    expect(nearEdge(room, { x: 500, y: 400 })).toBe('')
+    expect(nearEdge(room, { x: 1040, y: 400 })).toBe('right')
+    expect(nearEdge(room, { x: -5, y: 400 })).toBe('left')
+    expect(nearEdge(room, { x: 500, y: -30 })).toBe('top')
+    expect(nearEdge(room, { x: 1020, y: 860 })).toBe('bottom')
+    expect(nearEdge(room, { x: 990, y: 400 })).toBe('right')
+    expect(nearEdge(room, { x: 500, y: 790 }, 10)).toBe('')
+    expect(nearEdge(null, { x: 1, y: 1 })).toBe('')
+  })
+
+  it('keeps the home its own tabs, its group and the tab in front among them', () => {
+    expect(HOME).toBe('home')
+    expect(atHome(list[4])).toBe(true)
+    expect(atHome(list[1])).toBe(false)
+    const view = homeView({ list, active: 2, panes: [1, 2], widths: [0.5, 0.5] })
+    expect(view.list.map((t) => t.id)).toEqual([1, 5])
+    expect(view.active).toBe(null)
+    expect(view.panes).toEqual([])
+    expect(homeView({ list, active: 1, panes: [] }).active).toBe(1)
+    expect(homeView({ list: [...list, { id: 6, title: 'Six', window: 'home' }], active: 6, panes: [1, 6, 2] }).panes).toEqual([1, 6])
+  })
+
+  it('shows one dim chip per window of its own, a group that went out together as one', () => {
+    const out = outChips(list)
+    expect(out).toHaveLength(2)
+    expect(out[0]).toEqual({ window: 'browser-out-1', ids: [2], title: 'Threads', list: 'Threads', unread: 3, private: false, danger: false })
+    expect(out[1]).toMatchObject({ window: 'browser-out-2', ids: [3, 4], title: 'Video +1', unread: 1, private: true, danger: true })
+    expect(outChips([list[0], list[4]])).toEqual([])
+    expect(outChips(null)).toEqual([])
+  })
+
+  it('says where a drop would go, and nothing while it would stay', () => {
+    expect(ghostLine('out')).toBe('Let go to open in a new window')
+    expect(ghostLine('in')).toBe('Let go to bring it back')
+    expect(ghostLine('stay')).toBe('')
+  })
+})

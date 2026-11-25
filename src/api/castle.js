@@ -724,6 +724,16 @@ export const browserOutFullscreen = (window, on) => invoke('browser_out_fullscre
 export const browserOutFocus = (window) => invoke('browser_out_focus', { window })
 // The pages that came home from a window of their own: [id, ...]
 export const onBrowserPoppedIn = (handler) => listen('browser-popped-in', (event) => handler(event.payload))
+// A chip dragged: a glowing card follows the cursor; letting go decides -> 'out' | 'in' | 'stay'.
+// `from` is the window the tabs live in: 'home' or 'browser-out-<n>'
+export const browserDragStart = (ids, from) => invoke('browser_drag_start', { ids, from })
+export const browserDragEnd = (from) => invoke('browser_drag_end', { from })
+// The card's own: the page's little picture (a data URL, or null), where a drop would go, the picture ready
+export const browserGhostThumb = () => invoke('browser_ghost_thumb')
+export const onBrowserGhostState = (handler) => listen('browser-ghost-state', (event) => handler(event.payload))
+export const onBrowserGhostThumb = (handler) => listen('browser-ghost-thumb', () => handler())
+// The core made the drop itself (the release never reached the page): { from, decision }
+export const onBrowserDragEnded = (handler) => listen('browser-drag-ended', (event) => handler(event.payload))
 // Browser opens changed: every page closes (sign-ins kept) and opens in its new home next time
 export const browserCloseAll = () => invoke('browser_close_all')
 export const onBrowserShowRoom = (handler) => listen('browser-show-room', () => handler())

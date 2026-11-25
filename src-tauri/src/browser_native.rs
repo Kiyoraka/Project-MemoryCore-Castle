@@ -85,6 +85,38 @@ pub fn set_user_agent(view: &tauri::Webview, label: String, ua: Option<&'static 
     let _ = (view, label, ua);
 }
 
+/// What a page shows, as a picture taken through its own DevTools (`Page.captureScreenshot` with
+/// these parameters): the base64 text the engine answers with, or why not. Gives up after `wait`.
+/// WebView2 only: a macOS page is never pictured this way.
+#[cfg(windows)] // platform: windows-only
+pub async fn capture(view: &tauri::Webview, params: &'static str, wait: std::time::Duration) -> Result<String, String> {
+    use windows::core::HSTRING;
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    view.with_webview(move |platform| {
+        let sent = tx.clone();
+        // SAFETY: the live page's own engine, used on the window's thread inside with_webview
+        let asked = unsafe {
+            platform.controller().CoreWebView2().and_then(|core| {
+                let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
+                    let _ = sent.send(result.map(|_| json).map_err(|e| e.to_string()));
+                    Ok(())
+                }));
+                core.CallDevToolsProtocolMethod(&HSTRING::from("Page.captureScreenshot"), &HSTRING::from(params), &handler)
+            })
+        };
+        if let Err(e) = asked {
+            let _ = tx.send(Err(e.to_string()));
+        }
+    })
+    .map_err(|_| "The page could not be pictured.".to_string())?;
+    let json = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(wait))
+        .await
+        .map_err(|_| "The page could not be pictured.".to_string())?
+        .map_err(|_| "The picture took too long.".to_string())??;
+    let v: serde_json::Value = serde_json::from_str(&json).map_err(|_| "The picture came back in a shape Castle does not know.".to_string())?;
+    Ok(v["data"].as_str().unwrap_or("").to_string())
+}
+
 /// Each page's own user agent on Windows, read before the phone layout first changed it.
 #[cfg(windows)]
 static OWN_AGENTS: std::sync::Mutex<std::collections::BTreeMap<String, String>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
