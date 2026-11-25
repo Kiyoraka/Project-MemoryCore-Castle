@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, chipCount, dangerWords, fillLabel, libraryTiles, moveSelection, newTabShortcuts, shownAddress, signInHint, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
+import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, libraryTiles, moveSelection, newTabShortcuts, onScreen, shownAddress, signInHint, singleTabs, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -131,5 +131,41 @@ describe('the suggestions', () => {
     expect(suggestionInput(rows[1])).toBe('google meet')
     expect(suggestionInput(rows[0])).toBe('https://calendar.google.com/')
     expect(suggestionInput(null)).toBe('')
+  })
+})
+
+describe('pages side by side', () => {
+  const list = [
+    { id: 1, title: 'Threads', unread: 3 },
+    { id: 2, title: 'Shopee', unread: 0 },
+    { id: 3, title: 'YouTube', unread: 2 },
+    { id: 4, title: 'New tab', unread: 0 },
+  ]
+
+  it('shows the group as one chip with its first page, how many more, and their news', () => {
+    const g = groupOf({ list, active: 3, panes: [1, 3, 4], widths: [] })
+    expect(g.label).toBe('Threads +2')
+    expect(g.unread).toBe(5)
+    expect(g.list).toBe('Threads\nYouTube\nNew tab')
+    expect(g.on).toBe(true)
+    expect(groupOf({ list, active: 1, panes: [], widths: [] })).toBe(null)
+  })
+
+  it('keeps the other tabs as single chips', () => {
+    expect(singleTabs({ list, panes: [1, 3] }).map((t) => t.id)).toEqual([2, 4])
+    expect(singleTabs({ list, panes: [] }).length).toBe(4)
+  })
+
+  it('knows what is on screen', () => {
+    expect(onScreen({ list, active: 3, panes: [1, 3] })).toEqual([1, 3])
+    expect(onScreen({ list, active: 2, panes: [1, 3] })).toEqual([2])
+    expect(onScreen({ list, active: null, panes: [] })).toEqual([])
+  })
+
+  it('moves a grip between its two columns, neither below a tenth', () => {
+    expect(dragWidths([0.5, 0.5], 0, 100, 1000)).toEqual([0.6, 0.4])
+    const squeezed = dragWidths([0.5, 0.5], 0, 900, 1000)
+    expect(squeezed[1]).toBeCloseTo(0.1)
+    expect(dragWidths([0.5, 0.5], 1, 100, 1000)).toEqual([0.5, 0.5], 'no grip after the last column')
   })
 })

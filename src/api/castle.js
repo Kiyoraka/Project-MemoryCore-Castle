@@ -701,6 +701,11 @@ export const browserChrome = (bar, overlay) => invoke('browser_chrome', { bar, o
 // The address bar's suggestions (browser_suggest.rs): -> [{ kind: 'search'|'page'|'bookmark', text, url, sub }]
 export const browserSuggest = (input) => invoke('browser_suggest', { input })
 export const browserForgetSearch = (term) => invoke('browser_forget_search', { term })
+// Pages side by side (browser_tabs.rs): beside the page in front, out of the group, the widths, Phone view
+export const browserBeside = (id) => invoke('browser_beside', { id })
+export const browserUnpane = (id) => invoke('browser_unpane', { id })
+export const browserWidths = (widths) => invoke('browser_widths', { widths })
+export const browserPhoneView = (on) => invoke('browser_phone_view', { on })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
 // How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }

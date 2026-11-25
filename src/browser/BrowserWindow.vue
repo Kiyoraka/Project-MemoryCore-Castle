@@ -20,7 +20,11 @@ import {
   browserPasswordGuide,
   browserWelcome,
   browserWelcomeAnswer,
+  browserBeside,
   browserBookmarkToggle,
+  browserPhoneView,
+  browserUnpane,
+  browserWidths,
   browserChrome,
   browserForgetSearch,
   browserSuggest,
@@ -36,7 +40,8 @@ import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import SuggestList from './SuggestList.vue'
-import { chipCount, fillLabel, libraryTiles, moveSelection, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import PaneRow from './PaneRow.vue'
+import { chipCount, fillLabel, groupOf, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
@@ -120,7 +125,28 @@ function forgetSuggestion(row) {
     await askSuggest()
   })
 }
-watch(suggestOpen, (open) => browserChrome(BAR_PX, open).catch(() => {}))
+// Pages side by side: the group's chip, the row above the columns, and the bar grown to hold it.
+const PANE_ROW = 30
+const group = computed(() => groupOf(tabs.value))
+const singles = computed(() => singleTabs(tabs.value))
+const shownIds = computed(() => onScreen(tabs.value))
+const split = computed(() => shownIds.value.length >= 2)
+const shownTabs = computed(() => shownIds.value.map((id) => tabs.value.list.find((t) => t.id === id)).filter(Boolean))
+const barHeight = computed(() => BAR_PX + (split.value ? PANE_ROW : 0))
+// the group's chip brings back the page last in front in it
+const groupFocus = ref(null)
+watch(
+  () => tabs.value.active,
+  (id) => {
+    if (group.value?.ids.includes(id)) groupFocus.value = id
+  },
+)
+const pickGroup = () => pick(group.value.ids.includes(groupFocus.value) ? groupFocus.value : group.value.ids[0])
+const beside = (id) => act(() => browserBeside(id))
+const unpane = (id) => act(() => browserUnpane(id))
+const setWidths = (widths) => act(() => browserWidths(widths))
+const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
+watch([barHeight, suggestOpen], ([bar, open]) => browserChrome(bar, open).catch(() => {}))
 
 function go() {
   const row = selected.value >= 0 ? suggestOrder.value[selected.value] : null
@@ -271,18 +297,29 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="browser">
-    <div class="bar">
+    <div class="bar" :style="{ height: `${barHeight}px` }">
       <div class="strip" role="tablist" aria-label="Tabs">
-        <div v-for="t in tabs.list" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger, news: t.unread > 0 }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+        <div v-if="group" class="tab group" :class="{ on: group.on, news: group.unread > 0 }" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}`" @click="pickGroup">
+          <span class="minimap" aria-hidden="true"><i v-for="id in group.ids" :key="id"></i></span>
+          <span class="name">{{ group.label }}</span>
+          <span v-if="chipCount(group.unread)" class="news-count" :aria-label="`${group.unread} new`">{{ chipCount(group.unread) }}</span>
+        </div>
+        <div v-for="t in singles" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger, news: t.unread > 0 }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
           <span class="dot" :class="{ local: t.url?.startsWith('http://'), blank: !t.url }" aria-hidden="true"></span>
           <span class="name">{{ t.title }}</span>
           <span v-if="chipCount(t.unread)" class="news-count" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
+          <button v-if="page && t.id !== tabs.active && shownIds.length < 4" class="x beside" :aria-label="`Put ${t.title} side by side`" title="Side by side with the page in front" @click.stop="beside(t.id)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
+          </button>
           <button class="x" :aria-label="`Close ${t.title}`" @click.stop="close(t.id)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
         <button class="icon add" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
+          Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
         </button>
         <span v-if="siteWarning(current?.warning)" class="safe warning" :class="current.warning.verdict" role="alert" :title="siteWarning(current.warning)">{{ siteWarning(current.warning) }}</span>
         <span v-else-if="hint" class="safe hint" role="status">{{ hint }}</span>
@@ -338,10 +375,22 @@ onBeforeUnmount(() => {
           Open in your browser
         </button>
       </div>
+      <PaneRow v-if="split" :panes="shownTabs" :widths="tabs.widths" :active="tabs.active" @focus="pick" @close="unpane" @widths="setWidths" />
     </div>
 
-    <DangerScreen v-if="current?.danger" :danger="current.danger" @back="dangerBack" @open="dangerOpen" />
-    <main v-else-if="current && !current.url" class="new-tab">
+    <!-- side by side: a column with no page to show (a new tab, a DANGER screen) is drawn here, under the pages -->
+    <div v-if="split" class="columns">
+      <div v-for="(t, i) in shownTabs" :key="t.id" class="column" :style="{ flex: `${tabs.widths[i] ?? 1} 1 0` }">
+        <DangerScreen v-if="t.danger" :danger="t.danger" @back="act(() => browserDangerBack(t.id))" @open="act(() => browserDangerOpen(t.id))" />
+        <div v-else-if="!t.url" class="column-new" @click="pick(t.id)">
+          <span class="label">NEW TAB</span>
+          <span class="hint">Click here, then type an address above</span>
+        </div>
+      </div>
+    </div>
+
+    <DangerScreen v-if="!split && current?.danger" :danger="current.danger" @back="dangerBack" @open="dangerOpen" />
+    <main v-else-if="!split && current && !current.url" class="new-tab">
       <section v-if="words" class="welcome" aria-live="polite">
         <span class="count">{{ stepNumber(shownStep) }} of {{ STEPS.length }}</span>
         <h2>{{ words.title }}</h2>
@@ -400,7 +449,6 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 .bar {
-  height: 94px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -426,6 +474,85 @@ onBeforeUnmount(() => {
   border-radius: 8px 8px 0 0;
   color: var(--text-dim);
   font-size: 13px;
+  cursor: pointer;
+}
+/* the pages side by side as one stacked chip, to the pick browser-split-2 */
+.tab.group {
+  border: 1px solid #b9a2ff;
+  box-shadow:
+    3px -3px 0 -1px rgba(185, 162, 255, 0.35),
+    0 0 10px rgba(185, 162, 255, 0.3);
+}
+.minimap {
+  display: inline-flex;
+  gap: 2px;
+}
+.minimap i {
+  width: 5px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid #b9a2ff;
+}
+.x.beside {
+  opacity: 0;
+}
+.tab:hover .x.beside {
+  opacity: 1;
+}
+.phone-view {
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(5, 11, 31, 0.85);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.switch {
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(150, 190, 255, 0.25);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  box-sizing: border-box;
+}
+.switch i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.switch.on {
+  background: #3fcf9a;
+}
+.switch.on i {
+  transform: translateX(14px);
+}
+.columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.column {
+  min-width: 0;
+  display: flex;
+}
+.column-new {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-left: 1px solid rgba(150, 190, 255, 0.12);
   cursor: pointer;
 }
 /* a site with news: a mint count and a soft gold glow, the twin of CHAT's */

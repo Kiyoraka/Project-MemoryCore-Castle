@@ -135,3 +135,47 @@ export function suggestionInput(row) {
   if (!row) return ''
   return row.kind === 'search' ? row.text : row.url
 }
+
+// Pages side by side (browser_tabs.rs): the group shows as one stacked chip in the strip.
+/** The group of pages side by side, or null: its tabs in column order, the chip's words and count. */
+export function groupOf(tabs) {
+  const ids = tabs?.panes ?? []
+  if (ids.length < 2) return null
+  const members = ids.map((id) => tabs.list.find((t) => t.id === id)).filter(Boolean)
+  if (members.length < 2) return null
+  const first = members[0].title || 'Page'
+  return {
+    ids,
+    members,
+    label: `${first} +${members.length - 1}`,
+    unread: members.reduce((sum, t) => sum + (Number(t.unread) || 0), 0),
+    list: members.map((t) => t.title).join('\n'),
+    on: ids.includes(tabs.active),
+  }
+}
+
+/** The single chips: every tab that is not in the group. */
+export function singleTabs(tabs) {
+  const inGroup = new Set((tabs?.panes ?? []).length >= 2 ? tabs.panes : [])
+  return (tabs?.list ?? []).filter((t) => !inGroup.has(t.id))
+}
+
+/** The tabs on screen, left to right: the group when the tab in front is in it, else that tab. */
+export function onScreen(tabs) {
+  const active = tabs?.active
+  if (active == null) return []
+  const panes = tabs.panes ?? []
+  return panes.length >= 2 && panes.includes(active) ? panes : [active]
+}
+
+/** New column shares after dragging the grip after column `at` by `dx` pixels across `width`:
+ * the two columns beside it share the move, neither below a tenth. */
+export function dragWidths(widths, at, dx, width) {
+  const next = [...widths]
+  if (at < 0 || at >= next.length - 1 || !width) return next
+  const pair = next[at] + next[at + 1]
+  const left = Math.min(Math.max(next[at] + dx / width, 0.1), pair - 0.1)
+  next[at] = left
+  next[at + 1] = pair - left
+  return next
+}
