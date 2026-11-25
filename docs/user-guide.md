@@ -1053,6 +1053,15 @@ chat**, **Open in your browser**, and, with more than one page on screen, an **�
 column away while the tab stays open as a chip. The page you last clicked in has a violet outline;
 Ctrl+L selects its address. A suspicious site's warning shows as a banner under that page's toolbar.
 
+### The bookmarks bar
+
+Under the chips sits the **bookmarks bar**: your folders as gold-folder pills, then the bookmarks
+kept right on the bar. A folder opens its list (with the folder path inside it in small letters);
+pick one to open it in the page in front, or **Close**. The **☆** star in a page's toolbar keeps that
+page on the bar (press it again to remove it). With no bookmarks yet, **★ Bring my Chrome
+bookmarks** reads a copy of Chrome's own bookmarks (Chrome is never touched); with several Chrome
+profiles you choose which first.
+
 ### Passwords
 
 The **Passwords** chip (a key) opens the passwords sealed on this PC: search them by site or

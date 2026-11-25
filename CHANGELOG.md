@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- A bookmarks bar in Castle's browser: your folders and bar bookmarks under the tabs, the star filing new ones on the bar, and Bring my Chrome bookmarks when it is empty.
+
 - A Passwords chip in Castle's browser: search your sealed logins, import Chrome's export, add one by hand, copy a password for 30 seconds (then the clipboard clears itself), or delete one. No password is ever shown or read by an AI.
 
 - Private tabs in Castle's browser: the Private chip or Ctrl+Shift+T opens a tab that keeps nothing (no history, no searches, no sign-ins after it closes), with its links and sign-in windows private too.
