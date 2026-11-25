@@ -1053,6 +1053,15 @@ chat**, **Open in your browser**, and, with more than one page on screen, an **�
 column away while the tab stays open as a chip. The page you last clicked in has a violet outline;
 Ctrl+L selects its address. A suspicious site's warning shows as a banner under that page's toolbar.
 
+### Private tabs
+
+The **Private** chip (with a mask) beside **+** opens a private tab; so does **Ctrl+Shift+T**
+(**⌘⇧T** on a Mac). A private tab's chip shows the mask and its pane is tinted violet. A private
+tab keeps nothing: no history, no searches for the suggestions, no sign-ins after it closes, and
+it is never offered **Always** for translation. Links and sign-in windows opened from it are private
+too. Every private page is still checked by the guards. Its visits reach MY PROFILE only if you turned
+on **Private browsing: remember for <companion>**. With **Remember sign-ins** off, every tab is private.
+
 ### Pages side by side
 
 Up to four pages fit side by side. Press **⫼ Open on the right** on a chip to put that tab in a new

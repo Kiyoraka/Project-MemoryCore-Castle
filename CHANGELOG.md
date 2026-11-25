@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Private tabs in Castle's browser: the Private chip or Ctrl+Shift+T opens a tab that keeps nothing (no history, no searches, no sign-ins after it closes), with its links and sign-in windows private too.
+
 - Castle's browser looks and works like the one shown from the Alice Keep: tab chips with Open on the right and Close always showing, a full toolbar on every page side by side (its own address, suggestions, star, Fill and translate), a suspicious site's warning as a banner in its pane, and the group chip's list with Take out.
 
 - Castle's browser can live inside Castle: Settings > Rooms > BROWSER > Browser opens > Inside Castle makes BROWSER a room of Castle's own window, its pages in the room and hidden whenever another room or Settings is in front. Its own window beside Castle stays the default.
