@@ -182,6 +182,8 @@ export const sweepSettingsSave = (look, recycleBin) => invoke('sweep_settings_sa
 // -> { supported, on, installed, current, setupLine, patrol: { status, line, minutesAgo } | null,
 //      patrolling, unread, open: { alarm, look, note }, watchMinutes, problem }
 export const sentinelStatus = () => invoke('sentinel_status')
+// Two copies of Castle on this PC: { this, installed, leftover, two } (install_check.rs)
+export const installCopies = () => invoke('install_copies')
 // Test my guard: the three checks, on the member's press (it takes up to three minutes).
 export const sentinelTest = () => invoke('sentinel_test')
 export const sentinelPatrolNow = () => invoke('sentinel_patrol_now')

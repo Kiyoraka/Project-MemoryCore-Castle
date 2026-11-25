@@ -744,6 +744,7 @@ pub fn run() {
             sentinel::officer::sentinel_patrol_now,
             sentinel::commands::sentinel_status,
             sentinel::commands::sentinel_test,
+            install_check::install_copies,
             sentinel::commands::sentinel_findings,
             sentinel::commands::sentinel_click,
             sentinel::commands::sentinel_log,
@@ -762,6 +763,20 @@ pub fn run() {
             session::forget_boot_file(&store);
             let current = store.get();
             *store.startup_note.lock().unwrap() = startup::sync(app.handle(), current.start_with_windows);
+            // an installed Castle keeps the Start menu's shortcut pointing at itself (a leftover copy
+            // in another app's private folder never does), on its own thread
+            if !cfg!(debug_assertions) {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let Some(note) = std::env::current_exe().ok().and_then(|exe| install_check::repair_start_menu(&exe)) else { return };
+                    let store = handle.state::<SettingsStore>();
+                    let mut slot = store.startup_note.lock().unwrap();
+                    *slot = Some(match slot.take() {
+                        Some(first) => format!("{first} {note}"),
+                        None => note,
+                    });
+                });
+            }
             app.manage(store);
             let at_sign_in = startup::is_sign_in_launch(std::env::args());
             app.manage(Launch { at_sign_in });

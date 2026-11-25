@@ -119,6 +119,60 @@ pub fn installed_folder() -> Option<PathBuf> {
     install_folder_of(user_string(&key, "InstallLocation").as_deref(), user_string(&key, "UninstallString").as_deref())
 }
 
+/// The Start menu shortcut the installer makes for this member.
+pub fn start_menu_shortcut() -> Option<PathBuf> {
+    let roaming = std::env::var_os("APPDATA").filter(|v| !v.is_empty())?;
+    Some(PathBuf::from(roaming).join("Microsoft\\Windows\\Start Menu\\Programs").join(format!("{APP_NAME}.lnk")))
+}
+
+/// Runs a short hidden PowerShell script with its paths given as environment variables (never put
+/// into the script's text); its output.
+#[cfg(windows)]
+fn shell(script: &str, vars: &[(&str, &str)]) -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]).creation_flags(0x0800_0000);
+    for (name, value) in vars {
+        command.env(name, value);
+    }
+    let out = command.output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Points the Start menu shortcut at this program when it points at another copy. A missing
+/// shortcut is the installer's to make; a leftover copy never repairs anything toward itself.
+/// The note when it was repaired.
+#[cfg(windows)]
+pub fn repair_start_menu(exe: &Path) -> Option<String> {
+    if is_leftover(exe) {
+        return None;
+    }
+    let link = start_menu_shortcut().filter(|l| l.is_file())?;
+    let link_text = link.display().to_string();
+    let target = shell("(New-Object -ComObject WScript.Shell).CreateShortcut($env:CASTLE_LINK).TargetPath", &[("CASTLE_LINK", &link_text)])?;
+    if target.is_empty() || plain(&target) == plain(&exe.display().to_string()) {
+        return None;
+    }
+    let folder = exe.parent()?.display().to_string();
+    let exe_text = exe.display().to_string();
+    shell(
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CASTLE_LINK); $s.TargetPath = $env:CASTLE_EXE; $s.WorkingDirectory = $env:CASTLE_DIR; $s.Save()",
+        &[("CASTLE_LINK", &link_text), ("CASTLE_EXE", &exe_text), ("CASTLE_DIR", &folder)],
+    )?;
+    Some("The Start menu's Castle pointed at another copy; it opens this one now.".into())
+}
+
+#[cfg(not(windows))]
+pub fn repair_start_menu(_exe: &Path) -> Option<String> {
+    None
+}
+
+/// What the page reads about Castle's copies.
+#[tauri::command]
+pub fn install_copies() -> Copies {
+    check()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

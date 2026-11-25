@@ -5,7 +5,8 @@
 // signature is checked, it installs and Castle restarts. A member's own build: a quiet "X is out"
 // that opens Settings > About (it updates with git pull, never by itself).
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { diaryStamp, terminalState, terminalWrite, updateCheck, updateInstall } from '../api/castle.js'
+import { diaryStamp, installCopies, terminalState, terminalWrite, updateCheck, updateInstall } from '../api/castle.js'
+import { copiesChip, copiesLine } from './copies.js'
 import MarkdownText from './MarkdownText.vue'
 import HelpTip from './HelpTip.vue'
 import { typeLine } from './typeline.js'
@@ -14,6 +15,8 @@ const emit = defineEmits(['status', 'about'])
 const status = ref(null)
 const step = ref('')
 const notesOpen = ref(false)
+// another copy of Castle on this PC: said before an update, and as its own chip
+const copies = ref(null)
 let skip = false
 let timer
 
@@ -56,6 +59,7 @@ async function updateNow() {
 }
 
 onMounted(() => {
+  installCopies().then((c) => (copies.value = c)).catch(() => {})
   check()
   timer = setInterval(check, 6 * 60 * 60 * 1000)
 })
@@ -67,6 +71,7 @@ onBeforeUnmount(() => clearInterval(timer))
     <template v-if="!step">
       <span>Update ready: {{ status.available }}</span>
       <button v-if="status.notes" class="quiet" @click="notesOpen = !notesOpen">What's new</button>
+      <span v-if="copiesLine(copies)" class="warn" :title="copiesLine(copies)">{{ copiesChip(copies) }}</span>
       <button @click="updateNow">Update now</button>
       <HelpTip block text="The diary is saved first, then Castle restarts on the new version. Your memory, settings and keys stay as they are." />
     </template>
@@ -79,6 +84,7 @@ onBeforeUnmount(() => clearInterval(timer))
     </div>
   </div>
   <button v-else-if="status?.available" class="update own" :title="status.message" @click="emit('about')">Castle {{ status.available }} is out</button>
+  <button v-else-if="copiesLine(copies)" class="update own warn" :title="copiesLine(copies)" @click="emit('about')">{{ copiesChip(copies) }} of Castle</button>
 </template>
 
 <style scoped>
@@ -103,6 +109,12 @@ onBeforeUnmount(() => clearInterval(timer))
 }
 .update.own:hover {
   color: var(--text);
+}
+.warn {
+  color: var(--warn, #e0b060);
+}
+.update.own.warn {
+  border-color: var(--warn, #e0b060);
 }
 .notes {
   position: absolute;
