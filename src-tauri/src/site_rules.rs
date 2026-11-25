@@ -3,10 +3,10 @@
 //! near-miss of a known domain. Then the Sentinel's own mark for the host and the patterns she has
 //! learned (sites.rs). The worst of them is what the browser shows; nothing here ever blocks a page.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// How bad a site looks, from nothing to worst.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
     Safe,
@@ -34,7 +34,7 @@ impl Verdict {
 }
 
 /// A verdict and why.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Warning {
     pub verdict: Verdict,
     pub reason: String,

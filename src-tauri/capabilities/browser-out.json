@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-out",
+  "description": "A browser tab's own window (browser-out-*) and the card a dragged tab shows (browser-ghost-*): Castle's own page in each. The web pages moved into them (browser-tab-*) are named by no capability, and load only web addresses, so a page can never reach Castle's core.",
+  "windows": ["browser-out-*", "browser-ghost-*"],
+  "permissions": ["core:default"]
+}

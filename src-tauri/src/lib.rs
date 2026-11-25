@@ -73,6 +73,7 @@ mod quota;
 mod alerts;
 mod bridges;
 mod browser;
+mod browser_out;
 mod browser_library;
 mod browser_private;
 mod browser_read;
@@ -238,6 +239,8 @@ fn save_settings(app: AppHandle, settings: Settings, store: State<SettingsStore>
         settings.whatsapp_guests = current.whatsapp_guests.clone();
         // the downloader's last video quality is kept by its own command (video_add)
         settings.downloads_video_pick = current.downloads_video_pick.clone();
+        // a browser tab's own window keeps its last place by itself (browser_out.rs)
+        settings.browser_out_place = current.browser_out_place;
     }
     settings::save(&store.path, &settings).map_err(|_| "The settings could not be saved.".to_string())?;
     *store.startup_note.lock().unwrap() = startup::sync(&app, settings.start_with_windows);
@@ -650,6 +653,11 @@ pub fn run() {
             browser::browser_unpane,
             browser::browser_widths,
             browser::browser_phone_view,
+            browser_out::browser_pop_out,
+            browser_out::browser_pop_in,
+            browser_out::browser_out_close,
+            browser_out::browser_out_fullscreen,
+            browser_out::browser_out_focus,
             browser_suggest::browser_suggest,
             browser_suggest::browser_forget_search,
             browser_translate::browser_translate,

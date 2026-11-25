@@ -2,7 +2,16 @@
 //! its tabs, what the address bar turns words into, which pages a tab may load, where a link from
 //! a chat goes, and where the window sits on the screen (the right half).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+/// The window name of a tab that lives in the browser's home (the browser's own window, or Castle's
+/// main window when the browser is a room inside Castle). A tab moved into a window of its own names
+/// that window instead (`browser-out-<n>`).
+pub const HOME: &str = "home";
+
+fn home_window() -> String {
+    HOME.to_string()
+}
 
 /// The most tabs the window keeps open; one more replaces nothing and is refused.
 pub const MAX_TABS: usize = 12;
@@ -13,7 +22,7 @@ pub const MAX_PANES: usize = 4;
 pub const MOBILE_UA: &str = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
 /// One tab: `url` is None for a new tab (Castle's own new-tab page shows instead of a web page).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tab {
     pub id: u32,
@@ -33,6 +42,14 @@ pub struct Tab {
     pub translated: Option<String>,
     /// a private tab: keeps nothing (no visit, no search, no sign-in after it closes)
     pub private: bool,
+    /// the window the page lives in: `home`, or the window of its own it was moved into
+    #[serde(default = "home_window")]
+    pub window: String,
+}
+
+/// The ids of the tabs living in one window, in tab order (pure).
+pub fn in_window(list: &[Tab], window: &str) -> Vec<u32> {
+    list.iter().filter(|t| t.window == window).map(|t| t.id).collect()
 }
 
 /// Whether a tab may keep anything (pure): only while Remember sign-ins is on and the tab is not private.
@@ -41,7 +58,7 @@ pub fn may_keep(remember: bool, private: bool) -> bool {
 }
 
 /// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Danger {
     /// the address that was held back
@@ -88,7 +105,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false, lang: String::new(), translated: None, private });
+        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false, lang: String::new(), translated: None, private, window: home_window() });
         self.active = Some(id);
         Some(id)
     }
@@ -185,6 +202,62 @@ impl Tabs {
             self.active = self.list.get(at).or_else(|| self.list.last()).map(|t| t.id);
         }
         true
+    }
+    /// The ids of the tabs living in one window, in tab order.
+    pub fn in_window(&self, window: &str) -> Vec<u32> {
+        in_window(&self.list, window)
+    }
+    /// Tabs moved into a window of their own: each names that window, leaves the home's group and
+    /// its phone layout. When the tab in front left, the nearest home tab comes to the front (the
+    /// one after it, else the one before); with no home tab left the front stays as it was.
+    pub fn send_out(&mut self, ids: &[u32], window: &str) {
+        let front_at = self.active.and_then(|a| self.list.iter().position(|t| t.id == a));
+        for id in ids {
+            if let Some(tab) = self.get_mut(*id) {
+                tab.window = window.to_string();
+                tab.phone = false;
+            }
+            self.unpane(*id);
+        }
+        if let (Some(at), Some(front)) = (front_at, self.active) {
+            if ids.contains(&front) {
+                let after = self.list.iter().skip(at + 1).find(|t| t.window == HOME);
+                let before = self.list.iter().take(at).rev().find(|t| t.window == HOME);
+                if let Some(tab) = after.or(before) {
+                    self.active = Some(tab.id);
+                }
+            }
+        }
+    }
+    /// Tabs brought home again: each lives in the home, two to four of them side by side as a group
+    /// again (in place of any group the home had), the first in front.
+    pub fn come_home(&mut self, ids: &[u32]) {
+        let mut back: Vec<u32> = Vec::new();
+        for id in ids {
+            if let Some(tab) = self.get_mut(*id) {
+                tab.window = home_window();
+                if !back.contains(id) {
+                    back.push(*id);
+                }
+            }
+        }
+        back.truncate(MAX_PANES);
+        if back.len() >= 2 {
+            self.panes = back.clone();
+            self.widths = vec![1.0 / back.len() as f64; back.len()];
+        }
+        if let Some(first) = back.first() {
+            self.active = Some(*first);
+        }
+    }
+    /// The home window closed: its pages went with it, so only the tabs living in windows of their
+    /// own stay (ids keep counting on, never reused). Returns the ids of the tabs that went.
+    pub fn keep_out_only(&mut self) -> Vec<u32> {
+        let gone = self.in_window(HOME);
+        for id in &gone {
+            self.close(*id);
+        }
+        gone
     }
 }
 
@@ -653,6 +726,74 @@ mod tests {
         assert!(!mobile_for(4, false), "Phone view off keeps them on desktop");
         assert!(MOBILE_UA.contains("Android") && MOBILE_UA.contains("Chrome/") && MOBILE_UA.contains("Mobile"));
         assert!(Tabs::default().phone_view, "on to begin with");
+    }
+
+    #[test]
+    fn a_tab_lives_at_home_unless_it_says_otherwise() {
+        let mut tabs = Tabs::default();
+        let a = tabs.open(Some("https://a.example/".into())).unwrap();
+        assert_eq!(tabs.list[0].window, HOME, "a new tab lives at home");
+        let json = serde_json::to_value(&tabs.list[0]).unwrap();
+        assert_eq!(json["window"], "home", "the page reads it beside the rest");
+        // a tab written before tabs had a window lives at home
+        let old = r#"{"id":7,"url":null,"title":"New tab","warning":null,"danger":null,"unread":0,"phone":false,"lang":"","translated":null,"private":false}"#;
+        let tab: Tab = serde_json::from_str(old).unwrap();
+        assert_eq!(tab.window, HOME);
+        let out: Tab = serde_json::from_str(&old.replace("}", r#","window":"browser-out-2"}"#)).unwrap();
+        assert_eq!(out.window, "browser-out-2");
+        assert_eq!(serde_json::from_value::<Tab>(json).unwrap().id, a);
+    }
+
+    #[test]
+    fn each_window_picks_only_its_own_tabs() {
+        let mut tabs = Tabs::default();
+        let ids: Vec<u32> = (0..4).map(|_| tabs.open(Some("https://x.example/".into())).unwrap()).collect();
+        tabs.get_mut(ids[1]).unwrap().window = "browser-out-1".into();
+        tabs.get_mut(ids[3]).unwrap().window = "browser-out-1".into();
+        assert_eq!(tabs.in_window(HOME), vec![ids[0], ids[2]]);
+        assert_eq!(tabs.in_window("browser-out-1"), vec![ids[1], ids[3]]);
+        assert!(tabs.in_window("browser-out-9").is_empty());
+        assert_eq!(in_window(&tabs.list, HOME), tabs.in_window(HOME));
+    }
+
+    #[test]
+    fn tabs_sent_out_leave_the_group_and_come_home_together() {
+        let mut tabs = Tabs::default();
+        let ids: Vec<u32> = (0..4).map(|_| tabs.open(Some("https://x.example/".into())).unwrap()).collect();
+        tabs.switch(ids[0]);
+        tabs.place_beside(ids[1]).unwrap();
+        tabs.place_beside(ids[2]).unwrap();
+        tabs.get_mut(ids[2]).unwrap().phone = true;
+        // the tab in front (ids[2]) goes out: the home keeps a group of two, the next home tab comes forward
+        tabs.send_out(&[ids[2]], "browser-out-1");
+        assert_eq!(tabs.panes, vec![ids[0], ids[1]]);
+        assert_eq!(tabs.active, Some(ids[3]));
+        let out = tabs.list.iter().find(|t| t.id == ids[2]).unwrap();
+        assert_eq!((out.window.as_str(), out.phone), ("browser-out-1", false), "a page out is its desktop self");
+        // the rest of the group goes out together: no group is left at home
+        tabs.send_out(&[ids[0], ids[1]], "browser-out-2");
+        assert!(tabs.panes.is_empty());
+        assert_eq!(tabs.in_window(HOME), vec![ids[3]]);
+        // home again, side by side as a group, the first in front
+        tabs.come_home(&[ids[0], ids[1], 99]);
+        assert_eq!((tabs.panes.clone(), tabs.active), (vec![ids[0], ids[1]], Some(ids[0])));
+        assert_eq!(tabs.widths, vec![0.5, 0.5]);
+        tabs.come_home(&[ids[2]]);
+        assert_eq!(tabs.active, Some(ids[2]));
+        assert!(tabs.in_window("browser-out-1").is_empty());
+    }
+
+    #[test]
+    fn the_home_window_closing_keeps_the_tabs_that_are_out() {
+        let mut tabs = Tabs::default();
+        let ids: Vec<u32> = (0..3).map(|_| tabs.open(Some("https://x.example/".into())).unwrap()).collect();
+        tabs.send_out(&[ids[1]], "browser-out-1");
+        let gone = tabs.keep_out_only();
+        assert_eq!(gone, vec![ids[0], ids[2]], "the home's pages went with its window");
+        assert_eq!(tabs.list.iter().map(|t| t.id).collect::<Vec<_>>(), vec![ids[1]]);
+        assert_eq!(tabs.active, Some(ids[1]));
+        assert!(tabs.panes.is_empty());
+        assert!(tabs.open(None).unwrap() > ids[2], "ids keep counting on, never reused");
     }
 
     #[test]

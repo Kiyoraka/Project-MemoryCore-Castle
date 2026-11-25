@@ -709,8 +709,19 @@ export const browserClear = () => invoke('browser_clear')
 export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
 export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
 // The layout: how tall the toolbar page's bar is, and whether it has something open over the pages
-// Where each page goes: [{ id, x, y, w, h }] measured under its pane's toolbar; [] hides every page
-export const browserShow = (placed) => invoke('browser_show', { placed })
+// Where each page goes: [{ id, x, y, w, h }] measured under its pane's toolbar; [] hides every page.
+// `window` is a tab's own window ('browser-out-<n>'); left out, the browser's home
+export const browserShow = (placed, window) => invoke('browser_show', window ? { placed, window } : { placed })
+// A tab in a window of its own (browser_out.rs): the named home tabs (a group goes together) into a
+// new window, at the cursor or the remembered place -> its label; back home -> the ids that came home
+export const browserPopOut = (ids, atCursor = false) => invoke('browser_pop_out', { ids, atCursor: !!atCursor })
+export const browserPopIn = (window) => invoke('browser_pop_in', { window })
+// Its x: its tabs close for good, then the window
+export const browserOutClose = (window) => invoke('browser_out_close', { window })
+export const browserOutFullscreen = (window, on) => invoke('browser_out_fullscreen', { window, on: !!on })
+export const browserOutFocus = (window) => invoke('browser_out_focus', { window })
+// The pages that came home from a window of their own: [id, ...]
+export const onBrowserPoppedIn = (handler) => listen('browser-popped-in', (event) => handler(event.payload))
 // Browser opens changed: every page closes (sign-ins kept) and opens in its new home next time
 export const browserCloseAll = () => invoke('browser_close_all')
 export const onBrowserShowRoom = (handler) => listen('browser-show-room', () => handler())

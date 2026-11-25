@@ -494,6 +494,9 @@ pub struct Settings {
     pub downloads_sort: bool,
     /// The video quality last chosen in the downloader (its own command keeps it, never the Settings page).
     pub downloads_video_pick: Option<String>,
+    /// Where a browser tab's own window was last left: None until one is first moved or resized.
+    /// Kept by that window itself (browser_out.rs), never by the Settings page.
+    pub browser_out_place: Option<OutPlace>,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -545,6 +548,17 @@ pub struct Settings {
     /// The member's own ComfyUI: where it is, how to start it, which checkpoint. Off until they
     /// switch it on. Changed only by its own command (comfy_save), never by the Settings page.
     pub comfy: crate::comfy::ComfySettings,
+}
+
+/// A browser tab's own window's last place: its outer top-left corner on the desktop in physical
+/// pixels, and its inner size in logical pixels (so it keeps its size on a screen of another scale).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutPlace {
+    pub x: i32,
+    pub y: i32,
+    pub w: f64,
+    pub h: f64,
 }
 
 /// HOME's widgets, by id (the theme's `widgets` keys).
@@ -689,6 +703,7 @@ impl Default for Settings {
             downloads_folder: None,
             downloads_sort: true,
             downloads_video_pick: None,
+            browser_out_place: None,
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -1251,6 +1266,7 @@ mod tests {
             downloads_folder: Some("D:/Downloads".into()),
             downloads_sort: false,
             downloads_video_pick: Some("720p".into()),
+            browser_out_place: Some(OutPlace { x: -1600, y: 120, w: 1240.5, h: 800.0 }),
             browser_language: "ja".into(),
             browser_translate_sites: vec!["ncode.syosetu.com".into()],
             emotion_room_voice: false,
@@ -1275,6 +1291,19 @@ mod tests {
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings, None));
         assert!(!folder.join("settings.json.partial").exists());
+    }
+
+    #[test]
+    fn a_browser_windows_place_round_trips_and_starts_unset() {
+        assert_eq!(Settings::default().browser_out_place, None);
+        let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
+        assert_eq!(old.browser_out_place, None, "a settings file from before has no place");
+        let saved: Settings = serde_json::from_str(r#"{"browserOutPlace":{"x":2000,"y":-40,"w":1100,"h":760}}"#).unwrap();
+        assert_eq!(saved.browser_out_place, Some(OutPlace { x: 2000, y: -40, w: 1100.0, h: 760.0 }));
+        let text = serde_json::to_string(&saved).unwrap();
+        assert!(text.contains("\"browserOutPlace\":{\"x\":2000,\"y\":-40,\"w\":1100.0,\"h\":760.0}"));
+        let back: Settings = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.browser_out_place, saved.browser_out_place);
     }
 
     #[test]

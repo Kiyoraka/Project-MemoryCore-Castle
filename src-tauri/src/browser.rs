@@ -13,24 +13,74 @@
 //!   it either.
 //!
 //! Links from the chats come through `link_open`, which follows Settings > Rooms > Browser.
+//!
+//! A tab can also move into a window of its own (`browser-out-<n>`, browser_out.rs): the same page
+//! webview is moved there and back, never reloaded. Each tab names the window it lives in
+//! (`Tab.window`: `home` or that window), and each window places only its own tabs.
 
-use crate::browser_tabs::{self, LinkWay, Tabs};
+use crate::browser_tabs::{self, LinkWay, Tabs, HOME};
 use crate::settings::SettingsStore;
 use cookie::time::{Duration, OffsetDateTime};
 use cookie::{Cookie, Expiration};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::webview::{DownloadEvent, NewWindowFeatures, PageLoadEvent};
 
 type NewWindowResponse = tauri::webview::NewWindowResponse<tauri::Wry>;
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Rect, State, Url, WebviewBuilder, WebviewUrl, Window, WindowEvent};
 
 pub const WINDOW: &str = "browser";
 pub const UI: &str = "browser-ui";
+/// Said to every browser surface whenever the tabs change.
+pub const STATE_EVENT: &str = "browser-state";
 
-/// Where Castle's own page put each page on screen (browser_show): tab id and its box (x, y, width,
-/// height, logical pixels in the host window). A tab not listed is hidden.
-static PLACED: Mutex<Vec<(u32, (f64, f64, f64, f64))>> = Mutex::new(Vec::new());
+/// One page's box: tab id and (x, y, width, height), logical pixels in the window it lives in.
+pub type Place = (u32, (f64, f64, f64, f64));
+
+/// Where Castle's own pages put each page on screen (browser_show), per window: `home` for the
+/// browser's home, or a window of its own by its label. A tab not listed in its window is hidden.
+static PLACED: Mutex<BTreeMap<String, Vec<Place>>> = Mutex::new(BTreeMap::new());
+
+/// One window's placements kept (pure, tested): only that window's entry changes, the others stay.
+/// False when nothing changed (a window never placed counts as placing nothing).
+pub fn place_in(map: &mut BTreeMap<String, Vec<Place>>, window: &str, next: Vec<Place>) -> bool {
+    if map.get(window).map_or(next.is_empty(), |kept| *kept == next) {
+        return false;
+    }
+    map.insert(window.to_string(), next);
+    true
+}
+
+/// What laying out one window does to its pages (pure, tested): each tab living in that window shown
+/// at its box, or hidden (not placed, no page yet, or under the DANGER screen). A tab living in another
+/// window is never touched.
+pub fn show_plan(tabs: &Tabs, window: &str, placed: &[Place]) -> Vec<(u32, Option<(f64, f64, f64, f64)>)> {
+    tabs.list
+        .iter()
+        .filter(|t| t.window == window)
+        .map(|t| {
+            let showable = t.url.is_some() && t.danger.is_none();
+            (t.id, placed.iter().find(|(id, _)| *id == t.id).filter(|_| showable).map(|(_, rect)| *rect))
+        })
+        .collect()
+}
+
+/// Whether a webview or window is one of the browser's own surfaces, which hear the tabs' state:
+/// Castle's main window, the browser window and its toolbar page, and every window of its own.
+pub fn is_surface(label: &str) -> bool {
+    label == "main" || label == WINDOW || label == UI || crate::browser_out::is_out(label)
+}
+
+/// One event said once to every browser surface. A page's `listen` hears an event whatever window
+/// it was aimed at, so one emit per window would reach each of them several times. The pages
+/// themselves have no IPC at all.
+pub(crate) fn emit_browsers<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    let _ = app.emit_filter(event, payload, |target| match target {
+        EventTarget::AnyLabel { label } | EventTarget::Window { label } | EventTarget::Webview { label } | EventTarget::WebviewWindow { label } => is_surface(label),
+        _ => false,
+    });
+}
 
 /// A page's box as Castle's page measured it.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
@@ -60,9 +110,9 @@ fn in_castle(app: &AppHandle) -> bool {
     app.state::<SettingsStore>().get().browser_opens == "castle"
 }
 
-/// The window the pages live in: the browser's own window, or Castle's main window when the browser
-/// is a room inside Castle.
-fn host(app: &AppHandle) -> Option<Window> {
+/// The window the home's pages live in: the browser's own window, or Castle's main window when the
+/// browser is a room inside Castle.
+pub(crate) fn host(app: &AppHandle) -> Option<Window> {
     if in_castle(app) {
         app.get_window("main")
     } else {
@@ -132,6 +182,12 @@ fn keep_sign_ins(app: &AppHandle) {
     for cookie in to_keep(all, OffsetDateTime::now_utc()) {
         let _ = view.set_cookie(cookie);
     }
+}
+
+/// The kept sites' sign-ins saved now, before a window of pages closes. Blocks on WebKit: call it off
+/// the main thread.
+pub(crate) fn keep_sign_ins_now(app: &AppHandle) {
+    keep_sign_ins(app);
 }
 
 fn keep_sign_ins_soon(app: &AppHandle, after: std::time::Duration) {
@@ -304,7 +360,7 @@ fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, keep: Op
     Some(Checked { host, has_login, marked: mark.is_some(), warning })
 }
 
-fn tabs(app: &AppHandle) -> Tabs {
+pub(crate) fn tabs(app: &AppHandle) -> Tabs {
     app.state::<Browser>().0.lock().unwrap().clone()
 }
 
@@ -316,22 +372,24 @@ pub(crate) fn tell_now(app: &AppHandle) {
 /// The last unread summary the main window heard, so it hears only a change.
 static UNREAD_SAID: Mutex<(u32, String)> = Mutex::new((0, String::new()));
 
-/// Tells the toolbar what changed, and the main window how much is new across the tabs (its BROWSER
-/// tile shows the count, like CHAT's).
-fn tell(app: &AppHandle) {
+/// Tells every browser surface what changed (the toolbar, Castle's main window for the room inside it,
+/// and each window of its own, whose title follows its pages), and the main window how much is new
+/// across the tabs, those out included (its BROWSER tile shows the count, like CHAT's).
+pub(crate) fn tell(app: &AppHandle) {
     let now = tabs(app);
     tell_unread(app, browser_tabs::unread_summary(&now));
-    // the browser's own window, and Castle's main window for the room inside it
-    let _ = app.emit_to("main", "browser-state", now.clone());
-    let _ = app.emit_to(UI, "browser-state", now);
+    crate::browser_out::retitle(app, &now.list);
+    emit_browsers(app, STATE_EVENT, now);
 }
 
 fn tell_unread(app: &AppHandle, summary: (u32, String)) {
     let mut said = UNREAD_SAID.lock().unwrap();
     if *said != summary {
-        // away: the browser window is not in front, so a rise is news the main window lights up for
-        // (inside Castle the main window knows which room is in front, and decides itself)
-        let away = in_castle(app) || app.get_window(WINDOW).and_then(|w| w.is_focused().ok()) != Some(true);
+        // away: neither the browser window nor a tab's own window is in front, so a rise is news the
+        // main window lights up for (inside Castle the main window knows which room is in front, and
+        // decides itself)
+        let focused = |label: &str| app.get_window(label).and_then(|w| w.is_focused().ok()) == Some(true);
+        let away = in_castle(app) || !(focused(WINDOW) || app.windows().keys().any(|l| crate::browser_out::is_out(l) && focused(l)));
         let _ = app.emit_to("main", "browser-unread", serde_json::json!({ "count": summary.0, "title": summary.1, "away": away }));
         *said = summary;
     }
@@ -395,10 +453,17 @@ fn window(app: &AppHandle) -> Result<Window, String> {
             });
         }
         WindowEvent::Destroyed => {
-            *events.state::<Browser>().0.lock().unwrap() = Tabs::default();
-            PLACED.lock().unwrap().clear();
-            // the pages are gone, and so is their news
-            tell_unread(&events, (0, String::new()));
+            // the home's pages went with the window; tabs in windows of their own stay open
+            if !in_castle(&events) {
+                let gone = events.state::<Browser>().0.lock().unwrap().keep_out_only();
+                for id in gone {
+                    crate::browser_native::forget(&tab_label(id));
+                    crate::browser_guard::forget_tab(id);
+                }
+                PLACED.lock().unwrap().remove(HOME);
+            }
+            // the home's news is gone with its pages; the pages out keep theirs
+            tell(&events);
         }
         _ => {}
     });
@@ -419,6 +484,22 @@ fn window(app: &AppHandle) -> Result<Window, String> {
     // the size macOS settled on after showing, not the one asked for
     layout(app);
     Ok(window)
+}
+
+/// The browser's home brought forward (opened first when it is not open yet): where pages coming
+/// back from a window of their own go.
+pub(crate) fn home_window(app: &AppHandle) -> Result<Window, String> {
+    window(app)
+}
+
+/// The window a tab's page belongs in: its own window while it lives in one that is open, else the
+/// home (brought forward, opened first when needed).
+fn page_window(app: &AppHandle, id: u32) -> Result<Window, String> {
+    let lives = tabs(app).list.iter().find(|t| t.id == id).map(|t| t.window.clone());
+    if let Some(out) = lives.filter(|w| crate::browser_out::is_out(w)).and_then(|w| app.get_window(&w)) {
+        return Ok(out);
+    }
+    window(app)
 }
 
 /// What starts with the browser's first open, once a run: the sign-in keeper (every half minute while
@@ -471,32 +552,53 @@ fn fit(window: &Window, monitor: &tauri::Monitor) {
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
+/// Marks Castle's own page as a bare page (no start-up screen) as soon as its document exists.
+macro_rules! bare_page {
+    () => {
+        "(function(){var m=function(){var d=document.documentElement;if(d){d.setAttribute('data-castle-bare','');}};m();new MutationObserver(m).observe(document,{childList:true});})();"
+    };
+}
+
+/// The bare-page marker, for the browser's other windows of Castle's own page.
+pub(crate) const BARE_PAGE: &str = bare_page!();
+
 /// Marks the UI page as the browser before it loads (main.js), with no start-up screen.
-const UI_VIEW: &str = "window.__CASTLE_VIEW__ = { view: 'browser' };(function(){var m=function(){var d=document.documentElement;if(d){d.setAttribute('data-castle-bare','');}};m();new MutationObserver(m).observe(document,{childList:true});})();";
+const UI_VIEW: &str = concat!("window.__CASTLE_VIEW__ = { view: 'browser' };", bare_page!());
 
 fn logical_size(window: &Window) -> (f64, f64) {
     let scale = window.scale_factor().unwrap_or(1.0);
     window.inner_size().map(|s| s.to_logical::<f64>(scale)).map(|s| (s.width, s.height)).unwrap_or((960.0, 800.0))
 }
 
-/// Each page in the box Castle's own page measured for it (browser_show); every other page hidden. In
-/// the browser's own window its toolbar page fills the window under the pages, so a column with no page
-/// to show (a new tab, a DANGER screen) is drawn there by Castle's page itself.
-fn layout(app: &AppHandle) {
-    let Some(window) = host(app) else { return };
-    let castle = in_castle(app);
-    let (w, h) = logical_size(&window);
+/// Every browser window laid out: the home, then each window of its own that holds tabs.
+pub(crate) fn layout(app: &AppHandle) {
     let tabs = tabs(app);
-    if let Some(ui) = app.get_webview(UI).filter(|_| !castle) {
-        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, h).into() });
+    layout_home(app, &tabs);
+    let mut outs: Vec<&str> = tabs.list.iter().map(|t| t.window.as_str()).filter(|w| crate::browser_out::is_out(w)).collect();
+    outs.sort_unstable();
+    outs.dedup();
+    for label in outs {
+        layout_out(app, &tabs, label);
     }
-    let placed = PLACED.lock().unwrap().clone();
-    let showable = |id: u32| tabs.list.iter().any(|t| t.id == id && t.url.is_some() && t.danger.is_none());
-    for tab in &tabs.list {
-        let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        match placed.iter().find(|(id, _)| *id == tab.id).filter(|_| showable(tab.id)) {
-            Some((_, (x, y, pw, ph))) => {
-                let _ = view.set_bounds(Rect { position: LogicalPosition::new(*x, *y).into(), size: LogicalSize::new(*pw, *ph).into() });
+}
+
+/// One window laid out: the home, or one window of its own.
+fn layout_window(app: &AppHandle, window: &str) {
+    let tabs = tabs(app);
+    if window == HOME {
+        layout_home(app, &tabs);
+    } else {
+        layout_out(app, &tabs, window);
+    }
+}
+
+/// Each page shown at its box or hidden, as `show_plan` says.
+fn apply_plan(app: &AppHandle, plan: Vec<(u32, Option<(f64, f64, f64, f64)>)>) {
+    for (id, rect) in plan {
+        let Some(view) = app.get_webview(&tab_label(id)) else { continue };
+        match rect {
+            Some((x, y, pw, ph)) => {
+                let _ = view.set_bounds(Rect { position: LogicalPosition::new(x, y).into(), size: LogicalSize::new(pw, ph).into() });
                 let _ = view.show();
             }
             None => {
@@ -504,13 +606,45 @@ fn layout(app: &AppHandle) {
             }
         }
     }
-    phone_layouts(app, &tabs);
 }
 
-/// Three or four pages side by side get their phone layout (Phone view on), the rest their own:
-/// each page whose layout should change is told a new user agent and reloads.
+/// Each home page in the box Castle's own page measured for it (browser_show); every other home page
+/// hidden, and a page living in a window of its own never touched. In the browser's own window its
+/// toolbar page fills the window under the pages, so a column with no page to show (a new tab, a
+/// DANGER screen) is drawn there by Castle's page itself.
+fn layout_home(app: &AppHandle, tabs: &Tabs) {
+    let Some(window) = host(app) else { return };
+    let castle = in_castle(app);
+    let (w, h) = logical_size(&window);
+    if let Some(ui) = app.get_webview(UI).filter(|_| !castle) {
+        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, h).into() });
+    }
+    let placed = PLACED.lock().unwrap().get(HOME).cloned().unwrap_or_default();
+    apply_plan(app, show_plan(tabs, HOME, &placed));
+    phone_layouts(app, tabs);
+}
+
+/// A window of its own laid out: each of its pages at the box its own page measured (relative to that
+/// window), the rest of its pages hidden. Its own page fills the window by itself.
+fn layout_out(app: &AppHandle, tabs: &Tabs, label: &str) {
+    if app.get_window(label).is_none() {
+        return;
+    }
+    let placed = PLACED.lock().unwrap().get(label).cloned().unwrap_or_default();
+    apply_plan(app, show_plan(tabs, label, &placed));
+}
+
+/// A window of its own gone: its placements go with it.
+pub(crate) fn forget_placed(window: &str) {
+    PLACED.lock().unwrap().remove(window);
+}
+
+/// Three or four home pages side by side get their phone layout (Phone view on), the rest their own:
+/// each page whose layout should change is told a new user agent and reloads. Pages in windows of
+/// their own are never counted or changed (each left as its desktop self).
 fn phone_layouts(app: &AppHandle, tabs: &Tabs) {
-    let shown = tabs.on_screen();
+    let home = tabs.in_window(HOME);
+    let shown: Vec<u32> = tabs.on_screen().into_iter().filter(|id| home.contains(id)).collect();
     let phone = browser_tabs::mobile_for(shown.len(), tabs.phone_view);
     // only the pages on screen change: one off screen keeps its layout until it is shown again
     let changes: Vec<(u32, bool)> = tabs.list.iter().filter(|t| t.url.is_some() && shown.contains(&t.id) && t.phone != phone).map(|t| (t.id, phone)).collect();
@@ -814,32 +948,53 @@ pub async fn browser_switch(app: AppHandle, id: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// Closes a tab and its page; closing the last one closes the window.
+/// Closes a tab and its page; closing the last one closes the window. The last tab of a window of its
+/// own takes that window along.
 #[tauri::command]
 pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
+    let lived = close_page(&app, id);
+    let out = lived.filter(|w| crate::browser_out::is_out(w));
+    if let Some(label) = &out {
+        if tabs(&app).in_window(label).is_empty() {
+            crate::browser_out::destroy_out(&app, label);
+        }
+    }
+    after_closing(&app, out.is_none())
+}
+
+/// One tab ended for good: its page closed, what the browser kept for it forgotten, its row gone.
+/// Returns the window it lived in (None when it was not open). The tabs' lock is never held while
+/// the page closes.
+pub(crate) fn close_page(app: &AppHandle, id: u32) -> Option<String> {
     if let Some(view) = app.get_webview(&tab_label(id)) {
         let _ = view.close();
     }
     crate::browser_native::forget(&tab_label(id));
     crate::browser_guard::forget_tab(id);
-    let empty = {
-        let state = app.state::<Browser>();
-        let mut tabs = state.0.lock().unwrap();
-        tabs.close(id);
-        tabs.list.is_empty()
-    };
-    if empty {
-        // inside Castle the room stays, with a fresh new tab; the browser's own window closes
-        if in_castle(&app) {
-            return open_in_tab(&app, None);
-        }
-        if let Some(window) = app.get_window(WINDOW) {
+    let state = app.state::<Browser>();
+    let mut tabs = state.0.lock().unwrap();
+    let lived = tabs.list.iter().find(|t| t.id == id).map(|t| t.window.clone());
+    tabs.close(id);
+    lived
+}
+
+/// After tabs closed for good. No tab left at all: inside Castle the room stays with a fresh new tab
+/// (brought forward only when the home's own tab closed), and the browser's own window closes.
+/// Otherwise every window is laid out again and told.
+pub(crate) fn after_closing(app: &AppHandle, home_closed: bool) -> Result<(), String> {
+    if tabs(app).list.is_empty() {
+        if in_castle(app) {
+            if home_closed {
+                return open_in_tab(app, None);
+            }
+            let _ = app.state::<Browser>().0.lock().unwrap().open(None);
+        } else if let Some(window) = app.get_window(WINDOW) {
             let _ = window.close();
+            return Ok(());
         }
-        return Ok(());
     }
-    layout(&app);
-    tell(&app);
+    layout(app);
+    tell(app);
     Ok(())
 }
 
@@ -853,7 +1008,6 @@ pub async fn browser_go(app: AppHandle, input: String, id: Option<u32>) -> Resul
     if !browser_tabs::may_load(&url) {
         return Err("That address could not be opened.".into());
     }
-    let window = window(&app)?;
     // the pane's own tab, or the tab in front
     let chosen = {
         let state = app.state::<Browser>();
@@ -861,6 +1015,8 @@ pub async fn browser_go(app: AppHandle, input: String, id: Option<u32>) -> Resul
         id.filter(|i| kept.list.iter().any(|t| t.id == *i)).or_else(|| kept.current().map(|t| t.id))
     };
     let Some(id) = chosen else { return open_in_tab(&app, Some(url)) };
+    // a tab in a window of its own goes on there; a home tab brings the home forward
+    let window = page_window(&app, id)?;
     match app.get_webview(&tab_label(id)) {
         Some(view) => view.navigate(url.parse().map_err(|_| "That address could not be opened.".to_string())?).map_err(|_| "That address could not be opened.".to_string())?,
         None => add_page(&app, &window, id, &url)?,
@@ -897,7 +1053,11 @@ pub async fn browser_step(app: AppHandle, step: String, id: Option<u32>) -> Resu
 #[tauri::command]
 pub async fn browser_beside(app: AppHandle, id: u32) -> Result<(), String> {
     // a tab already on screen opens a fresh tab beside the pages, as the Keep's Open on the right
-    let on_screen = tabs(&app).on_screen().contains(&id);
+    let now = tabs(&app);
+    if now.list.iter().any(|t| t.id == id && t.window != HOME) {
+        return Err("That tab is in a window of its own - bring it back first.".into());
+    }
+    let on_screen = now.on_screen().contains(&id);
     {
         let state = app.state::<Browser>();
         let mut kept = state.0.lock().unwrap();
@@ -941,26 +1101,28 @@ pub async fn browser_phone_view(app: AppHandle, on: bool) -> Result<(), String> 
     Ok(())
 }
 
-/// Castle's own page says where each page goes: the box it measured under that page's own toolbar.
-/// A tab left out is hidden; an empty list hides every page (a sheet or a list over the pages, or the
-/// room not in front).
+/// Castle's own page says where each page of its window goes: the box it measured under that page's
+/// own toolbar. `window` is the home (left out) or a window of its own by its label; only that
+/// window's tabs are placed, so the home never hides a page that is out, nor a window of its own a
+/// home page. A tab left out is hidden; an empty list hides every page of that window (a sheet or a
+/// list over the pages, or the room not in front).
 #[tauri::command]
-pub async fn browser_show(app: AppHandle, placed: Vec<Placed>) -> Result<(), String> {
-    let open: Vec<u32> = tabs(&app).list.iter().map(|t| t.id).collect();
-    let next = placements(&placed, &open);
-    {
-        let mut kept = PLACED.lock().unwrap();
-        if *kept == next {
-            return Ok(());
-        }
-        *kept = next;
+pub async fn browser_show(app: AppHandle, placed: Vec<Placed>, window: Option<String>) -> Result<(), String> {
+    let window = window.unwrap_or_else(|| HOME.to_string());
+    if window != HOME && !crate::browser_out::is_out(&window) {
+        return Err("That is not a browser window.".into());
     }
-    layout(&app);
+    let open = tabs(&app).in_window(&window);
+    let next = placements(&placed, &open);
+    if !place_in(&mut PLACED.lock().unwrap(), &window, next) {
+        return Ok(());
+    }
+    layout_window(&app, &window);
     Ok(())
 }
 
-/// Closes every page and the browser's own window, the sign-ins kept first: Browser opens changed,
-/// and the pages move to their new home at the next open.
+/// Closes every page, the browser's own window and every window of its own, the sign-ins kept first:
+/// Browser opens changed, and the pages move to their new home at the next open.
 #[tauri::command]
 pub async fn browser_close_all(app: AppHandle) -> Result<(), String> {
     let done = app.clone();
@@ -978,6 +1140,8 @@ pub async fn browser_close_all(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window(WINDOW) {
         let _ = window.destroy();
     }
+    // the windows of their own last: their tabs are gone already, so closing them ends nothing more
+    crate::browser_out::destroy_all(&app);
     tell_unread(&app, (0, String::new()));
     tell(&app);
     Ok(())
@@ -1006,7 +1170,7 @@ pub async fn browser_danger_back(app: AppHandle, id: u32) -> Result<(), String> 
 /// Open anyway: one page of that site loads in this tab, with the coral line on top.
 #[tauri::command]
 pub async fn browser_danger_open(app: AppHandle, id: u32) -> Result<(), String> {
-    let window = window(&app)?;
+    let window = page_window(&app, id)?;
     let url = {
         let state = app.state::<Browser>();
         let mut tabs = state.0.lock().unwrap();
@@ -1146,13 +1310,66 @@ mod tests {
 
     #[test]
     fn no_capability_names_a_page_or_a_pop_up() {
-        for file in [include_str!("../capabilities/browser.json"), include_str!("../capabilities/default.json")] {
+        for file in [include_str!("../capabilities/browser.json"), include_str!("../capabilities/default.json"), include_str!("../capabilities/browser-out.json")] {
             let cap: serde_json::Value = serde_json::from_str(file).unwrap();
             let named: Vec<&str> = ["windows", "webviews"].iter().flat_map(|k| cap[k].as_array().into_iter().flatten()).filter_map(|v| v.as_str()).collect();
             for label in named {
-                assert!(label == "main" || label == "world-*" || label == UI, "a capability names {label}: a page or pop-up could reach Castle's core");
+                let known = ["main", "world-*", UI, "browser-out-*", "browser-ghost-*"];
+                assert!(known.contains(&label), "a capability names {label}: a page or pop-up could reach Castle's core");
+                assert!(!label.starts_with("browser-tab") && !label.starts_with("browser-popup"));
             }
         }
+        // a tab's own window and the drag's card may talk to the core
+        let out: serde_json::Value = serde_json::from_str(include_str!("../capabilities/browser-out.json")).unwrap();
+        assert_eq!(out["windows"], serde_json::json!(["browser-out-*", "browser-ghost-*"]));
+    }
+
+    fn tab_in(tabs: &mut Tabs, window: &str) -> u32 {
+        let id = tabs.open(Some("https://x.example/".into())).unwrap();
+        tabs.get_mut(id).unwrap().window = window.into();
+        id
+    }
+
+    #[test]
+    fn placements_touch_only_the_window_that_asked() {
+        let mut tabs = Tabs::default();
+        let a = tab_in(&mut tabs, HOME);
+        let b = tab_in(&mut tabs, "browser-out-1");
+        let c = tab_in(&mut tabs, "browser-out-1");
+        let d = tab_in(&mut tabs, HOME);
+        let at = |id: u32, x: f64| Placed { id, x, y: 40.0, w: 300.0, h: 200.0 };
+        // a window's own page may name only its own tabs: a home tab named by the pop-out is dropped
+        let out = placements(&[at(b, 0.0), at(a, 10.0)], &tabs.in_window("browser-out-1"));
+        assert_eq!(out, vec![(b, (0.0, 40.0, 300.0, 200.0))]);
+        let mut map = BTreeMap::new();
+        assert!(place_in(&mut map, "browser-out-1", out.clone()));
+        assert!(!place_in(&mut map, "browser-out-1", out.clone()), "the same boxes change nothing");
+        assert!(!place_in(&mut map, HOME, Vec::new()), "a home never placed already places nothing");
+        assert!(place_in(&mut map, HOME, vec![(a, (0.0, 0.0, 500.0, 400.0))]));
+        assert!(place_in(&mut map, HOME, Vec::new()), "the home hides its pages");
+        assert_eq!(map.get("browser-out-1"), Some(&out), "the pop-out's boxes stay while the home changes");
+        // laying out the home never touches a page that is out, and the pop-out never a home page
+        let home = show_plan(&tabs, HOME, &[(a, (0.0, 0.0, 500.0, 400.0)), (b, (0.0, 0.0, 9.0, 9.0))]);
+        assert_eq!(home, vec![(a, Some((0.0, 0.0, 500.0, 400.0))), (d, None)]);
+        let popped = show_plan(&tabs, "browser-out-1", &out);
+        assert_eq!(popped, vec![(b, Some((0.0, 40.0, 300.0, 200.0))), (c, None)]);
+        // a page under the DANGER screen stays hidden in its own window too
+        tabs.get_mut(b).unwrap().danger = Some(browser_tabs::Danger { url: "https://x.example/".into(), threat: "phishing".into(), reason: String::new(), caught_by: vec![] });
+        assert_eq!(show_plan(&tabs, "browser-out-1", &out)[0], (b, None));
+    }
+
+    #[test]
+    fn the_tabs_state_goes_to_every_browser_surface_and_never_a_page() {
+        for label in ["main", "browser", "browser-ui", "browser-out-1", "browser-out-42"] {
+            assert!(is_surface(label), "{label}");
+        }
+        for label in ["browser-tab-1", "browser-popup-1", "browser-ghost-1", "world-1", "browser-out-", "browser-out-x"] {
+            assert!(!is_surface(label), "{label}");
+        }
+        // said once to every surface: no emit aimed at one window after another
+        let source = include_str!("browser.rs");
+        let aimed = concat!("emit_to(UI, ", "\"browser-state\"");
+        assert!(!source.contains(aimed));
     }
 
     #[test]
