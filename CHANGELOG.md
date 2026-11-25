@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.7.0 - 2026-11-26
+
 - A browser tab on another screen: drag its chip past the browser's edge (a glowing card follows) or right-click Move to a new window, and the live page moves into a window of its own without reloading; its dim ⧉ chip brings it forward, Back to Castle or a drag brings it home, and closing that window closes its tabs.
 - A chat message is really sent: Castle waits longer before Enter when pictures are attached, presses Enter once more when the words are still in Claude Code's box, and a message that still did not get through shows Not sent · Send again.
 - A DEV tab you compacted yourself carries on: once it has sat still for 30 seconds, Castle types continue once (never in your companion's chat).
