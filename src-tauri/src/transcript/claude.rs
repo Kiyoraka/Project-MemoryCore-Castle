@@ -221,6 +221,11 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
     if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") || flag("isVisibleInTranscriptOnly") {
         return Vec::new();
     }
+    // "Prompt is too long" is the CLI's own error, never the companion's words: it is not a chat
+    // bubble or a reply sent to the phone (the fresh start answers that message instead).
+    if flag("isApiErrorMessage") && line.to_lowercase().contains("prompt is too long") {
+        return Vec::new();
+    }
     let id = record.get("uuid").and_then(Value::as_str).unwrap_or("").to_string();
     let at = record.get("timestamp").and_then(Value::as_str).map(str::to_string);
     let content = record.get("message").and_then(|m| m.get("content"));
@@ -400,6 +405,11 @@ mod tests {
         assert!(parse_line(command).is_empty());
         assert!(parse_line(r#"{"type":"attachment","uuid":"x"}"#).is_empty());
         assert!(parse_line("{ broken").is_empty());
+        // the CLI's "Prompt is too long" is never a bubble; another API error still shows
+        let too_long = r#"{"type":"assistant","uuid":"u7","isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"Prompt is too long"}]}}"#;
+        assert!(parse_line(too_long).is_empty());
+        let limit = r#"{"type":"assistant","uuid":"u8","isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"You've hit your limit"}]}}"#;
+        assert_eq!(parse_line(limit).len(), 1);
     }
 
     #[test]

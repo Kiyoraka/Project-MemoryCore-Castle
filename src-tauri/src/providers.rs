@@ -1176,6 +1176,41 @@ pub fn provider_switch(target: Cli, control: State<Control>) -> Result<Switch, S
     Ok(state.clone())
 }
 
+/// The latest of the companion's talk kept in Castle's own journal (what Chat shows after any
+/// restart), then the recent talk written word for word to `file` for the next session. Shared by a
+/// provider switch and the fresh start.
+pub(crate) fn keep_and_hand_off(store: &SettingsStore, host: &crate::pty::PtyHost, file: &Path) -> Result<(), String> {
+    let settings = store.get();
+    let Some(memory) = settings.memory_folder.as_ref() else {
+        return Err("Choose a MemoryCore folder first.".into());
+    };
+    if let Some((generation, since)) = host.started() {
+        let cli = host.provider().unwrap_or(settings.cli);
+        if let Some((record, follower)) = chat::newest_record(cli, Path::new(memory), since) {
+            let mut source = follower(record, since);
+            let mut entries = source.read_new().map_err(|_| "Latest conversation could not be read; nothing was changed.")?;
+            remember(store, Room::Main, cli, generation, &mut entries)?;
+        }
+    }
+    let context = handoff(&read_history(store, Room::Main)?, Path::new(memory));
+    std::fs::write(file, &context).map_err(|_| "The conversation handoff could not be saved.".to_string())
+}
+
+/// Ends the session and waits up to five seconds for it to be gone.
+pub(crate) fn end_session(host: &crate::pty::PtyHost) -> Result<(), String> {
+    host.kill();
+    for _ in 0..50 {
+        if !host.is_running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if host.is_running() {
+        return Err("The previous session has not ended; no replacement was started.".into());
+    }
+    Ok(())
+}
+
 pub fn start(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || loop {
@@ -1223,36 +1258,9 @@ pub fn start(app: &AppHandle) {
                 return Err(format!("{} sign-in is not verified. Sign in with its CLI, then retry; the current session is unchanged.", target.label()));
             }
             let old = store.get();
-            let Some(memory) = old.memory_folder.as_ref() else {
-                return Err("Choose a MemoryCore folder first.".into());
-            };
-            if let Some((generation, since)) = host.0.started() {
-                let cli = host.0.provider().unwrap_or(old.cli);
-                if let Some((record, follower)) = chat::newest_record(cli, Path::new(memory), since)
-                {
-                    let mut source = follower(record, since);
-                    let mut entries = source
-                        .read_new()
-                        .map_err(|_| "Latest conversation could not be read; switch cancelled.")?;
-                    remember(&store, Room::Main, cli, generation, &mut entries)?;
-                }
-            }
-            let context = handoff(&read_history(&store, Room::Main)?, Path::new(memory));
             let file = store.folder().join("provider-handoff.txt");
-            std::fs::write(&file, &context)
-                .map_err(|_| "The conversation handoff could not be saved.")?;
-            host.0.kill();
-            for _ in 0..50 {
-                if !host.0.is_running() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            if host.0.is_running() {
-                return Err(
-                    "The previous session has not ended; no replacement was started.".into(),
-                );
-            }
+            keep_and_hand_off(&store, &host.0, &file)?;
+            end_session(&host.0)?;
             let mut next = old.clone();
             next.cli = target;
             *store.current.lock().unwrap() = next.clone();

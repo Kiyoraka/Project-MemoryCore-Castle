@@ -261,13 +261,31 @@ pub fn tell(app: &AppHandle, slot: Option<usize>, line: &str) {
     let _ = app.emit(EVENT, serde_json::json!({ "slot": slot, "line": line }));
 }
 
-/// Starts the watch: one thread reading every running Claude Code DEV tab's screen every 15 seconds.
-/// A tab's watch starts over when a new session takes it.
+/// The home chat is stuck and this session was not tried yet: start it fresh (once per session, so a
+/// fresh start that fails is never repeated in a loop). Pure.
+pub fn home_starts_fresh(screen_plain: &str, session: u64, tried: Option<u64>) -> bool {
+    stuck(screen_plain) && tried != Some(session)
+}
+
+/// Starts the watch: one thread reading every running Claude Code DEV tab's screen, and the home
+/// chat's, every 15 seconds. A tab's watch starts over when a new session takes it; a stuck home chat
+/// is never compacted, it starts fresh.
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         let mut tabs: HashMap<usize, (u64, Tab)> = HashMap::new();
+        let mut home_tried: Option<u64> = None;
         loop {
             std::thread::sleep(EVERY);
+            let main = &app.state::<crate::session::MainHost>().0;
+            if let (Some((id, _)), Some(screen)) = (main.started(), claude_screen(main)) {
+                if home_starts_fresh(&screen, id, home_tried) {
+                    home_tried = Some(id);
+                    let app = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = crate::fresh_start::start_fresh(&app, true);
+                    });
+                }
+            }
             let hosts = app.state::<DevHosts>();
             for (slot, host) in hosts.0.iter().enumerate() {
                 let (Some((id, _)), Some(screen)) = (host.started(), claude_screen(host)) else {
@@ -427,6 +445,14 @@ mod tests {
         assert_eq!(step(&mut tab, &screen(&[BOX]), 20), Action::Clear);
         assert_eq!(step(&mut tab, &screen(&[BOX]), 25), Action::Nothing);
         assert_eq!(step(&mut tab, &screen(&[LIMIT]), 30), Action::GiveUp);
+    }
+
+    #[test]
+    fn a_stuck_home_chat_starts_fresh_once_per_session() {
+        assert!(home_starts_fresh(&screen(&[TOO_LONG, BOX]), 7, None));
+        assert!(!home_starts_fresh(&screen(&[TOO_LONG, BOX]), 7, Some(7)), "never twice for one session");
+        assert!(home_starts_fresh(&screen(&[LIMIT]), 8, Some(7)), "the new session is watched again");
+        assert!(!home_starts_fresh(&screen(&[BOX]), 8, None));
     }
 
     #[test]

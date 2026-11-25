@@ -400,6 +400,15 @@ fn isolation_inner(store: &SettingsStore, cli: Cli, on: bool, tools: Option<&Pat
     Ok((isolation_args_with(cli, &mcp, settings.as_deref()), isolation_vars(cli)))
 }
 
+/// The home chat is never compacted: there the talk is the memory, so Claude Code's own auto-compact
+/// is off and a full talk starts fresh instead (fresh_start.rs). DEV tabs keep their auto-compact.
+pub fn home_vars(cli: Cli, room: Room) -> Vec<(String, String)> {
+    match (cli, room) {
+        (Cli::Claude, Room::Main) => vec![("DISABLE_AUTO_COMPACT".to_string(), "1".to_string())],
+        _ => Vec::new(),
+    }
+}
+
 /// The variables a wake adds for the boot: a session that is only this companion reads no
 /// CLAUDE.md at all (the personal one would make it someone else), so Castle's own block
 /// travels in the boot file instead.
@@ -479,6 +488,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     // the names are missing and no boot file was written
     let (isolation_args, isolation_vars) = isolation_with_status(store, settings.cli, settings.only_this_companion, &tools_folder(app))?;
     vars.extend(isolation_vars);
+    vars.extend(home_vars(settings.cli, room));
     if room == Room::Main {
         if let (Some(companion), Some(member)) = (settings.companion_name.as_deref(), settings.member_name.as_deref()) {
             let _ = crate::setup::write_blocks_for(&folder, companion, member, boot.as_ref().is_some_and(|b| b.memory));
@@ -754,6 +764,13 @@ mod tests {
         let text = folder_instructions(&project).unwrap();
         assert!(text.contains("Build with Vite.") && text.contains("Tests with vitest."));
         assert!(!text.contains("someone above"));
+    }
+
+    #[test]
+    fn only_the_home_chat_on_claude_code_turns_auto_compact_off() {
+        assert_eq!(home_vars(Cli::Claude, Room::Main), vec![("DISABLE_AUTO_COMPACT".to_string(), "1".to_string())]);
+        assert!(home_vars(Cli::Claude, Room::Story).is_empty());
+        assert!(home_vars(Cli::Codex, Room::Main).is_empty());
     }
 
     #[test]

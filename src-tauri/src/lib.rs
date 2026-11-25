@@ -103,6 +103,7 @@ mod automations;
 mod calendar;
 mod castle_skills;
 mod finance;
+mod fresh_start;
 mod describe;
 mod market_shop;
 mod keeper;
@@ -434,6 +435,7 @@ pub fn run() {
             dev_files::dev_file,
             dev_files::dev_reveal,
             providers::provider_switch,
+            fresh_start::fresh_start,
             providers::provider_switch_status,
             providers::provider_switch_cancel,
             chat::chat_history,
