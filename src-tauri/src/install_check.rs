@@ -125,6 +125,7 @@ pub fn installed_folder() -> Option<PathBuf> {
 
 /// The Start menu shortcut the installer makes for this member.
 pub fn start_menu_shortcut() -> Option<PathBuf> {
+    // platform: windows-only - the Start menu is Windows'; on a Mac the installer makes no shortcut
     let roaming = std::env::var_os("APPDATA").filter(|v| !v.is_empty())?;
     Some(PathBuf::from(roaming).join("Microsoft\\Windows\\Start Menu\\Programs").join(format!("{APP_NAME}.lnk")))
 }
