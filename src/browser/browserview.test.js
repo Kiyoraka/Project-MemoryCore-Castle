@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, libraryTiles, moveSelection, newTabShortcuts, onScreen, shownAddress, signInHint, singleTabs, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
+import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -167,5 +167,39 @@ describe('pages side by side', () => {
     const squeezed = dragWidths([0.5, 0.5], 0, 900, 1000)
     expect(squeezed[1]).toBeCloseTo(0.1)
     expect(dragWidths([0.5, 0.5], 1, 100, 1000)).toEqual([0.5, 0.5], 'no grip after the last column')
+  })
+})
+
+describe('the translate row', () => {
+  const languages = [
+    ['en', 'English'],
+    ['ja', 'Japanese'],
+    ['zh-CN', 'Chinese (Simplified)'],
+    ['zh-TW', 'Chinese (Traditional)'],
+    ['ms', 'Malay'],
+  ]
+
+  it("names a page's language from its own tag", () => {
+    expect(languageLabel('ja-jp', languages)).toBe('Japanese')
+    expect(languageLabel('zh-tw', languages)).toBe('Chinese (Traditional)')
+    expect(languageLabel('ms', languages)).toBe('Malay')
+    expect(languageLabel('', languages)).toBe('This page')
+    expect(languageLabel('xx', languages)).toBe('XX')
+  })
+
+  it("shows for another language, a translation in progress, or when asked, never on a DANGER screen", () => {
+    expect(showTranslateRow({ url: 'https://a/', lang: 'ja' }, 'en')).toBe(true)
+    expect(showTranslateRow({ url: 'https://a/', lang: 'en-us' }, 'en')).toBe(false)
+    expect(showTranslateRow({ url: 'https://a/', lang: '' }, 'en')).toBe(false)
+    expect(showTranslateRow({ url: 'https://a/', lang: '' }, 'en', true)).toBe(true)
+    expect(showTranslateRow({ url: 'https://a/', lang: 'en', translated: 'ms' }, 'en')).toBe(true)
+    expect(showTranslateRow({ url: 'https://a/', lang: 'ja', danger: {} }, 'en')).toBe(false)
+    expect(showTranslateRow({ url: null, lang: 'ja' }, 'en')).toBe(false)
+    expect(sameLanguage('zh-tw', 'zh-CN')).toBe(false)
+  })
+
+  it('reads the site for Always', () => {
+    expect(siteOf('https://ncode.syosetu.com/n1/2/')).toBe('ncode.syosetu.com')
+    expect(siteOf('not a url')).toBe('')
   })
 })

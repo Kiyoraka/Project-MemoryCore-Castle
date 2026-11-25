@@ -16,13 +16,15 @@ const props = defineProps({
   // Every other GlassSelect keeps its plain click-to-open button, unchanged.
   searchable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:modelValue', 'change'])
+const emit = defineEmits(['update:modelValue', 'change', 'open'])
 defineOptions({ inheritAttrs: false })
 
 const list = computed(() => normalise(props.options))
 const label = computed(() => labelOf(list.value, props.modelValue, props.placeholder))
 const id = `glass-${useId()}`
 const open = ref(false)
+// whether the list is open, for a page that must make room for it (the browser's pages step aside)
+watch(open, (now) => emit('open', now))
 const active = ref(-1)
 const button = ref(null)
 const panel = ref(null)

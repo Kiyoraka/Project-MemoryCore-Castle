@@ -23,6 +23,12 @@ import {
   browserBeside,
   browserBookmarkToggle,
   browserPhoneView,
+  browserTranslate,
+  browserTranslateLanguage,
+  browserTranslateOff,
+  browserTranslatePictures,
+  browserTranslateSettings,
+  browserTranslateSite,
   browserUnpane,
   browserWidths,
   browserChrome,
@@ -41,7 +47,8 @@ import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import SuggestList from './SuggestList.vue'
 import PaneRow from './PaneRow.vue'
-import { chipCount, fillLabel, groupOf, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import TranslateRow from './TranslateRow.vue'
+import { chipCount, fillLabel, groupOf, showTranslateRow, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
@@ -132,7 +139,77 @@ const singles = computed(() => singleTabs(tabs.value))
 const shownIds = computed(() => onScreen(tabs.value))
 const split = computed(() => shownIds.value.length >= 2)
 const shownTabs = computed(() => shownIds.value.map((id) => tabs.value.list.find((t) => t.id === id)).filter(Boolean))
-const barHeight = computed(() => BAR_PX + (split.value ? PANE_ROW : 0))
+// The translate row: the page in front in the member's language (browser_translate.rs).
+const TRANSLATE_ROW = 30
+const translating = ref({ languages: [], language: 'en', sites: [], canTranslate: false, canKeepSites: false, bubbleWay: '' })
+const translateAsked = ref(false)
+// the language list is open over the pages
+const translateListing = ref(false)
+const translateBusy = ref('')
+const translateSaid = ref('')
+const bubbleCount = ref(0)
+const translateShown = computed(() => Boolean(current.value) && showTranslateRow(current.value, translating.value.language, translateAsked.value))
+watch(page, () => {
+  translateAsked.value = false
+  translateSaid.value = ''
+  bubbleCount.value = 0
+})
+
+async function readTranslating() {
+  translating.value = await browserTranslateSettings().catch(() => translating.value)
+}
+async function translateNow(quiet = false) {
+  const tab = current.value
+  if (!tab || translateBusy.value) return
+  if (!quiet) translateBusy.value = 'Translating with your Claude Code...'
+  try {
+    const done = await browserTranslate(tab.id, translating.value.language)
+    if (!quiet) translateSaid.value = done.same ? 'This page is already in your language.' : done.translated ? '' : 'Nothing left to translate on screen.'
+  } catch (reason) {
+    if (!quiet) translateSaid.value = String(reason)
+  } finally {
+    if (!quiet) translateBusy.value = ''
+  }
+}
+const translateOriginal = () => act(async () => {
+  await browserTranslateOff(current.value.id)
+  bubbleCount.value = 0
+})
+async function translateLanguage(code) {
+  translating.value = { ...translating.value, language: await browserTranslateLanguage(code).catch(() => translating.value.language) }
+  if (current.value?.translated) {
+    await browserTranslateOff(current.value.id).catch(() => {})
+    translateNow()
+  }
+}
+const translateAlways = (on) => act(async () => {
+  translating.value = { ...translating.value, sites: await browserTranslateSite(current.value.id, on) }
+  if (on && !current.value?.translated) translateNow()
+})
+async function readBubbles() {
+  const tab = current.value
+  if (!tab || translateBusy.value) return
+  translateBusy.value = 'Reading the bubbles... (10 to 30 seconds)'
+  try {
+    bubbleCount.value += await browserTranslatePictures(tab.id, translating.value.language)
+    translateSaid.value = bubbleCount.value ? '' : 'No bubbles to translate on screen.'
+  } catch (reason) {
+    translateSaid.value = String(reason)
+  } finally {
+    translateBusy.value = ''
+  }
+}
+// while a page is being read in another language, what scrolls into view is translated too
+let translateRounds = null
+watch(
+  () => current.value?.translated,
+  (on) => {
+    clearInterval(translateRounds)
+    if (on) translateRounds = setInterval(() => translateNow(true), 4000)
+  },
+)
+
+const barHeight = computed(() => BAR_PX + (split.value ? PANE_ROW : 0) + (translateShown.value ? TRANSLATE_ROW : 0))
 // the group's chip brings back the page last in front in it
 const groupFocus = ref(null)
 watch(
@@ -146,7 +223,7 @@ const beside = (id) => act(() => browserBeside(id))
 const unpane = (id) => act(() => browserUnpane(id))
 const setWidths = (widths) => act(() => browserWidths(widths))
 const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
-watch([barHeight, suggestOpen], ([bar, open]) => browserChrome(bar, open).catch(() => {}))
+watch([barHeight, suggestOpen, translateListing], ([bar, open, listing]) => browserChrome(bar, open || listing).catch(() => {}))
 
 function go() {
   const row = selected.value >= 0 ? suggestOrder.value[selected.value] : null
@@ -286,10 +363,12 @@ onMounted(async () => {
     // the default shortcuts
   }
   tabs.value = await browserState()
+  await readTranslating()
   await readWelcome()
   if (current.value && !current.value.url) refreshNewTab()
 })
 onBeforeUnmount(() => {
+  clearInterval(translateRounds)
   window.removeEventListener('keydown', onKey)
   stop?.()
 })
@@ -360,6 +439,9 @@ onBeforeUnmount(() => {
         <button class="icon" :disabled="!page" :aria-label="starred ? 'Remove bookmark' : 'Bookmark this page'" :title="starred ? 'Remove bookmark' : 'Bookmark this page'" :class="{ starred }" @click="toggleStar">
           <svg width="17" height="17" viewBox="0 0 24 24" :fill="starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4 6.5 20.3l1-6.2L3 9.7l6.2-.9z" /></svg>
         </button>
+        <button class="icon" :disabled="!page" :class="{ starred: translateShown }" aria-label="Translate this page" title="Translate this page into your language" @click="translateAsked = !translateAsked">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h8M8 3v2M6 5c0 4 2 7 5 8M10 5c0 4-3 7-6 8" /><path d="M13 21l4-9 4 9M14.5 18h5" /></svg>
+        </button>
         <div v-if="page && logins.length" class="fill">
           <button class="pill" title="Castle fills this page's sign-in from your vault" @click="pressFill">{{ fillLabel(logins) }}</button>
           <div v-if="choosing" class="logins" role="menu">
@@ -376,6 +458,20 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <PaneRow v-if="split" :panes="shownTabs" :widths="tabs.widths" :active="tabs.active" @focus="pick" @close="unpane" @widths="setWidths" />
+      <TranslateRow
+        v-if="translateShown"
+        :tab="current"
+        :settings="translating"
+        :busy="translateBusy"
+        :said="translateSaid"
+        :bubbles="bubbleCount"
+        @translate="translateNow()"
+        @original="translateOriginal"
+        @language="translateLanguage"
+        @always="translateAlways"
+        @bubbles="readBubbles"
+        @listing="translateListing = $event"
+      />
     </div>
 
     <!-- side by side: a column with no page to show (a new tab, a DANGER screen) is drawn here, under the pages -->

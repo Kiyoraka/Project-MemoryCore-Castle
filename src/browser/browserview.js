@@ -179,3 +179,43 @@ export function dragWidths(widths, at, dx, width) {
   next[at + 1] = pair - left
   return next
 }
+
+// The translate row (browser_translate.rs): the page's language to the member's, Always, Original
+// and Read bubbles.
+/** A language's name from the list ([code, name] pairs), by its code or the page's own tag. */
+export function languageLabel(code, languages) {
+  const c = String(code ?? '').toLowerCase()
+  if (!c) return 'This page'
+  const list = languages ?? []
+  const exact = list.find(([k]) => k.toLowerCase() === c)
+  if (exact) return exact[1]
+  const base = c.split(/[-_]/)[0]
+  const near = base === 'zh' ? list.find(([k]) => k.toLowerCase().startsWith(c.slice(0, 5))) : list.find(([k]) => k.toLowerCase().split('-')[0] === base)
+  return near ? near[1] : c.toUpperCase()
+}
+
+/** Whether two language tags are the same language (Chinese keeps its script). */
+export function sameLanguage(page, mine) {
+  const p = String(page ?? '').toLowerCase()
+  const m = String(mine ?? '').toLowerCase()
+  if (!p || !m) return false
+  if (m.startsWith('zh')) return p === m || p.startsWith(m)
+  return p.split(/[-_]/)[0] === m.split(/[-_]/)[0]
+}
+
+/** Whether the translate row shows for a tab: asked for, already translating, or a page that says
+ * it is in another language than the member's. */
+export function showTranslateRow(tab, mine, asked = false) {
+  if (!tab?.url || tab.danger) return false
+  if (asked || tab.translated) return true
+  return Boolean(tab.lang) && !sameLanguage(tab.lang, mine)
+}
+
+/** The site a page is on, for Always. */
+export function siteOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}

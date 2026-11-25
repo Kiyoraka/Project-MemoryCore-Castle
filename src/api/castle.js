@@ -706,6 +706,14 @@ export const browserBeside = (id) => invoke('browser_beside', { id })
 export const browserUnpane = (id) => invoke('browser_unpane', { id })
 export const browserWidths = (widths) => invoke('browser_widths', { widths })
 export const browserPhoneView = (on) => invoke('browser_phone_view', { on })
+// The translator (browser_translate.rs), through the member's own Claude Code
+export const browserTranslate = (id, lang) => invoke('browser_translate', { id, lang })
+export const browserTranslateOff = (id) => invoke('browser_translate_off', { id })
+export const browserTranslatePictures = (id, lang) => invoke('browser_translate_pictures', { id, lang })
+// -> { languages: [[code, name]], language, sites, canTranslate, canKeepSites, bubbleWay }
+export const browserTranslateSettings = () => invoke('browser_translate_settings')
+export const browserTranslateLanguage = (code) => invoke('browser_translate_language', { code })
+export const browserTranslateSite = (id, on) => invoke('browser_translate_site', { id, on })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
 // How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }
