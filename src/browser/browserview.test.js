@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { ARTIFACTS, dangerWords, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -70,5 +70,27 @@ describe('what came over from Chrome', () => {
     expect(fillLabel([{ id: 1, host: 'example.org', username: 'ari' }])).toBe('Fill as ari')
     expect(fillLabel([{ id: 1, host: 'example.org', username: '' }])).toBe('Fill')
     expect(fillLabel([{ id: 1, username: 'a' }, { id: 2, username: 'b' }])).toBe('Fill (2 saved)')
+  })
+})
+
+describe('the DANGER screen', () => {
+  it('names the threat and lights the guards that caught it', () => {
+    const words = dangerWords({ url: 'https://paypa1.com/', threat: 'phishing', reason: 'This site looks like a fake', caughtBy: ['lookalike', 'google'] })
+    expect(words.threat).toBe('Phishing - this site copies a real sign-in page.')
+    expect(words.address).toBe('https://paypa1.com/')
+    expect(words.chips.filter((c) => c.lit).map((c) => c.name)).toEqual(['Google Safe Browsing', 'Look-alike'])
+    expect(words.chips.map((c) => c.name)).toEqual(['Sentinel', 'SmartScreen', 'Google Safe Browsing', 'Look-alike'])
+  })
+
+  it("says Safari's warning on a Mac, and a mark with no kind is a dangerous site", () => {
+    const words = dangerWords({ url: 'https://x.example/', threat: 'dangerous', reason: 'r', caughtBy: ['sentinel'] }, true)
+    expect(words.chips[1].name).toBe("Safari's warning")
+    expect(words.threat).toBe('Dangerous site - your companion marked it.')
+    expect(words.chips[0].lit).toBe(true)
+  })
+
+  it('shows nothing when the page is not held back, and copes with an unknown threat', () => {
+    expect(dangerWords(null)).toBe(null)
+    expect(dangerWords({ threat: 'something-new' }).threat).toBe('Dangerous site - your companion marked it.')
   })
 })

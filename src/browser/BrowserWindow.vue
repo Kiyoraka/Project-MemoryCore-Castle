@@ -5,6 +5,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   browserClose,
+  browserDangerBack,
+  browserDangerOpen,
   browserGo,
   browserOpen,
   browserOutside,
@@ -29,6 +31,7 @@ import {
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
+import DangerScreen from './DangerScreen.vue'
 import { fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
@@ -65,6 +68,9 @@ const outside = () => act(() => browserOutside(page.value))
 const pick = (id) => act(() => browserSwitch(id))
 const close = (id) => act(() => browserClose(id))
 const add = () => act(() => browserOpen(null))
+// the DANGER screen's two ways out (browser_guard.rs)
+const dangerBack = () => act(() => browserDangerBack(current.value.id))
+const dangerOpen = () => act(() => browserDangerOpen(current.value.id))
 
 // The first-open welcome: one step at a time on the new tab, each the member's Yes or Skip.
 const welcome = ref(null)
@@ -200,7 +206,7 @@ onBeforeUnmount(() => {
   <div class="browser">
     <div class="bar">
       <div class="strip" role="tablist" aria-label="Tabs">
-        <div v-for="t in tabs.list" :key="t.id" class="tab" :class="{ on: t.id === tabs.active }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+        <div v-for="t in tabs.list" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
           <span class="dot" :class="{ local: t.url?.startsWith('http://'), blank: !t.url }" aria-hidden="true"></span>
           <span class="name">{{ t.title }}</span>
           <button class="x" :aria-label="`Close ${t.title}`" @click.stop="close(t.id)">
@@ -252,7 +258,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <main v-if="current && !current.url" class="new-tab">
+    <DangerScreen v-if="current?.danger" :danger="current.danger" @back="dangerBack" @open="dangerOpen" />
+    <main v-else-if="current && !current.url" class="new-tab">
       <section v-if="words" class="welcome" aria-live="polite">
         <span class="count">{{ stepNumber(shownStep) }} of {{ STEPS.length }}</span>
         <h2>{{ words.title }}</h2>
@@ -338,6 +345,14 @@ onBeforeUnmount(() => {
   color: var(--text-dim);
   font-size: 13px;
   cursor: pointer;
+}
+/* a tab the guard held back glows red until it leaves the page */
+.tab.held {
+  color: #ffd6d9;
+  background: rgba(200, 10, 20, 0.35);
+  box-shadow:
+    inset 0 0 0 1px #ff3a46,
+    0 0 12px rgba(255, 40, 50, 0.6);
 }
 .tab:hover {
   background: rgba(150, 190, 255, 0.08);

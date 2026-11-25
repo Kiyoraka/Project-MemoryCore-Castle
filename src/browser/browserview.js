@@ -75,3 +75,31 @@ export function fillLabel(logins) {
   if (logins.length === 1) return logins[0].username ? `Fill as ${logins[0].username}` : 'Fill'
   return `Fill (${logins.length} saved)`
 }
+
+// The DANGER screen (browser_guard.rs holds the page back): the threat in one line, and the guards.
+const THREATS = {
+  phishing: 'Phishing - this site copies a real sign-in page.',
+  malware: 'Malware - this site may put harmful software on your computer.',
+  unwanted: "Unwanted software - this site pushes programs you didn't ask for.",
+  harmful: 'Harmful apps - this site offers apps that can hurt your device.',
+  dangerous: 'Dangerous site - your companion marked it.',
+}
+
+/** The DANGER screen's words for a held-back page: its threat line, its reason, and every guard as
+ * a chip, lit when it caught the page. `mac`: the platform's own guard is Safari's warning. */
+export function dangerWords(danger, mac = false) {
+  if (!danger) return null
+  const caught = new Set(danger.caughtBy ?? [])
+  const guards = [
+    { id: 'sentinel', name: 'Sentinel' },
+    { id: 'smartscreen', name: mac ? "Safari's warning" : 'SmartScreen' },
+    { id: 'google', name: 'Google Safe Browsing' },
+    { id: 'lookalike', name: 'Look-alike' },
+  ]
+  return {
+    threat: THREATS[danger.threat] ?? THREATS.dangerous,
+    reason: danger.reason ?? '',
+    address: danger.url ?? '',
+    chips: guards.map((g) => ({ ...g, lit: caught.has(g.id) })),
+  }
+}

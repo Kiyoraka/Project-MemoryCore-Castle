@@ -693,5 +693,8 @@ export const vaultList = () => invoke('vault_list')
 export const vaultForget = (id = null) => invoke('vault_forget', { id })
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
 export const browserClear = () => invoke('browser_clear')
+// The DANGER screen's two buttons (browser_guard.rs): back to safety, or one page of the site anyway
+export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
+export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
