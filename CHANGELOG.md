@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Castle's browser can live inside Castle: Settings > Rooms > BROWSER > Browser opens > Inside Castle makes BROWSER a room of Castle's own window, its pages in the room and hidden whenever another room or Settings is in front. Its own window beside Castle stays the default.
+
 - The browser's settings now fold out under BROWSER in Settings > Rooms (the arrow beside it, or pin it), instead of sitting at the bottom of the page.
 
 - MY PROFILE reads your browsing: each month's reading now also looks at the sites you visited in Castle's browser and what you searched for there, never quoting either (Settings > Rooms > BROWSER > MY PROFILE reads your browsing, on to begin with). Private browsing joins only with its own switch, as before.

@@ -1017,6 +1017,22 @@ in the Top bar list (pinning BROWSER opens it too). Everything about the browser
 opens, Remember sign-ins, what MY PROFILE may read, private browsing, where chat links open, the new
 tab, saved passwords, bringing things from Chrome, and clearing the browsing data.
 
+### Its own window or inside Castle
+
+**Browser opens**, the first choice under BROWSER in Settings > Rooms, decides where the browser lives:
+
+- **Its own window** (to begin with): the browser opens beside Castle on the right half of your
+  screen, so you can chat on the left and browse on the right.
+- **Inside Castle**: BROWSER becomes a room of Castle's own window, in the top bar like any other
+  (pin it to keep it there). Its pages sit in the room and follow Castle's size; they hide while
+  another room is in front or Settings, the Sentinel or the backup panel is open, and come back as
+  they were. A link from a chat or the ARTIFACTS tile turns Castle to BROWSER. Closing the last tab
+  leaves a fresh new tab.
+
+Everything else works the same in both: tabs, pages side by side, suggestions, the DANGER screen and
+translation. Changing Browser opens closes the open pages (your sign-ins are kept); they open in their
+new home the next time.
+
 ### Signing in with Google, Apple or Microsoft
 
 **Sign in with Google / Apple / Microsoft** (or "Continue with...") opens its own small window,
