@@ -63,6 +63,7 @@ mod projectdb_login;
 mod cmd_projectdb;
 mod pty;
 mod pushed;
+mod push_wake;
 mod providers;
 mod messages;
 mod page_reader;
@@ -838,6 +839,7 @@ pub fn run() {
             bridges::whatsapp::start(app.handle());
             link::start(app.handle());
             unstick::start(app.handle().clone());
+            push_wake::start(app.handle().clone());
             meter_watch::start(app.handle());
             page_reader::start(app.handle());
             market::engine::start(app.handle());

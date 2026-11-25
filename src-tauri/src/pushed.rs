@@ -36,7 +36,7 @@ pub fn branch(git: &Path) -> Option<String> {
 }
 
 /// The common git folder (a worktree keeps its config and refs there).
-fn common_dir(git: &Path) -> PathBuf {
+pub(crate) fn common_dir(git: &Path) -> PathBuf {
     std::fs::read_to_string(git.join("commondir"))
         .ok()
         .map(|c| {
@@ -117,7 +117,7 @@ pub fn compare(kept: Option<&str>, now: &str) -> Seen {
 }
 
 /// Runs git in the folder with no window and a time limit; its trimmed output when it succeeded.
-fn git(folder: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git(folder: &Path, args: &[&str]) -> Option<String> {
     let mut command = std::process::Command::new("git");
     command.current_dir(folder).args(args).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).stdin(std::process::Stdio::null());
     #[cfg(windows)]
