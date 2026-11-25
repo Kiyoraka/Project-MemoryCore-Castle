@@ -621,12 +621,15 @@ fn on_download(app: &AppHandle, id: u32, private: bool, view: tauri::Webview, ev
     match event {
         DownloadEvent::Requested { url, destination } => {
             let text = url.to_string();
-            let referer = tabs(app).list.iter().find(|t| t.id == id).and_then(|t| t.url.clone()).unwrap_or_default();
+            let page = tabs(app).list.iter().find(|t| t.id == id).and_then(|t| t.url.clone()).unwrap_or_default();
+            let referer = crate::downloads::referer_for(&page, &text);
             if text.starts_with("blob:") || text.starts_with("data:") || crate::downloads::native_allowed(&text) {
                 let suggested = destination.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 *destination = crate::downloads::begin_native(app, &text, &suggested, &referer, private, id);
                 return true;
             }
+            // the webview's own try is cancelled: its Finished is not a native download's
+            crate::downloads::note_cancelled(&text);
             let app = app.clone();
             std::thread::spawn(move || {
                 let pairs: Vec<(String, String)> = view.cookies_for_url(url).map(|list| list.iter().map(|c| (c.name().to_string(), c.value().to_string())).collect()).unwrap_or_default();

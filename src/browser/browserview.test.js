@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barOf, boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
+import { barOf, besideSheet, boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
 import { bytesWords, dlCard, dlFilter, dlRing, isVideoLink, timeLeft } from './browserview.js'
 import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
@@ -284,5 +284,15 @@ describe('the downloader', () => {
     expect(isVideoLink('https://releases.ubuntu.com/ubuntu.iso')).toBe(false)
     expect(dlRing(items)).toBe(75)
     expect(dlRing([{ state: 'done' }])).toBe(null)
+  })
+})
+
+describe('a side panel beside the pages', () => {
+  it('ends a page where the panel begins, and drops one left with nothing', () => {
+    const box = { x: 20, y: 100, w: 1800, h: 900 }
+    expect(besideSheet(box, { left: 1300 })).toEqual({ x: 20, y: 100, w: 1272, h: 900 })
+    expect(besideSheet({ x: 1400, y: 100, w: 400, h: 900 }, { left: 1300 })).toBe(null)
+    expect(besideSheet(box, null)).toBe(box)
+    expect(besideSheet({ x: 20, y: 100, w: 500, h: 900 }, { left: 1300 })).toEqual({ x: 20, y: 100, w: 500, h: 900 })
   })
 })

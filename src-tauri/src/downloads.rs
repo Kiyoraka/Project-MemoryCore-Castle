@@ -687,15 +687,46 @@ pub fn begin_native(app: &AppHandle, url: &str, suggested: &str, referer: &str, 
     path
 }
 
-/// The webview's own download finished (or failed).
+/// Addresses whose webview download Castle cancelled to fetch them itself: their Finished is ignored.
+static CANCELLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn note_cancelled(url: &str) {
+    CANCELLED.lock().unwrap().push(url.to_string());
+}
+
+/// The referrer a page download is fetched with (pure): the page it came from, but never the file's
+/// own address (a file opened straight from the address bar has no page; some servers refuse a file
+/// that names itself as its referrer) and never anything but a web page.
+pub fn referer_for(page: &str, file: &str) -> String {
+    let bare = |u: &str| u.split('#').next().unwrap_or("").trim_end_matches('/').to_string();
+    if !(page.starts_with("https://") || page.starts_with("http://")) || bare(page) == bare(file) {
+        String::new()
+    } else {
+        page.to_string()
+    }
+}
+
+/// The webview's own download finished (or failed). The Finished of a try Castle cancelled is ignored,
+/// and a "finished" with no file on disk is a failure, never a done card with nothing behind it.
 pub fn finish_native(url: &str, success: bool) {
+    {
+        let mut cancelled = CANCELLED.lock().unwrap();
+        if let Some(at) = cancelled.iter().position(|u| u == url) {
+            cancelled.remove(at);
+            return;
+        }
+    }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let id = book().lock().unwrap().items.iter().find(|i| i.url == url && i.state == "native").map(|i| i.id);
     if let Some(id) = id {
         set(id, |i| {
-            i.state = if success { "done" } else { "failed" }.into();
+            let landed = success && std::path::Path::new(&i.path).is_file();
+            i.state = if landed { "done" } else { "failed" }.into();
             i.finished_at = now;
-            if !success {
+            if landed {
+                i.done = std::fs::metadata(&i.path).map(|m| m.len()).unwrap_or(0);
+                i.size = Some(i.done);
+            } else {
                 i.line = "The page's own download did not finish.".into();
             }
         });
@@ -841,6 +872,29 @@ pub fn add_item(app: &AppHandle, mut item: Item) -> u64 {
 pub fn set(id: u64, f: impl FnOnce(&mut Item)) {
     update(id, f);
     tell();
+}
+
+#[cfg(test)]
+mod referer_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_is_never_its_own_referrer() {
+        let file = "http://ipv4.download.thinkbroadband.com/1GB.zip";
+        assert_eq!(referer_for(file, file), "", "opened straight from the address bar: no referrer");
+        assert_eq!(referer_for(&format!("{file}#x"), file), "");
+        assert_eq!(referer_for("https://www.thinkbroadband.com/download", file), "https://www.thinkbroadband.com/download");
+        assert_eq!(referer_for("about:blank", file), "");
+        assert_eq!(referer_for("", file), "");
+    }
+
+    #[test]
+    fn a_cancelled_tries_finish_never_ends_a_native_card() {
+        note_cancelled("https://x.example/a.zip");
+        // the cancelled try's Finished is swallowed (no card, nothing to change, no panic)
+        finish_native("https://x.example/a.zip", true);
+        assert!(!CANCELLED.lock().unwrap().iter().any(|u| u == "https://x.example/a.zip"));
+    }
 }
 
 #[cfg(test)]

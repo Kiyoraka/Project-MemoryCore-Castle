@@ -41,7 +41,7 @@ import DangerScreen from './DangerScreen.vue'
 import DownloadsSheet from './DownloadsSheet.vue'
 import PaneBar from './PaneBar.vue'
 import PasswordsSheet from './PasswordsSheet.vue'
-import { barOf, boundsOf, chipCount, chipTitle, columnsOf, dlRing, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
+import { barOf, besideSheet, boundsOf, chipCount, chipTitle, columnsOf, dlRing, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 // inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
@@ -101,13 +101,15 @@ watch(group, (g) => {
 const takeOut = (id) => act(() => browserUnpane(id))
 // the Passwords sheet: the pages step aside while it is open
 const passwordsOpen = ref(false)
-watch(passwordsOpen, (open) => overlay('passwords', open))
+// a side panel (Passwords, Downloads) leaves the pages beside it: they end where it begins
+const sheetEl = ref(null)
+watch(passwordsOpen, schedule)
 // the downloader: its panel (a pasted link, or a video page's button with its tab), the chip's ring
 const dlOpen = ref(false)
 const dlStart = ref(null)
 const dlItems = ref([])
 const dlRingAt = computed(() => dlRing(dlItems.value))
-watch(dlOpen, (open) => overlay('downloads', open))
+watch(dlOpen, schedule)
 let stopDownloads = null
 async function openDownloads(start = null) {
   // already open with another start: opened afresh, so the sheet reads the new one
@@ -173,7 +175,7 @@ function place() {
     : shownTabs.value
         .filter((t) => t.url && !t.danger)
         .map((t) => {
-          const box = boundsOf(pageEls.get(t.id)?.getBoundingClientRect())
+          const box = besideSheet(boundsOf(pageEls.get(t.id)?.getBoundingClientRect()), sheetEl.value?.$el?.getBoundingClientRect?.())
           return box ? { id: t.id, ...box } : null
         })
         .filter(Boolean)
@@ -473,8 +475,8 @@ onBeforeUnmount(() => {
         <div v-if="i < shownTabs.length - 1" class="grip" role="separator" aria-orientation="vertical" title="Drag to change the widths" @pointerdown="grab($event, i)"></div>
       </template>
     </div>
-    <PasswordsSheet v-if="passwordsOpen" @close="passwordsOpen = false" />
-    <DownloadsSheet v-if="dlOpen" :start="dlStart" @close="dlOpen = false" />
+    <PasswordsSheet v-if="passwordsOpen" ref="sheetEl" @close="passwordsOpen = false" />
+    <DownloadsSheet v-if="dlOpen" ref="sheetEl" :start="dlStart" @close="dlOpen = false" />
     <slot />
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>

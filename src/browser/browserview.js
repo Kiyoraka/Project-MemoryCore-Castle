@@ -337,3 +337,13 @@ export function dlRing(items) {
   const size = running.reduce((n, i) => n + i.size, 0)
   return Math.floor((running.reduce((n, i) => n + i.done, 0) / size) * 100)
 }
+
+/** A page box beside an open side panel (Passwords, Downloads): it ends 8 px before the panel begins,
+ * so the page stays in view and never covers the panel; null when nothing is left of it. */
+export function besideSheet(box, sheet) {
+  if (!box || !sheet) return box
+  const right = Math.round(sheet.left) - 8
+  if (box.x + box.w <= right) return box
+  const w = right - box.x
+  return w >= 2 ? { ...box, w } : null
+}
