@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-24T15:14:54.379Z",
-  "merged": 78,
+  "at": "2026-11-25T04:53:10.585Z",
+  "merged": 82,
   "people": [
     {
       "login": "Brian-C69",
@@ -16,14 +16,14 @@
     },
     {
       "login": "OneNonly148",
-      "merged": 12,
+      "merged": 16,
       "built": [
+        "A browser window beside Castle, and the Artifacts tile",
+        "A real Full screen, Full width and layout keys",
+        "Links in the chats open on click",
+        "A session whose project fell off the list gets its project back",
         "Say when a project status is too long",
-        "Projects stay on the list, sessions are the tabs",
-        "Sub-projects and tasks",
-        "Real Codex 5h/week bars on the USAGE card",
-        "The room draws with Codex on the ChatGPT plan for a Claude Code companion",
-        "Mark up a picture before it goes to the companion"
+        "Projects stay on the list, sessions are the tabs"
       ]
     },
     {

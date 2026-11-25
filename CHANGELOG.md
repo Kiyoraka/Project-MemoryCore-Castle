@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.6.0 - 2026-11-25
+
 - Castle's browser brings your Chrome along, one step at a time on its first open: your history and bookmarks (read from copies; Chrome is never touched) and, only if you want, your saved passwords. Your companion can guide you through Chrome's own export but never sees a password: Castle seals them into a vault on your PC and shreds the file. Most visited and bookmarks on the new tab, a star for new ones, and Fill on a saved site's sign-in page.
 
 - Your companion hears your push the moment it lands: Castle says "My push landed." in the quiet DEV tab for you, and she reports it with no message from you.
