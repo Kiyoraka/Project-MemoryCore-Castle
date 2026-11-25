@@ -1053,6 +1053,16 @@ chat**, **Open in your browser**, and, with more than one page on screen, an **�
 column away while the tab stays open as a chip. The page you last clicked in has a violet outline;
 Ctrl+L selects its address. A suspicious site's warning shows as a banner under that page's toolbar.
 
+### Passwords
+
+The **Passwords** chip (a key) opens the passwords sealed on this PC: search them by site or
+username, **Import from Chrome** (Chrome's own export file, sealed and then shredded), **Add a
+login** by hand (the site's address, the username, the password, then **Seal it**), **⧉ Copy** a
+password (it stays on the clipboard for 30 seconds, then Castle clears it if it is still there), or
+**✕** delete one. A password is never shown, never reaches a page, and no AI ever reads it. The
+pages step aside while the sheet is open. Settings > Rooms > BROWSER > Saved passwords lists the
+same logins.
+
 ### Private tabs
 
 The **Private** chip (with a mask) beside **+** opens a private tab; so does **Ctrl+Shift+T**
