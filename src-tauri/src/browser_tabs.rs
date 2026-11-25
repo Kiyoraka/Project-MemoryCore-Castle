@@ -6,6 +6,11 @@ use serde::Serialize;
 
 /// The most tabs the window keeps open; one more replaces nothing and is refused.
 pub const MAX_TABS: usize = 12;
+/// The most pages side by side.
+pub const MAX_PANES: usize = 4;
+/// What a page is told it runs in when it is one of three or four side by side: Chrome on an
+/// Android phone, so sites serve their phone layout.
+pub const MOBILE_UA: &str = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
 /// One tab: `url` is None for a new tab (Castle's own new-tab page shows instead of a web page).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -20,6 +25,8 @@ pub struct Tab {
     pub danger: Option<Danger>,
     /// how many new things the site says it has, from its own title (unread_of); never kept
     pub unread: u32,
+    /// the page is being shown its phone layout (three or four side by side)
+    pub phone: bool,
 }
 
 /// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
@@ -36,14 +43,25 @@ pub struct Danger {
     pub caught_by: Vec<String>,
 }
 
-/// Every tab and the one in front.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+/// Every tab and the one in front, and the pages side by side: `panes` is the group (two to four
+/// tab ids, empty for none), on screen while the tab in front is one of them, each column as wide as
+/// its share in `widths`. `phone_view` (on by default) gives three or four pages their phone layout.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tabs {
     pub list: Vec<Tab>,
     pub active: Option<u32>,
+    pub panes: Vec<u32>,
+    pub widths: Vec<f64>,
+    pub phone_view: bool,
     #[serde(skip)]
     next: u32,
+}
+
+impl Default for Tabs {
+    fn default() -> Self {
+        Tabs { list: Vec::new(), active: None, panes: Vec::new(), widths: Vec::new(), phone_view: true, next: 0 }
+    }
 }
 
 impl Tabs {
@@ -55,7 +73,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0 });
+        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0, phone: false });
         self.active = Some(id);
         Some(id)
     }
@@ -74,9 +92,62 @@ impl Tabs {
         }
         there
     }
+    /// The tabs on screen now, left to right: the group when the tab in front is in it, else that tab.
+    pub fn on_screen(&self) -> Vec<u32> {
+        match self.active {
+            Some(id) if self.panes.contains(&id) => self.panes.clone(),
+            Some(id) => vec![id],
+            None => Vec::new(),
+        }
+    }
+    /// Puts a tab beside the page in front: the two become a group, or the tab joins the group on
+    /// screen, in a column of its own (the columns made equal). It comes to the front. A fifth is
+    /// refused.
+    pub fn place_beside(&mut self, id: u32) -> Result<(), String> {
+        if !self.list.iter().any(|t| t.id == id) {
+            return Err("That tab is not open.".into());
+        }
+        let front = self.active.ok_or("Open a page first.")?;
+        if front == id && !self.panes.contains(&id) {
+            return Err("Choose another tab to put beside this one.".into());
+        }
+        if !self.panes.contains(&front) {
+            self.panes = vec![front];
+        }
+        if !self.panes.contains(&id) {
+            if self.panes.len() >= MAX_PANES {
+                return Err(format!("At most {MAX_PANES} pages fit side by side."));
+            }
+            self.panes.push(id);
+        }
+        self.widths = vec![1.0 / self.panes.len() as f64; self.panes.len()];
+        self.active = Some(id);
+        Ok(())
+    }
+    /// Takes a tab out of the group: it is a tab on its own again. One page left is no group.
+    pub fn unpane(&mut self, id: u32) {
+        if let Some(at) = self.panes.iter().position(|p| *p == id) {
+            self.panes.remove(at);
+            if self.panes.len() < 2 {
+                self.panes.clear();
+            }
+            self.widths = vec![1.0 / self.panes.len().max(1) as f64; self.panes.len()];
+        }
+    }
+    /// New column widths from the grips: one share per column, none below a tenth, made to add up
+    /// to the whole. False when they do not fit the group.
+    pub fn set_widths(&mut self, widths: &[f64]) -> bool {
+        if widths.len() != self.panes.len() || widths.iter().any(|w| !w.is_finite() || *w < 0.1) {
+            return false;
+        }
+        let total: f64 = widths.iter().sum();
+        self.widths = widths.iter().map(|w| w / total).collect();
+        true
+    }
     /// Closes a tab; the one beside it comes to the front. True when it was there.
     pub fn close(&mut self, id: u32) -> bool {
         let Some(at) = self.list.iter().position(|t| t.id == id) else { return false };
+        self.unpane(id);
         self.list.remove(at);
         if self.active == Some(id) {
             // the tab that took its place, else the one before it
@@ -265,6 +336,28 @@ pub fn link_way(setting: &str, url: &str) -> LinkWay {
     }
 }
 
+/// Each column's left edge and width across `width`, from the shares in `widths` (one column for
+/// none).
+pub fn columns(width: f64, widths: &[f64]) -> Vec<(f64, f64)> {
+    let shares: Vec<f64> = if widths.is_empty() { vec![1.0] } else { widths.to_vec() };
+    let total: f64 = shares.iter().sum::<f64>().max(f64::EPSILON);
+    let mut x = 0.0;
+    shares
+        .iter()
+        .map(|s| {
+            let w = (width * s / total).round();
+            let col = (x, w);
+            x += w;
+            col
+        })
+        .collect()
+}
+
+/// Whether pages side by side get their phone layout: three or four on screen, while Phone view is on.
+pub fn mobile_for(on_screen: usize, phone_view: bool) -> bool {
+    phone_view && on_screen >= 3
+}
+
 /// The window's place: the right half of the screen's work area (x, y, width, height).
 pub fn right_half(area_x: i32, area_y: i32, area_w: u32, area_h: u32) -> (i32, i32, u32, u32) {
     let left = area_w / 2;
@@ -446,6 +539,57 @@ mod tests {
         assert!(sticks_out((1512, 25, 1512, 1946), area), "taller than the screen by the title bar");
         assert!(sticks_out((2000, 25, 1512, 1000), area), "past the right edge");
         assert!(sticks_out((-10, 25, 800, 600), area));
+    }
+
+    #[test]
+    fn pages_go_side_by_side_up_to_four_and_close_from_the_middle() {
+        let mut tabs = Tabs::default();
+        let ids: Vec<u32> = (0..5).map(|_| tabs.open(Some("https://x.example/".into())).unwrap()).collect();
+        tabs.switch(ids[0]);
+        assert!(tabs.place_beside(ids[0]).is_err(), "a tab beside itself");
+        tabs.place_beside(ids[1]).unwrap();
+        assert_eq!((tabs.panes.clone(), tabs.active), (vec![ids[0], ids[1]], Some(ids[1])), "the two are a group, the new one in front");
+        tabs.place_beside(ids[2]).unwrap();
+        tabs.place_beside(ids[3]).unwrap();
+        assert_eq!(tabs.on_screen(), ids[..4].to_vec());
+        assert_eq!(tabs.widths, vec![0.25; 4]);
+        assert!(tabs.place_beside(ids[4]).is_err(), "a fifth is refused");
+        tabs.close(ids[1]);
+        assert_eq!(tabs.panes, vec![ids[0], ids[2], ids[3]], "closed from the middle");
+        tabs.switch(ids[4]);
+        assert_eq!(tabs.on_screen(), vec![ids[4]], "a tab outside the group shows alone");
+        tabs.switch(ids[2]);
+        assert_eq!(tabs.on_screen().len(), 3, "a group member brings the group back");
+        tabs.unpane(ids[0]);
+        tabs.unpane(ids[3]);
+        assert!(tabs.panes.is_empty(), "one page left is no group");
+        assert_eq!(tabs.on_screen(), vec![ids[2]]);
+    }
+
+    #[test]
+    fn the_columns_follow_the_grips() {
+        assert_eq!(columns(1000.0, &[]), vec![(0.0, 1000.0)]);
+        assert_eq!(columns(900.0, &[1.0 / 3.0; 3]), vec![(0.0, 300.0), (300.0, 300.0), (600.0, 300.0)]);
+        let mut tabs = Tabs::default();
+        let a = tabs.open(Some("https://a.example/".into())).unwrap();
+        let b = tabs.open(Some("https://b.example/".into())).unwrap();
+        tabs.switch(a);
+        tabs.place_beside(b).unwrap();
+        assert!(tabs.set_widths(&[3.0, 1.0]));
+        assert_eq!(tabs.widths, vec![0.75, 0.25]);
+        assert!(!tabs.set_widths(&[1.0]), "one share for two columns");
+        assert!(!tabs.set_widths(&[0.95, 0.05]), "no column below a tenth");
+    }
+
+    #[test]
+    fn three_or_four_pages_get_the_phone_layout_unless_switched_off() {
+        assert!(!mobile_for(1, true));
+        assert!(!mobile_for(2, true));
+        assert!(mobile_for(3, true));
+        assert!(mobile_for(4, true));
+        assert!(!mobile_for(4, false), "Phone view off keeps them on desktop");
+        assert!(MOBILE_UA.contains("Android") && MOBILE_UA.contains("Chrome/") && MOBILE_UA.contains("Mobile"));
+        assert!(Tabs::default().phone_view, "on to begin with");
     }
 
     #[test]

@@ -415,27 +415,64 @@ fn logical_size(window: &Window) -> (f64, f64) {
     window.inner_size().map(|s| s.to_logical::<f64>(scale)).map(|s| (s.width, s.height)).unwrap_or((960.0, 800.0))
 }
 
-/// The toolbar on top and the tab in front below it; a new tab (no page yet) shows the UI page
-/// whole, with its new-tab page, and so does an overlay of Castle's own (the pages step aside).
+/// The toolbar on top and the pages on screen below it, each in its column (one, or the group side
+/// by side). Castle's own page lies under the pages: it is the whole window when a column has no
+/// page to show (a new tab, a DANGER screen: drawn there, in that column) or when it has something
+/// open over the pages, which then step aside.
 fn layout(app: &AppHandle) {
     let Some(window) = app.get_window(WINDOW) else { return };
     let (w, h) = logical_size(&window);
     let tabs = tabs(app);
     let (bar, overlay) = *CHROME.lock().unwrap();
-    // a tab held back by the guard shows Castle's own page whole: the DANGER screen
-    let page = tabs.current().is_some_and(|t| t.url.is_some() && t.danger.is_none()) && !overlay;
+    let shown = tabs.on_screen();
+    let showable = |id: u32| tabs.list.iter().any(|t| t.id == id && t.url.is_some() && t.danger.is_none());
+    let every_page = !shown.is_empty() && shown.iter().all(|id| showable(*id));
     if let Some(ui) = app.get_webview(UI) {
-        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if page { bar } else { h }).into() });
+        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if every_page && !overlay { bar } else { h }).into() });
     }
+    let widths = if shown.len() > 1 { tabs.widths.clone() } else { Vec::new() };
+    let columns = browser_tabs::columns(w, &widths);
     for tab in &tabs.list {
         let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        if Some(tab.id) == tabs.active && tab.url.is_some() && tab.danger.is_none() && !overlay {
-            let _ = view.set_bounds(Rect { position: LogicalPosition::new(0.0, bar).into(), size: LogicalSize::new(w, (h - bar).max(0.0)).into() });
-            let _ = view.show();
-        } else {
-            let _ = view.hide();
+        match shown.iter().position(|id| *id == tab.id).filter(|_| showable(tab.id) && !overlay) {
+            Some(at) => {
+                let (x, cw) = columns.get(at).copied().unwrap_or((0.0, w));
+                let _ = view.set_bounds(Rect { position: LogicalPosition::new(x, bar).into(), size: LogicalSize::new(cw, (h - bar).max(0.0)).into() });
+                let _ = view.show();
+            }
+            None => {
+                let _ = view.hide();
+            }
         }
     }
+    phone_layouts(app, &tabs);
+}
+
+/// Three or four pages side by side get their phone layout (Phone view on), the rest their own:
+/// each page whose layout should change is told a new user agent and reloads.
+fn phone_layouts(app: &AppHandle, tabs: &Tabs) {
+    let shown = tabs.on_screen();
+    let phone = browser_tabs::mobile_for(shown.len(), tabs.phone_view);
+    // only the pages on screen change: one off screen keeps its layout until it is shown again
+    let changes: Vec<(u32, bool)> = tabs.list.iter().filter(|t| t.url.is_some() && shown.contains(&t.id) && t.phone != phone).map(|t| (t.id, phone)).collect();
+    if changes.is_empty() {
+        return;
+    }
+    {
+        let state = app.state::<Browser>();
+        let mut kept = state.0.lock().unwrap();
+        for (id, want) in &changes {
+            if let Some(tab) = kept.get_mut(*id) {
+                tab.phone = *want;
+            }
+        }
+    }
+    for (id, want) in changes {
+        if let Some(view) = app.get_webview(&tab_label(id)) {
+            crate::browser_native::set_user_agent(&view, tab_label(id), want.then_some(browser_tabs::MOBILE_UA));
+        }
+    }
+    tell(app);
 }
 
 /// The web page for tab `id`, made the first time the tab gets an address.
@@ -655,6 +692,7 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
     if let Some(view) = app.get_webview(&tab_label(id)) {
         let _ = view.close();
     }
+    crate::browser_native::forget(&tab_label(id));
     crate::browser_guard::forget_tab(id);
     let empty = {
         let state = app.state::<Browser>();
@@ -712,6 +750,44 @@ pub async fn browser_step(app: AppHandle, step: String) -> Result<(), String> {
         _ => return Err("Back, forward or reload.".into()),
     };
     done.map_err(|_| "The page did not answer.".to_string())
+}
+
+/// Side by side: the tab goes beside the page in front, up to four on screen.
+#[tauri::command]
+pub async fn browser_beside(app: AppHandle, id: u32) -> Result<(), String> {
+    app.state::<Browser>().0.lock().unwrap().place_beside(id)?;
+    layout(&app);
+    tell(&app);
+    Ok(())
+}
+
+/// A column's x: that page is a tab on its own again.
+#[tauri::command]
+pub async fn browser_unpane(app: AppHandle, id: u32) -> Result<(), String> {
+    app.state::<Browser>().0.lock().unwrap().unpane(id);
+    layout(&app);
+    tell(&app);
+    Ok(())
+}
+
+/// The grips between the columns: each column's share of the width.
+#[tauri::command]
+pub async fn browser_widths(app: AppHandle, widths: Vec<f64>) -> Result<(), String> {
+    if !app.state::<Browser>().0.lock().unwrap().set_widths(&widths) {
+        return Err("Those widths do not fit the pages side by side.".into());
+    }
+    layout(&app);
+    tell(&app);
+    Ok(())
+}
+
+/// The Phone view switch: three or four pages side by side get their phone layout, or stay on desktop.
+#[tauri::command]
+pub async fn browser_phone_view(app: AppHandle, on: bool) -> Result<(), String> {
+    app.state::<Browser>().0.lock().unwrap().phone_view = on;
+    layout(&app);
+    tell(&app);
+    Ok(())
 }
 
 /// Castle's own page tells the layout how tall its bar is and whether it has something open over the
