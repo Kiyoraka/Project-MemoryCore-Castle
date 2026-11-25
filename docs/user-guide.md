@@ -864,6 +864,23 @@ Every page you open in Castle's browser is checked as it loads, and a warning li
 - **Private browsing** (when **Remember sign-ins** is off): every page is still checked and a sign-in page is still asked about, but nothing about your visit is kept: only your companion's mark for the site, which says what the site is, never that you were there.
 - **What leaves your computer:** only the site's name, in your companion's own turn on your own subscription, the same way a patrol's findings do. Your companion never opens the site; it judges by the name alone.
 - **On the Sentinel's panel**, **Websites** lists the sites it warned about and the patterns it learned. **Mark safe** on a site makes your word stand over your companion's from then on; **Switch off** on a pattern stops it matching (it is kept with its why, never deleted).
+- **Without the Sentinel:** say yes to **Let your companion check sites for you?** in the browser's welcome, and your companion judges sites the same way, with no helper to install. A patrol's list still needs the Sentinel.
+
+### Bringing Chrome along
+
+The first time you open Castle's browser, its new tab asks a few questions, **one at a time**. Each is your own **Yes** or **Skip**, and a skip is never asked again. **Settings > Browser > Bring things from Chrome** opens the welcome back.
+
+1. **Your history.** Castle reads a *copy* of Chrome's history, so Chrome itself is never touched: the sites and pages you visited, their titles, how often and when. Never what you typed, never the part of an address after `?` or `#`. It fills **Most visited** on the new tab. With more than one Chrome profile, you choose which.
+2. **Your bookmarks**, from a copy of Chrome's bookmarks file, with their folders. They show on the new tab, and the **star** in the toolbar keeps new ones (press it again to remove one).
+3. **Your saved passwords**, only if you want them. Castle never opens Chrome's own password store. Chrome exports them itself: **Password Manager > Settings > Export passwords** (it asks for your Windows PIN).
+   - Press **Ask <companion> to guide me** and your companion walks you through it in HOME's chat and explains why a sealed vault is safer than an export file lying around. It never asks for a password and never opens the file.
+   - Press **Choose the exported file...** and pick it. Castle's own code seals each password into a vault on this PC (AES-256-GCM; its key in your Windows Credential Manager) and **shreds the file** at once. A file that is not Chrome's export is left alone.
+   - If your companion guided you, it hears only how many were sealed and that the file is gone.
+   - On a saved site's sign-in page, a **Fill** button appears in the toolbar; press it (or choose the username) and Castle fills the page. It never fills by itself, and only on that site.
+   - **Settings > Browser > Saved passwords** lists each site and username, never a password, with **Remove** and **Remove all**.
+4. **Let your companion check sites for you?** (see **Websites** above).
+
+Everything stays in your own memory database and your own Credential Manager on this PC; nothing goes to the Foundation or anyone else. Chrome only for now.
 
 ### The model
 
