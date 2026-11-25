@@ -9,7 +9,7 @@ use std::time::Duration;
 
 /// The model that reads the picture on the key way (OpenAI's vision guide, Responses API, Nov 2026).
 pub const VISION_MODEL: &str = "gpt-6.2-astra";
-const OPENAI: &str = "https://api.openai.com";
+pub const OPENAI: &str = "https://api.openai.com";
 const MAX_PICTURE_BYTES: u64 = 25 * 1024 * 1024;
 const TIME_LIMIT: Duration = Duration::from_secs(120);
 /// What the AI is asked; the same words on both ways.
@@ -35,12 +35,17 @@ pub fn data_url(path: &Path) -> Result<String, String> {
 
 /// The Responses API request for one picture.
 pub fn request_body(data_url: &str) -> Value {
+    request_body_with(data_url, INSTRUCTION)
+}
+
+/// The request for one picture with its own instruction (the browser's manga bubbles).
+pub fn request_body_with(data_url: &str, instruction: &str) -> Value {
     json!({
         "model": VISION_MODEL,
         "input": [{
             "role": "user",
             "content": [
-                { "type": "input_text", "text": INSTRUCTION },
+                { "type": "input_text", "text": instruction },
                 { "type": "input_image", "image_url": data_url, "detail": "auto" }
             ]
         }]
@@ -64,6 +69,11 @@ pub fn text_of(answer: &Value) -> Option<String> {
 
 /// The key way: one Responses API call. `base` is OpenAI's address (a test passes its own).
 pub fn ask_openai(base: &str, key: &str, data_url: &str) -> Result<String, String> {
+    ask_openai_with(base, key, data_url, INSTRUCTION)
+}
+
+/// `ask_openai` with its own instruction: an API call with no tools at all.
+pub fn ask_openai_with(base: &str, key: &str, data_url: &str, instruction: &str) -> Result<String, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(TIME_LIMIT)
         .user_agent(concat!("MemoryCoreCastle/", env!("CARGO_PKG_VERSION")))
@@ -72,7 +82,7 @@ pub fn ask_openai(base: &str, key: &str, data_url: &str) -> Result<String, Strin
     let answer = client
         .post(format!("{base}/v1/responses"))
         .bearer_auth(key)
-        .json(&request_body(data_url))
+        .json(&request_body_with(data_url, instruction))
         .send()
         .map_err(|_| "OpenAI could not be reached.".to_string())?;
     let status = answer.status().as_u16();

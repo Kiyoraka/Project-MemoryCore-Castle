@@ -641,6 +641,7 @@ pub fn run() {
             browser_suggest::browser_forget_search,
             browser_translate::browser_translate,
             browser_translate::browser_translate_off,
+            browser_translate::browser_translate_pictures,
             browser_translate::browser_translate_settings,
             browser_translate::browser_translate_language,
             browser_translate::browser_translate_site,
