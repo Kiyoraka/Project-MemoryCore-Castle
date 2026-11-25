@@ -1033,6 +1033,11 @@ Everything else works the same in both: tabs, pages side by side, suggestions, t
 translation. Changing Browser opens closes the open pages (your sign-ins are kept); they open in their
 new home the next time.
 
+In both homes the browser wears your theme: its chips, toolbars and panels take the theme's own
+background, accent and text, so the Sunset Shore's browser is sunset and the Constellation's is night
+blue. Only the signals keep their own colours (mint running, gold done, coral failed, red danger, the
+private tab's violet).
+
 ### Signing in with Google, Apple or Microsoft
 
 **Sign in with Google / Apple / Microsoft** (or "Continue with...") opens its own small window,

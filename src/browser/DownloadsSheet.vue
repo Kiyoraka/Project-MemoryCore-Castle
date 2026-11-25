@@ -195,9 +195,9 @@ onBeforeUnmount(() => unlisten?.())
   gap: 12px;
   width: min(560px, calc(100% - 28px));
   padding: 18px;
-  border: 1px solid rgba(168, 140, 255, 0.35);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 16px;
-  background: rgba(18, 14, 46, 0.96);
+  background: color-mix(in srgb, var(--background) 96%, transparent);
   backdrop-filter: blur(14px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
   color: var(--text);
@@ -233,7 +233,7 @@ onBeforeUnmount(() => unlisten?.())
 .close {
   border: none;
   background: none;
-  color: var(--text-dim, #b9b0d8);
+  color: var(--text-dim, var(--text-dim));
   font-size: 22px;
   cursor: pointer;
 }
@@ -243,7 +243,7 @@ onBeforeUnmount(() => unlisten?.())
   gap: 10px;
   align-items: center;
   padding: 6px 6px 6px 12px;
-  border: 1px solid rgba(168, 140, 255, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.25);
 }
@@ -265,8 +265,8 @@ onBeforeUnmount(() => unlisten?.())
   padding: 8px 16px;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, #8a6cf0, #a98bff);
-  color: #fff;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 78%, #000), var(--accent));
+  color: #07142e;
   font: inherit;
   cursor: pointer;
 }
@@ -304,9 +304,9 @@ onBeforeUnmount(() => unlisten?.())
 
 .pills button {
   padding: 6px 16px;
-  border: 1px solid rgba(168, 140, 255, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 999px;
-  background: rgba(40, 30, 90, 0.5);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -314,7 +314,8 @@ onBeforeUnmount(() => unlisten?.())
 
 .pills button.on {
   border-color: transparent;
-  background: linear-gradient(135deg, #8a6cf0, #a98bff);
+  color: #07142e;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 78%, #000), var(--accent));
 }
 
 .cards {
@@ -328,7 +329,7 @@ onBeforeUnmount(() => unlisten?.())
 .empty {
   margin: 20px 0;
   text-align: center;
-  color: var(--text-dim, #b9b0d8);
+  color: var(--text-dim, var(--text-dim));
 }
 
 .card {
@@ -338,7 +339,7 @@ onBeforeUnmount(() => unlisten?.())
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  background: rgba(30, 24, 66, 0.75);
+  background: color-mix(in srgb, var(--background) 75%, transparent);
 }
 
 .card.gold {
@@ -353,7 +354,7 @@ onBeforeUnmount(() => unlisten?.())
   width: 54px;
   height: 54px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #6c52d8, #9a7cff);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, #000), color-mix(in srgb, var(--accent) 90%, #000));
 }
 
 .icon.box {
@@ -392,7 +393,7 @@ onBeforeUnmount(() => unlisten?.())
 
 .cat,
 .line {
-  color: var(--text-dim, #b9b0d8);
+  color: var(--text-dim, var(--text-dim));
 }
 
 .bar {
@@ -456,9 +457,9 @@ onBeforeUnmount(() => unlisten?.())
   place-items: center;
   width: 40px;
   height: 40px;
-  border: 1px solid rgba(168, 140, 255, 0.45);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 50%;
-  background: rgba(20, 16, 50, 0.7);
+  background: color-mix(in srgb, var(--background) 70%, transparent);
   color: var(--text);
   cursor: pointer;
 }
@@ -488,9 +489,9 @@ onBeforeUnmount(() => unlisten?.())
   gap: 12px;
   width: 340px;
   padding: 16px;
-  border: 1px solid rgba(168, 140, 255, 0.45);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 14px;
-  background: rgba(24, 18, 60, 0.97);
+  background: color-mix(in srgb, var(--background) 97%, transparent);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
 }
 
@@ -510,7 +511,7 @@ onBeforeUnmount(() => unlisten?.())
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--text-dim, #b9b0d8);
+  color: var(--text-dim, var(--text-dim));
   font-size: 13px;
 }
 
@@ -522,9 +523,9 @@ onBeforeUnmount(() => unlisten?.())
 
 .choices button {
   padding: 7px 14px;
-  border: 1px solid rgba(168, 140, 255, 0.4);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 999px;
-  background: rgba(40, 30, 90, 0.5);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -532,22 +533,23 @@ onBeforeUnmount(() => unlisten?.())
 
 .choices button.on {
   border-color: transparent;
-  background: linear-gradient(135deg, #8a6cf0, #a98bff);
+  color: #07142e;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 78%, #000), var(--accent));
 }
 
 .start {
   padding: 11px;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, #7a5ce6, #a98bff);
-  color: #fff;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, #000), var(--accent));
+  color: #07142e;
   font: inherit;
   font-size: 15px;
   cursor: pointer;
 }
 
 .terms {
-  color: var(--text-dim, #b9b0d8);
+  color: var(--text-dim, var(--text-dim));
   font-size: 11px;
   text-align: center;
 }

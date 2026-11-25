@@ -109,7 +109,7 @@ onMounted(read)
   padding: 16px 18px;
   border-radius: 16px;
   border: 1px solid rgba(143, 240, 203, 0.35);
-  background: rgba(8, 14, 38, 0.97);
+  background: color-mix(in srgb, var(--background) 97%, transparent);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
   color: var(--text);
 }
@@ -147,14 +147,14 @@ input {
   padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   color: var(--text);
 }
 button {
   padding: 6px 12px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(150, 190, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text);
   cursor: pointer;
 }
@@ -188,7 +188,7 @@ button.primary {
   align-items: center;
   gap: 10px;
   padding: 8px 4px;
-  border-bottom: 1px solid rgba(150, 190, 255, 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .who {
   flex: 1;

@@ -48,7 +48,7 @@ const letter = (row) => (row.text.replace(/^https?:\/\/(www\.)?/, '')[0] ?? '?')
   padding: 10px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(8, 14, 38, 0.97);
+  background: color-mix(in srgb, var(--background) 97%, transparent);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
 }
 .pills {
@@ -65,7 +65,7 @@ const letter = (row) => (row.text.replace(/^https?:\/\/(www\.)?/, '')[0] ?? '?')
   padding: 6px 8px 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(150, 190, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text);
   font-size: 14px;
   cursor: pointer;
@@ -97,7 +97,7 @@ const letter = (row) => (row.text.replace(/^https?:\/\/(www\.)?/, '')[0] ?? '?')
   padding: 9px 12px;
   border-radius: 10px;
   border: 1px solid transparent;
-  background: rgba(150, 190, 255, 0.04);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
   cursor: pointer;
 }
 .card:hover {
@@ -116,7 +116,7 @@ const letter = (row) => (row.text.replace(/^https?:\/\/(www\.)?/, '')[0] ?? '?')
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #eef3ff;
+  background: var(--text);
   color: #0b1636;
   font-weight: 700;
 }

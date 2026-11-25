@@ -4,6 +4,9 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- The browser wears your theme, in its own window and inside Castle: chips, toolbars, the Passwords and Downloads panels take the theme's colours.
+- A YouTube video keeps its address in the toolbar as you move between videos, and a downloaded video opens: its real file is found, with no empty twin beside it.
+
 - A downloader in Castle's browser: every page download caught, up to 8 parts at once, pause and resume (even after a restart), folders by type, YouTube and Threads videos at the quality you pick, and every file past the guards first.
 
 - Ask your companion about a page: each toolbar's "read this" sends the page's words to HOME with Summarize, Is it safe? or Help me fill this, and the answer comes in HOME's chat. Never a bank or a password page.

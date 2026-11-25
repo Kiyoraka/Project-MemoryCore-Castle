@@ -346,11 +346,11 @@ defineExpose({ selectAddress })
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
-  background: rgba(10, 14, 40, 0.55);
+  background: color-mix(in srgb, var(--background) 55%, transparent);
 }
 .pane.focused {
-  border-color: rgba(168, 140, 255, 0.9);
-  box-shadow: 0 0 12px rgba(168, 140, 255, 0.25);
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .pane.private {
   border-color: rgba(168, 120, 255, 0.75);
@@ -401,10 +401,10 @@ defineExpose({ selectAddress })
   padding: 7px 12px;
   border-radius: 9px;
   border: 1px solid var(--line);
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
 }
 .address:focus-within {
-  border-color: rgba(168, 140, 255, 0.9);
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
 }
 .address input {
   flex: 1;
@@ -424,9 +424,9 @@ defineExpose({ selectAddress })
   flex-shrink: 0;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(168, 140, 255, 0.7);
-  background: rgba(120, 90, 220, 0.3);
-  color: #e6dcff;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
   font-size: 12.5px;
   white-space: nowrap;
   cursor: pointer;
@@ -443,15 +443,15 @@ defineExpose({ selectAddress })
   margin: 0 10px 8px;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(168, 140, 255, 0.45);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   background: rgba(70, 40, 140, 0.3);
   font-size: 12.5px;
 }
 .ask-row button {
   padding: 4px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(168, 140, 255, 0.6);
-  background: rgba(120, 90, 220, 0.35);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 21%, transparent);
   color: var(--text);
   cursor: pointer;
 }
@@ -482,7 +482,7 @@ defineExpose({ selectAddress })
   padding: 4px 10px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   color: var(--text);
   font-size: 12.5px;
   cursor: pointer;

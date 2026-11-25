@@ -34,8 +34,10 @@ import {
   getSettings,
   onBrowserState,
   onDownloadsState,
+  userThemes,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
+import { DEFAULT_THEME_ID, applyTheme, builtInThemes, chooseTheme, fromUserFolders } from '../themes/loader.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import DownloadsSheet from './DownloadsSheet.vue'
@@ -311,6 +313,15 @@ function onKey(event) {
   event.preventDefault()
 }
 
+// the member's theme on this window's root: the built-in themes and the ones dropped into Castle's folder
+// (a dropped-in theme's folders are read only when the chosen one is not built in: they carry pictures)
+async function wearTheme(id) {
+  const wanted = id ?? DEFAULT_THEME_ID
+  const builtIn = builtInThemes()
+  const folders = builtIn.some((t) => t.id === wanted) ? [] : await userThemes().catch(() => [])
+  applyTheme(chooseTheme([...builtIn, ...fromUserFolders(folders).themes], wanted).theme)
+}
+
 onMounted(async () => {
   if (!props.embedded) document.title = 'MemoryCore · Browser'
   boxes = new ResizeObserver(schedule)
@@ -324,6 +335,8 @@ onMounted(async () => {
   stopDownloads = await onDownloadsState((list) => (dlItems.value = list))
   try {
     const view = await getSettings()
+    // its own window has no App.vue: it puts on the member's theme itself (inside Castle App.vue has)
+    if (!props.embedded) wearTheme(view.settings?.theme)
     newTab.value = view.settings?.browserNewTab ?? 'shortcuts'
     companion.value = view.companionLabel || 'Your companion'
   } catch {
@@ -482,35 +495,47 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style>
+/* the browser window has no App.vue around it: Castle's default colours on the root, where the member's
+   theme (applied on the root, in BrowserWindow's start) and App.vue's own theme both win over them */
+:root {
+  --background: #050b1f;
+  --bar-background: rgba(6, 12, 34, 0.92);
+  --panel-background: rgba(10, 20, 52, 0.78);
+  --widget-background: rgba(12, 24, 60, 0.62);
+  --line: rgba(150, 190, 255, 0.34);
+  --text: #eef3ff;
+  --text-dim: #a6b8de;
+  --accent: #8fb8ff;
+  --hover: rgba(150, 190, 255, 0.14);
+  --glass-blur: 14px;
+  --good: #8fe3b8;
+  --warn: #ffd59a;
+  --bad: #ff9aa8;
+}
+</style>
+
 <style scoped>
-/* the browser window has no App.vue around it: its own colours, Castle's defaults */
+/* every chrome colour is the member's theme: its background, accent and text (status colours stay their own) */
 /* inside Castle: a dark glass panel in the room, framed by Castle (the pick browser-place-2) */
 .browser.embedded {
   position: absolute;
   inset: 10px 14px 14px;
   border-radius: 14px;
-  border: 1px solid rgba(150, 190, 255, 0.24);
+  border: 1px solid var(--line);
   overflow: hidden;
-  background: rgba(5, 11, 31, 0.94);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
 .browser.embedded .problem {
   position: absolute;
 }
 .browser {
-  --text: #eef3ff;
-  --text-dim: #a6b8de;
-  --accent: #8fb8ff;
-  --line: rgba(150, 190, 255, 0.34);
-  --hover: rgba(150, 190, 255, 0.14);
-  --good: #8fe3b8;
-  --warn: #ffd59a;
-  --bad: #ff9aa8;
   position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: #050b1f;
+  background: var(--background);
   color: var(--text);
   font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
   user-select: none;
@@ -526,7 +551,7 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   gap: 4px;
   padding: 0 12px;
-  background: rgba(6, 12, 34, 0.96);
+  background: color-mix(in srgb, var(--background) 96%, transparent);
   overflow: hidden;
 }
 .tab {
@@ -545,10 +570,10 @@ onBeforeUnmount(() => {
 }
 /* the pages side by side as one stacked chip, to the pick browser-split-2 */
 .tab.group {
-  border: 1px solid #b9a2ff;
+  border: 1px solid var(--accent);
   box-shadow:
-    3px -3px 0 -1px rgba(185, 162, 255, 0.35),
-    0 0 10px rgba(185, 162, 255, 0.3);
+    3px -3px 0 -1px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .minimap {
   display: inline-flex;
@@ -558,7 +583,7 @@ onBeforeUnmount(() => {
   width: 5px;
   height: 14px;
   border-radius: 2px;
-  border: 1px solid #b9a2ff;
+  border: 1px solid var(--accent);
 }
 .x.beside {
   opacity: 0;
@@ -575,7 +600,7 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   color: var(--text);
   font-size: 12px;
   cursor: pointer;
@@ -584,7 +609,7 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 16px;
   border-radius: 999px;
-  background: rgba(150, 190, 255, 0.25);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   display: inline-flex;
   align-items: center;
   padding: 2px;
@@ -619,7 +644,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border-left: 1px solid rgba(150, 190, 255, 0.12);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
   cursor: pointer;
 }
 /* a site with news: a mint count and a soft gold glow, the twin of CHAT's */
@@ -647,10 +672,10 @@ onBeforeUnmount(() => {
     0 0 12px rgba(255, 40, 50, 0.6);
 }
 .tab:hover {
-  background: rgba(150, 190, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .tab.on {
-  background: rgba(10, 20, 52, 0.92);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
   color: var(--text);
   box-shadow: inset 0 2px 0 var(--accent);
 }
@@ -726,8 +751,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: rgba(10, 20, 52, 0.92);
-  border-bottom: 1px solid rgba(150, 190, 255, 0.18);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .icon {
   width: 36px;
@@ -765,7 +790,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 0 14px;
   border-radius: 18px;
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   border: 1px solid var(--line);
 }
 .address {
@@ -803,7 +828,7 @@ onBeforeUnmount(() => {
   padding: 0 14px;
   border-radius: 18px;
   border: 1px solid var(--line);
-  background: rgba(150, 190, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -811,7 +836,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .pill:hover:not(:disabled) {
-  background: rgba(150, 190, 255, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .new-tab {
   flex: 1;
@@ -833,7 +858,7 @@ onBeforeUnmount(() => {
   padding: 18px 20px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(150, 190, 255, 0.06);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .welcome h2 {
   margin: 0 0 8px;
@@ -897,7 +922,7 @@ onBeforeUnmount(() => {
 }
 .pill.primary {
   border-color: var(--accent);
-  background: rgba(143, 184, 255, 0.22);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .said {
   margin: 0;
@@ -919,14 +944,14 @@ onBeforeUnmount(() => {
   gap: 10px;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: rgba(12, 24, 60, 0.62);
+  background: color-mix(in srgb, var(--background) 62%, transparent);
   color: var(--text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 .shortcut:hover {
-  background: rgba(150, 190, 255, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .letter {
   width: 32px;
@@ -934,7 +959,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: rgba(143, 184, 255, 0.22);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
   font-weight: 700;
 }
@@ -949,7 +974,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(5, 11, 31, 0.92);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
   border: 1px solid var(--bad);
   color: var(--bad);
   font-size: 12px;
@@ -976,13 +1001,13 @@ onBeforeUnmount(() => {
   padding: 0 4px 0 2px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(20, 16, 50, 0.45);
+  background: color-mix(in srgb, var(--background) 45%, transparent);
   font-size: 13px;
   color: var(--text);
 }
 .chip.on {
-  border-color: rgba(168, 140, 255, 0.9);
-  background: rgba(168, 140, 255, 0.14);
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .chip .name {
   display: inline-flex;
@@ -1009,7 +1034,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .chip .mini:hover {
-  background: rgba(168, 140, 255, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--text);
 }
 .chip.plus {
@@ -1069,7 +1094,7 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   border-radius: 9px;
   border: 1px solid var(--line);
-  background: rgba(20, 16, 50, 0.45);
+  background: color-mix(in srgb, var(--background) 45%, transparent);
   color: var(--text);
   font-size: 12.5px;
   white-space: nowrap;
@@ -1128,7 +1153,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 4px 6px 4px 12px;
-  border: 1px solid rgba(168, 140, 255, 0.5);
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   border-radius: 999px;
   font-size: 12.5px;
 }
@@ -1137,7 +1162,7 @@ onBeforeUnmount(() => {
   padding: 3px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(5, 11, 31, 0.85);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   color: var(--text);
   font-size: 12px;
   cursor: pointer;
@@ -1151,10 +1176,10 @@ onBeforeUnmount(() => {
 }
 .grip {
   cursor: col-resize;
-  background: linear-gradient(90deg, transparent 4px, rgba(168, 140, 255, 0.35) 4px, rgba(168, 140, 255, 0.35) 6px, transparent 6px);
+  background: linear-gradient(90deg, transparent 4px, color-mix(in srgb, var(--accent) 35%, transparent) 4px, color-mix(in srgb, var(--accent) 35%, transparent) 6px, transparent 6px);
 }
 .grip:hover {
-  background: linear-gradient(90deg, transparent 3px, rgba(168, 140, 255, 0.9) 3px, rgba(168, 140, 255, 0.9) 7px, transparent 7px);
+  background: linear-gradient(90deg, transparent 3px, color-mix(in srgb, var(--accent) 90%, transparent) 3px, color-mix(in srgb, var(--accent) 90%, transparent) 7px, transparent 7px);
 }
 .empty {
   margin: auto;

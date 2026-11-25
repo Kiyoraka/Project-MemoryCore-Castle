@@ -65,8 +65,8 @@ const bubbleHint = computed(() =>
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: rgba(8, 16, 44, 0.95);
-  border-bottom: 1px solid rgba(150, 190, 255, 0.18);
+  background: color-mix(in srgb, var(--background) 95%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   font-size: 12px;
   overflow: hidden;
 }
@@ -77,8 +77,8 @@ const bubbleHint = computed(() =>
   height: 24px;
   padding: 0 4px 0 10px;
   border-radius: 12px;
-  border: 1px solid rgba(185, 162, 255, 0.45);
-  background: rgba(20, 24, 60, 0.85);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--background) 85%, transparent);
   color: var(--text);
   flex-shrink: 0;
 }
@@ -106,17 +106,17 @@ button:disabled {
   cursor: default;
 }
 .go {
-  border-color: rgba(185, 162, 255, 0.6);
-  background: rgba(120, 90, 220, 0.35);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 21%, transparent);
 }
 .go.on {
-  background: rgba(120, 90, 220, 0.6);
+  background: color-mix(in srgb, var(--accent) 36%, transparent);
 }
 .switch {
   width: 26px;
   height: 14px;
   border-radius: 999px;
-  background: rgba(150, 190, 255, 0.25);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   display: inline-flex;
   align-items: center;
   padding: 2px;
