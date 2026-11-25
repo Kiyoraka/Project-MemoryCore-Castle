@@ -5,7 +5,7 @@
 use keyring::Entry;
 use serde::Serialize;
 
-const SERVICE: &str = "com.memorycore.castle";
+pub(crate) const SERVICE: &str = "com.memorycore.castle";
 
 /// Every key Castle can keep: (account, label shown in Settings).
 pub const KEYS: [(&str, &str); 9] = [

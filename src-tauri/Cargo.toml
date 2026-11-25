@@ -52,6 +52,10 @@ tauri-plugin-updater = { version = "2", optional = true }
 # the browser sign-in (PKCE): a random secret and its SHA-256 fingerprint
 sha2 = "0.10"
 getrandom = "0.3"
+# the browser's vault: each saved password sealed with AES-256-GCM, its key in the member's Credential Manager
+aes-gcm = "0.10"
+# Chrome's History is a SQLite file, read from a copy when the member brings their history along
+rusqlite = { version = "0.32", features = ["bundled"] }
 mysql = { version = "28.0.4", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 trash = "5"
 # the Discord bridge's Gateway connection (its REST calls stay on reqwest, same as every other bridge)
