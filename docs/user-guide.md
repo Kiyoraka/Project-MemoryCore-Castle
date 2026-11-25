@@ -26,6 +26,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 18. [The Sentinel](#18-the-sentinel)
 19. [Messaging](#19-messaging)
 20. [Finance](#20-finance)
+21. [The browser](#21-the-browser)
 
 ---
 
@@ -1001,6 +1002,22 @@ Your receipts and their pictures stay in your own memory database and memory fol
 (`finance/receipts`). Nothing goes to the Portfolio, the Foundation or the chat room; they travel
 only inside your own backup. A full card or account number is never kept: only the last four
 digits, and any longer run of digits in a shop's name or a note is masked.
+
+## 21. The browser
+
+**BROWSER** (in APPS, or a link from a chat) opens Castle's own browser window on the right half of
+your screen: tabs, an address bar, and your Chrome history, bookmarks and saved passwords if you
+brought them along (see **Bringing Chrome along** under The Sentinel, where every page's phishing
+check is explained too). Its pages keep their sign-ins in a store of their own, apart from Castle,
+and a page can never reach Castle itself.
+
+### Signing in with Google, Apple or Microsoft
+
+**Sign in with Google / Apple / Microsoft** (or "Continue with...") opens its own small window,
+which closes by itself when you are signed in, and the site you were on shows you signed in. The
+small window shares the browser's sign-ins, so with **Remember sign-ins** off it is private too. A
+plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
+never gets a small window: it opens as a tab, where its warning shows.
 
 ## Alerts
 
