@@ -550,8 +550,13 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
         .on_navigation(move |to| guard_navigation(&navs, id, to))
         // every download a page starts goes to Castle's downloader (downloads.rs)
         .on_download(move |view, event| on_download(&downloads, id, !remember, view, event))
-        .on_document_title_changed(move |_, title| {
+        .on_document_title_changed(move |view, title| {
+            // a page that moves on without loading (YouTube's next video) changes its title: its address with it
+            let now = view.url().ok().map(|u| u.to_string());
             if let Some(tab) = titles.state::<Browser>().0.lock().unwrap().get_mut(id) {
+                if let Some(now) = browser_tabs::moved_to(tab.url.as_deref(), now.as_deref()) {
+                    tab.url = Some(now);
+                }
                 tab.title = browser_tabs::tab_title(tab.url.as_deref(), Some(&title));
                 tab.unread = browser_tabs::unread_of(&title);
             }

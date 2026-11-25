@@ -157,8 +157,9 @@ pub fn needs_native(error: &str) -> bool {
 
 /// Marks a finished file as from the internet (Windows' `Zone.Identifier` stream); nothing elsewhere.
 pub fn mark_from_internet(path: &Path, url: &str, referer: &str) {
+    // the mark is a stream of the file: written to a path with no file, it would make an empty one
     #[cfg(windows)]
-    {
+    if path.is_file() {
         let _ = std::fs::write(format!("{}:Zone.Identifier", path.display()), zone_text(url, referer));
     }
     // macOS keeps its own quarantine mark for what a person opens; the words are not written there

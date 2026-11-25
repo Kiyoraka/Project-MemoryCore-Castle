@@ -391,6 +391,32 @@ pub fn sticks_out(win: (i32, i32, u32, u32), area: (i32, i32, u32, u32)) -> bool
     wx < ax || wy < ay || wx + ww > ax + aw || wy + wh > ay + ah
 }
 
+/// The address a tab moved to without a load (pure): a web address that differs from the one it has,
+/// else nothing (the welcome, a blank page and the same address change nothing).
+pub fn moved_to(had: Option<&str>, now: Option<&str>) -> Option<String> {
+    let now = now?;
+    if !(now.starts_with("https://") || now.starts_with("http://")) || had == Some(now) {
+        return None;
+    }
+    Some(now.to_string())
+}
+
+#[cfg(test)]
+mod moved_tests {
+    use super::*;
+
+    #[test]
+    fn a_page_that_moves_on_without_loading_takes_its_address_along() {
+        let home = "https://www.youtube.com/";
+        let video = "https://www.youtube.com/watch?v=ALZHF5UqnU4";
+        assert_eq!(moved_to(Some(home), Some(video)).as_deref(), Some(video));
+        assert_eq!(moved_to(Some(video), Some(video)), None);
+        assert_eq!(moved_to(Some(home), Some("about:blank")), None);
+        assert_eq!(moved_to(Some(home), None), None);
+        assert_eq!(moved_to(None, Some(video)).as_deref(), Some(video));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

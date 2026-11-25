@@ -11,6 +11,7 @@ use crate::downloads::{self, Item};
 use serde::Serialize;
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
+use std::time::SystemTime;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -278,9 +279,13 @@ pub fn run(app: &AppHandle, item: &Item, stop: Arc<AtomicBool>) -> Result<bool, 
     }
     let sample = if item.format == "Audio MP3" { "a.mp3" } else { "a.mp4" };
     let folder = downloads::folder_of(app, sample);
+    let started = SystemTime::now();
     let mut cmd = Command::new(&tool);
-    cmd.args(format_args(&item.format))
-        .args(["--no-playlist", "--newline", "--progress", "--no-simulate", "--no-warnings", "--continue"])
+    // UTF-8 both ways: a title with a character the console's code page lacks ("｜") comes back whole
+    cmd.env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
+        .args(format_args(&item.format))
+        .args(["--no-playlist", "--newline", "--progress", "--no-simulate", "--no-warnings", "--continue", "--no-mtime", "--encoding", "utf-8"])
         .arg("--progress-template")
         .arg(format!("download:{PROGRESS}%(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s %(progress.speed)s"))
         .arg("--print")
@@ -299,7 +304,9 @@ pub fn run(app: &AppHandle, item: &Item, stop: Arc<AtomicBool>) -> Result<bool, 
     let final_path = Arc::new(std::sync::Mutex::new(None::<String>));
     let fp = final_path.clone();
     let reader = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+        // bytes, never lines: one line the decoder dislikes must not end the reading
+        for raw in BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
+            let line = String::from_utf8_lossy(&raw).trim_end_matches('\r').to_string();
             if let Some((done, total, speed)) = progress_of(&line) {
                 downloads::set(id, |i| {
                     i.done = done;
@@ -331,22 +338,70 @@ pub fn run(app: &AppHandle, item: &Item, stop: Arc<AtomicBool>) -> Result<bool, 
             Err(_) => return Err("The video tool stopped.".into()),
         }
     }
-    if let Some(path) = final_path.lock().unwrap().clone() {
-        downloads::mark_from_internet(Path::new(&path), &item.url, "");
-        let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        downloads::set(id, |i| {
-            i.path = path.clone();
-            if !name.is_empty() {
-                i.name = name;
-            }
-        });
-    }
+    let reported = final_path.lock().unwrap().clone();
+    let path = finished_file(reported.as_deref(), &folder, started).ok_or("The video tool finished, but its file was not found in the folder.")?;
+    downloads::mark_from_internet(&path, &item.url, "");
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    downloads::set(id, |i| {
+        i.path = path.display().to_string();
+        if !name.is_empty() {
+            i.name = name.clone();
+            i.category = downloads::category_of(&name).into();
+        }
+        i.done = size;
+        i.size = Some(size);
+    });
     Ok(true)
+}
+
+/// The file a video run left: the path the tool named when it is really there, else the newest
+/// finished file it wrote in the folder (never a half file, never an empty one).
+pub fn finished_file(reported: Option<&str>, folder: &Path, since: SystemTime) -> Option<PathBuf> {
+    let real = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() > 0);
+    if let Some(r) = reported.map(str::trim).filter(|r| !r.is_empty()) {
+        let p = PathBuf::from(r);
+        if real(&p) {
+            return Some(p);
+        }
+    }
+    let since = since.checked_sub(Duration::from_secs(2)).unwrap_or(since);
+    let half = ["part", "ytdl", "json", "temp", "tmp"];
+    std::fs::read_dir(folder)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| real(p))
+        .filter(|p| !p.extension().and_then(|e| e.to_str()).is_some_and(|e| half.contains(&e.to_ascii_lowercase().as_str())))
+        .filter_map(|p| std::fs::metadata(&p).and_then(|m| m.modified()).ok().filter(|t| *t >= since).map(|t| (t, p)))
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_real_file_is_found_even_when_the_tool_names_it_wrongly() {
+        let dir = std::env::temp_dir().join(format!("castle-video-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let before = SystemTime::now();
+        let real = dir.join("Sparkle \u{ff5c} Your Name AMV.mp4");
+        std::fs::write(&real, b"video").unwrap();
+        std::fs::write(dir.join("Sparkle \u{ff5c} Your Name AMV.mp4.part"), b"half").unwrap();
+        std::fs::write(dir.join("empty.mp4"), b"").unwrap();
+        // the name it gave, read in the wrong code page, is not there: the newest real file is
+        let wrong = dir.join("Sparkle ? Your Name AMV.mp4").display().to_string();
+        assert_eq!(finished_file(Some(&wrong), &dir, before), Some(real.clone()));
+        // the name it gave, when it is there, wins
+        assert_eq!(finished_file(Some(&real.display().to_string()), &dir, before), Some(real.clone()));
+        // nothing new since the run began: nothing
+        let later = SystemTime::now() + Duration::from_secs(60);
+        assert_eq!(finished_file(None, &dir, later), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_chooser_shows_the_qualities_a_video_really_has() {
