@@ -50,3 +50,28 @@ export function signInHint(url) {
   if (parsed.protocol !== 'https:' || !SIGN_IN.some((match) => match(parsed))) return ''
   return 'Sign in with your email code: Google sign-in is not kept in this window'
 }
+
+/** The new tab's own lists as shortcut tiles: the most visited sites, then the newest bookmarks. */
+export function libraryTiles(lists) {
+  const visited = (lists?.mostVisited ?? []).map((v) => ({ name: v.host, url: v.url, letter: (v.host[0] ?? '?').toUpperCase() }))
+  const marks = (lists?.bookmarks ?? []).map((b) => {
+    const name = b.title || hostOf(b.url) || b.url
+    return { name, url: b.url, letter: (name[0] ?? '?').toUpperCase() }
+  })
+  return { visited, marks }
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
+}
+
+/** The Fill button's words: one saved login names its user; several open a choice. */
+export function fillLabel(logins) {
+  if (!logins?.length) return ''
+  if (logins.length === 1) return logins[0].username ? `Fill as ${logins[0].username}` : 'Fill'
+  return `Fill (${logins.length} saved)`
+}

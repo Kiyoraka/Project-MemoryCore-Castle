@@ -73,6 +73,7 @@ mod quota;
 mod alerts;
 mod bridges;
 mod browser;
+mod browser_library;
 mod browser_private;
 mod browser_tabs;
 mod browser_welcome;
@@ -448,6 +449,13 @@ pub fn run() {
             browser_welcome::browser_import_bookmarks,
             browser_welcome::browser_password_guide,
             browser_welcome::browser_import_passwords,
+            browser_library::browser_new_tab,
+            browser_library::browser_is_bookmarked,
+            browser_library::browser_bookmark_toggle,
+            browser_library::browser_logins,
+            browser_library::browser_fill,
+            browser_library::vault_list,
+            browser_library::vault_forget,
             providers::provider_switch_status,
             providers::provider_switch_cancel,
             chat::chat_history,

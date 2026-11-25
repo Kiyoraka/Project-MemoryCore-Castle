@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { ARTIFACTS, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -54,5 +54,21 @@ describe('the site check on the toolbar', () => {
     expect(siteWarning({ verdict: 'suspicious', reason: 'it is a bare address, not a named site' })).toMatch(/^The Sentinel marked this site suspicious: /)
     expect(siteWarning({ verdict: 'safe', reason: 'fine' })).toBe('')
     expect(siteWarning(null)).toBe('')
+  })
+})
+
+describe('what came over from Chrome', () => {
+  it('the new tab shows the most visited sites and the bookmarks as tiles', () => {
+    const tiles = libraryTiles({ mostVisited: [{ host: 'example.org', url: 'https://example.org/', visits: 9 }], bookmarks: [{ title: '', url: 'https://docs.example.com/a', folder: '' }, { title: 'Board', url: 'https://b.example/', folder: 'Work' }] })
+    expect(tiles.visited).toEqual([{ name: 'example.org', url: 'https://example.org/', letter: 'E' }])
+    expect(tiles.marks.map((m) => m.name)).toEqual(['docs.example.com', 'Board'])
+    expect(libraryTiles(null)).toEqual({ visited: [], marks: [] })
+  })
+
+  it('the Fill button names its user, or how many are saved', () => {
+    expect(fillLabel([])).toBe('')
+    expect(fillLabel([{ id: 1, host: 'example.org', username: 'ari' }])).toBe('Fill as ari')
+    expect(fillLabel([{ id: 1, host: 'example.org', username: '' }])).toBe('Fill')
+    expect(fillLabel([{ id: 1, username: 'a' }, { id: 2, username: 'b' }])).toBe('Fill (2 saved)')
   })
 })

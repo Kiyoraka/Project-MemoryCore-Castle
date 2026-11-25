@@ -683,6 +683,14 @@ export const browserImportBookmarks = (profile) => invoke('browser_import_bookma
 export const browserPasswordGuide = () => invoke('browser_password_guide')
 // Castle's own picker; -> { sealed, skipped, shredded } (counts only) or null when closed
 export const browserImportPasswords = (guided) => invoke('browser_import_passwords', { guided })
+// What came over from Chrome, in use (browser_library.rs); a password never comes back to a page
+export const browserNewTab = () => invoke('browser_new_tab')
+export const browserIsBookmarked = (url) => invoke('browser_is_bookmarked', { url })
+export const browserBookmarkToggle = (url, title) => invoke('browser_bookmark_toggle', { url, title })
+export const browserLogins = () => invoke('browser_logins')
+export const browserFill = (id) => invoke('browser_fill', { id })
+export const vaultList = () => invoke('vault_list')
+export const vaultForget = (id = null) => invoke('vault_forget', { id })
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
 export const browserClear = () => invoke('browser_clear')
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))

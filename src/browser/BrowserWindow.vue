@@ -18,13 +18,18 @@ import {
   browserPasswordGuide,
   browserWelcome,
   browserWelcomeAnswer,
+  browserBookmarkToggle,
+  browserFill,
+  browserIsBookmarked,
+  browserLogins,
+  browserNewTab,
   devServers,
   getSettings,
   onBrowserState,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
-import { newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
@@ -113,13 +118,41 @@ async function askGuide() {
   }
 }
 
+// The new tab's own lists, the star and Fill (browser_library.rs): a password never reaches this page.
+const library = ref({ visited: [], marks: [] })
+const starred = ref(false)
+const logins = ref([])
+const choosing = ref(false)
+
 async function refreshNewTab() {
   try {
     servers.value = await devServers()
   } catch {
     servers.value = []
   }
+  library.value = libraryTiles(await browserNewTab().catch(() => null))
 }
+
+async function readPage(url) {
+  choosing.value = false
+  if (!url) {
+    starred.value = false
+    logins.value = []
+    return
+  }
+  starred.value = await browserIsBookmarked(url).catch(() => false)
+  logins.value = await browserLogins().catch(() => [])
+}
+watch(page, readPage)
+// a sign-in page loading in the same address: read again once the page has had a moment
+watch(() => current.value?.title, () => page.value && browserLogins().then((l) => (logins.value = l)).catch(() => {}))
+
+const toggleStar = () => act(async () => (starred.value = await browserBookmarkToggle(page.value, current.value?.title ?? '')))
+function fill(login) {
+  choosing.value = false
+  act(() => browserFill(login.id))
+}
+const pressFill = () => (logins.value.length === 1 ? fill(logins.value[0]) : (choosing.value = !choosing.value))
 
 function onKey(event) {
   const mod = isMac ? event.metaKey : event.ctrlKey
@@ -199,6 +232,15 @@ onBeforeUnmount(() => {
           <label class="hidden" for="browser-address">Address</label>
           <input id="browser-address" ref="field" v-model="typed" placeholder="Type an address or search" spellcheck="false" autocomplete="off" @focus="$event.target.select()" />
         </form>
+        <button class="icon" :disabled="!page" :aria-label="starred ? 'Remove bookmark' : 'Bookmark this page'" :title="starred ? 'Remove bookmark' : 'Bookmark this page'" :class="{ starred }" @click="toggleStar">
+          <svg width="17" height="17" viewBox="0 0 24 24" :fill="starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4 6.5 20.3l1-6.2L3 9.7l6.2-.9z" /></svg>
+        </button>
+        <div v-if="page && logins.length" class="fill">
+          <button class="pill" title="Castle fills this page's sign-in from your vault" @click="pressFill">{{ fillLabel(logins) }}</button>
+          <div v-if="choosing" class="logins" role="menu">
+            <button v-for="l in logins" :key="l.id" role="menuitem" @click="fill(l)">{{ l.username || '(no username)' }}</button>
+          </div>
+        </div>
         <button class="pill" :disabled="!page" title="Put this page's address in HOME's chat" @click="putInChat">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
           Put in chat
@@ -233,6 +275,16 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <span class="hint">{{ shortcuts.length ? 'Your Artifacts and the dev servers running now' : 'Type an address or something to search for' }}</span>
+      <template v-for="list in [{ name: 'MOST VISITED', tiles: library.visited }, { name: 'BOOKMARKS', tiles: library.marks }]" :key="list.name">
+        <template v-if="list.tiles.length">
+          <span class="label">{{ list.name }}</span>
+          <div class="grid">
+            <button v-for="s in list.tiles" :key="s.url" class="shortcut" :title="s.url" @click="openShortcut(s.url)">
+              <span class="letter" aria-hidden="true">{{ s.letter }}</span>{{ s.name }}
+            </button>
+          </div>
+        </template>
+      </template>
     </main>
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>
@@ -497,6 +549,36 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+.icon.starred {
+  color: var(--warn);
+}
+/* the page is its own webview just below the bar: the choice stays inside the bar, never under it */
+.fill {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.logins {
+  display: flex;
+  gap: 4px;
+  max-width: 320px;
+  overflow-x: auto;
+}
+.logins button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.logins button:hover {
+  background: var(--hover);
 }
 .pill.primary {
   border-color: var(--accent);

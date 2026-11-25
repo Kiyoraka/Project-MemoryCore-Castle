@@ -95,7 +95,7 @@ fn keep_sign_ins_soon(app: &AppHandle, after: std::time::Duration) {
     });
 }
 
-fn tab_label(id: u32) -> String {
+pub(crate) fn tab_label(id: u32) -> String {
     format!("browser-tab-{id}")
 }
 

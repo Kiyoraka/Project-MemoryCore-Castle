@@ -65,6 +65,9 @@ import {
   setupInspect,
   voiceStudioStatus,
   browserClear,
+  browserWelcomeReopen,
+  vaultForget,
+  vaultList,
   installCopies,
 } from '../api/castle.js'
 import { copiesLine } from '../components/copies.js'
@@ -106,6 +109,9 @@ const words = isMac
 // ---------- pages, deep links, row status ----------
 
 const rows = createRowStatus()
+// Settings > Browser > Saved passwords: sites and usernames only, never a password
+const vault = ref([])
+onMounted(() => vaultList().then((list) => (vault.value = list)).catch(() => {}))
 provide(ROW_STATUS, rows)
 
 const start = parseTarget(props.section)
@@ -904,6 +910,18 @@ onMounted(async () => {
               <SettingRow id="browser-clear" label="Clear browsing data" description="Signs you out of every site in the browser window and clears its history. Castle's memory is not touched. Works while the browser window has a page open.">
                 <SettingConfirm label="Clear…" :disabled="locked" @confirm="rows.run('browser-clear', () => browserClear()).catch(() => {})" />
               </SettingRow>
+              <SettingRow id="browser-welcome" label="Bring things from Chrome" description="Opens the browser's welcome again: your history, bookmarks and saved passwords from Chrome, and the site check - each step your own yes or skip.">
+                <button :disabled="locked" @click="rows.run('browser-welcome', () => browserWelcomeReopen()).catch(() => {})">Open the welcome</button>
+              </SettingRow>
+              <SettingRow id="browser-vault" label="Saved passwords" :description="vault.length ? `Sealed on this PC; ${companionLabel} never sees them. Fill puts one into its own site's sign-in page.` : 'None yet. Bring them from Chrome in the browser\'s welcome.'">
+                <SettingConfirm v-if="vault.length" label="Remove all…" :disabled="locked" @confirm="rows.run('browser-vault', async () => { await vaultForget(null); vault = await vaultList() }).catch(() => {})" />
+              </SettingRow>
+              <ul v-if="vault.length" class="vault-list">
+                <li v-for="login in vault" :key="login.id">
+                  <span>{{ login.host }}</span><span class="user">{{ login.username || '(no username)' }}</span>
+                  <button :disabled="locked" @click="rows.run('browser-vault', async () => { await vaultForget(login.id); vault = await vaultList() }).catch(() => {})">Remove</button>
+                </li>
+              </ul>
             </SettingGroup>
 
             <SettingGroup id="look" title="Look and tabs">
@@ -1304,6 +1322,23 @@ button.primary {
 button.danger {
   border-color: var(--bad);
   color: var(--bad);
+}
+.vault-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.vault-list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.vault-list .user {
+  flex: 1;
+  color: var(--text-dim);
 }
 button:disabled {
   opacity: 0.45;
