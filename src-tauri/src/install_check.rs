@@ -204,6 +204,8 @@ mod tests {
     }
 
     #[test]
+    // platform: windows-only - an uninstall entry and its C:\ paths exist only on Windows (a Mac splits no backslash)
+    #[cfg(windows)]
     fn the_installed_folder_comes_from_the_uninstall_entry() {
         let folder = "C:\\Users\\Ari\\AppData\\Local\\MemoryCore Castle";
         assert_eq!(install_folder_of(Some(&format!("{folder}\\")), None), Some(PathBuf::from(folder)));
@@ -213,6 +215,8 @@ mod tests {
     }
 
     #[test]
+    // platform: windows-only - the installed copy is read from Windows' uninstall entry, with C:\ paths
+    #[cfg(windows)]
     fn two_copies_are_named_and_the_real_one_is_one() {
         let installed = Some(PathBuf::from("C:\\Users\\Ari\\AppData\\Local\\MemoryCore Castle"));
         let left = copies_of(Path::new(LEFT), installed.clone());
