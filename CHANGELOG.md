@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Castle's browser holds a dangerous site back before it loads and shows a red DANGER screen in its place: the threat, which guards caught it, **Go back to safety**, and **Open anyway** for that one page. Google Safe Browsing joins the guards with your own free key (Settings > Keys); Google's lists stay on your computer and only a short hash of an address is ever sent. Suspicious sites still open with the amber line.
+
 - Fixed: Sign in with Google, Apple or Microsoft in Castle's browser no longer gets stuck in a new tab. The sign-in opens its own small window, which closes by itself once you are signed in, and the site shows you signed in.
 
 ## 0.6.0 - 2026-11-25

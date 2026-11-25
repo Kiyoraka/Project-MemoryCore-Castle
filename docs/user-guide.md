@@ -857,7 +857,7 @@ One castle's sighting protects every castle. **Settings > Sentinel > Join the Ae
 
 ### Websites: is this a phishing site?
 
-Every page you open in Castle's browser is checked as it loads, and a warning line appears under the address when something is wrong: **Dangerous** (coral) or **Suspicious** (amber), with the reason, for example *"The Sentinel marked this site dangerous: a PayPal sign-in on a made-up name"*. A safe site shows nothing. The line never blocks the page; what you do next is yours.
+Every page you open in Castle's browser is checked before it loads. A **dangerous** site is held back and the red **DANGER** screen shows in its place (see **The DANGER screen** in chapter 21); a **suspicious** one opens with an amber line under the address, with the reason, for example *"The Sentinel marked this site suspicious: a bare number address"*. A safe site shows nothing. What you do next is yours: the DANGER screen's **Open anyway** opens the page once.
 
 - **The quick checks** run on every page, with or without the Sentinel and with no AI: a disguised name (letters from another alphabet), a bare number address, a famous brand's name on a domain that is not the brand's, and a name one or two letters away from a well-known site (`paypa1.com`, `gooogle.com`).
 - **The Sentinel's judgment** (only while **Let your companion keep watch** is on): Castle keeps the sites you visit in your own memory database on this computer, the site's name, the page's path and its title, never the part of an address after `?` or `#`, so no sign-in link or token is kept. At each patrol your companion is handed the names of the sites it has not judged yet and marks each safe, suspicious or dangerous. A sign-in page on a site it has not judged is asked about at once, so the warning can appear while you are still on that page.
@@ -1018,6 +1018,39 @@ which closes by itself when you are signed in, and the site you were on shows yo
 small window shares the browser's sign-ins, so with **Remember sign-ins** off it is private too. A
 plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
 never gets a small window: it opens as a tab, where its warning shows.
+
+### The DANGER screen
+
+A site the guards know is dangerous never loads: the browser holds it back before a single part
+of it shows, and a red **DANGER** screen takes its place, with warning tape, the threat in one line
+(phishing, malware, unwanted software, a harmful app, or a site your companion marked) and the
+address. The tab glows red while it is there. A site can never cover this screen or click past it,
+because the page is not shown at all.
+
+- **Go back to safety** returns to the page you were on, or the new tab.
+- **Open anyway** opens that one page, with a coral line on top. The next visit is held back again.
+
+The chips under the threat show which guards caught it, lit red:
+
+- **Sentinel**: a site your companion marked dangerous, or one matching a pattern it learned (see
+  **Websites** under The Sentinel).
+- **Look-alike**: a name a letter or two away from a well-known site (`paypa1.com`), or a famous
+  brand on a domain that is not the brand's, with a word like *login* or *verify*.
+- **Google Safe Browsing**: Google's own lists of phishing and malware sites, with a key (below).
+- **SmartScreen** on Windows, **Safari's warning** on a Mac: the computer's own warning, switched
+  on for every page. It shows its own screen when it catches something, so its chip is never lit
+  here.
+
+A sign-in page your companion judges dangerous after it has loaded is emptied and held back the same
+way. With **Remember sign-ins** off, every page is checked the same and nothing about the visit is
+kept.
+
+**Google Safe Browsing** needs your own free key: in the Google Cloud console make a project, enable
+the *Safe Browsing API*, create an API key, and paste it in **Settings > Keys > Google Safe
+Browsing** (its **Test** says whether Google accepts it). Castle then keeps Google's lists on this
+computer as short codes and checks each address here. Only when an address matches does Castle ask
+Google, and then only with a short hash of it, never the address itself. Without a key, the other
+guards still run.
 
 ## Alerts
 
