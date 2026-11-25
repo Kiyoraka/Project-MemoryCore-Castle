@@ -8,7 +8,7 @@ use serde::Serialize;
 pub(crate) const SERVICE: &str = "com.memorycore.castle";
 
 /// Every key Castle can keep: (account, label shown in Settings).
-pub const KEYS: [(&str, &str); 9] = [
+pub const KEYS: [(&str, &str); 10] = [
     ("openai", "ChatGPT (OpenAI)"),
     ("seedance", "Seedance"),
     ("suno", "Suno"),
@@ -22,6 +22,8 @@ pub const KEYS: [(&str, &str); 9] = [
     // the member's own Discord bot, for MemoryCore in your pocket (MESSAGING)
     ("discord-bridge", "Discord bot token"),
     ("automation-http", "Automation HTTP authentication"),
+    // the member's own Google Safe Browsing key, for the browser's DANGER screen (browser_safe.rs)
+    ("google-safe-browsing", "Google Safe Browsing"),
 ];
 
 fn known(account: &str) -> Result<(), String> {
@@ -201,6 +203,7 @@ pub fn test(account: &str) -> KeyTest {
         "suno" => ("https://api.sunoapi.org/api/v1/generate/credit", "bearer"),
         "elevenlabs" => ("https://api.elevenlabs.io/v1/user", "xi-api-key"),
         "seedance" => return said(true, "Kept. Seedance has no free check, so Castle cannot test it without spending."),
+        "google-safe-browsing" => return google_test(&key),
         _ => return said(true, "Kept. The room checks it each time it is used."),
     };
     let client = match reqwest::blocking::Client::builder()
@@ -218,6 +221,18 @@ pub fn test(account: &str) -> KeyTest {
         Ok(response) if response.status().as_u16() == 401 || response.status().as_u16() == 403 => said(false, "The service refused this key. Check it and save it again."),
         Ok(response) => said(false, &format!("The service answered {}. Try again later.", response.status().as_u16())),
         Err(_) => said(false, "The service could not be reached. Check the internet connection."),
+    }
+}
+
+/// Google takes its key in the address: the free list of lists answers 200 for a good key.
+fn google_test(key: &str) -> KeyTest {
+    let said = |ok: bool, message: &str| KeyTest { ok, message: message.into() };
+    let Ok(client) = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(15)).build() else { return said(false, "The check could not start.") };
+    match client.get(format!("https://safebrowsing.googleapis.com/v4/threatLists?key={key}")).send() {
+        Ok(response) if response.status().is_success() => said(true, "The key works. The browser now checks pages against Google's lists."),
+        Ok(response) if [400, 401, 403].contains(&response.status().as_u16()) => said(false, "Google refused this key. Check that the Safe Browsing API is enabled for it, then save it again."),
+        Ok(response) => said(false, &format!("Google answered {}. Try again later.", response.status().as_u16())),
+        Err(_) => said(false, "Google could not be reached. Check the internet connection."),
     }
 }
 
@@ -261,7 +276,8 @@ mod tests {
         assert!(save("not-a-key", "x").is_err());
         assert!(load("not-a-key").is_none());
         assert!(save("openai", "   ").is_err());
-        assert_eq!(statuses().len(), 9);
+        assert_eq!(statuses().len(), 10);
         assert!(known("automation-http").is_ok());
+        assert!(known(crate::browser_safe::KEY).is_ok(), "the browser's Google key is one Castle keeps");
     }
 }

@@ -20,6 +20,13 @@ const replacing = ref({})
 // the room sign-in and the companion's room key are made by CHAT itself, never shown or pasted here
 const shownKeys = computed(() => keys.value.filter((k) => k.name !== 'member' && !k.name.startsWith('room')))
 
+// the hint beside a key, when it needs one
+const KEY_TIPS = {
+  openai: 'APPEARANCE and STUDIO draw on your ChatGPT plan whenever Codex is signed in with ChatGPT on this computer, whichever CLI your companion thinks with; otherwise with this key. The key is never given to Codex.',
+  'google-safe-browsing':
+    "Lets the browser check pages against Google's lists of phishing and malware sites and raise its DANGER screen. Free from the Google Cloud console: make a project, enable the Safe Browsing API, then create an API key. Google's lists are kept on this computer; only a short hash of an address is ever sent, never the address.",
+}
+
 async function saveKey(name) {
   const value = (drafts.value[name] ?? '').trim()
   if (!value) return
@@ -61,7 +68,7 @@ async function remove(name) {
       :id="`key-${k.name}`"
       :key="k.name"
       :label="k.label"
-      :tip="k.name === 'openai' ? 'APPEARANCE and STUDIO draw on your ChatGPT plan whenever Codex is signed in with ChatGPT on this computer, whichever CLI your companion thinks with; otherwise with this key. The key is never given to Codex.' : ''"
+      :tip="KEY_TIPS[k.name] ?? ''"
     >
       <template #description>
         <code v-if="k.set" class="masked">{{ shown[k.name] || k.masked }}</code>

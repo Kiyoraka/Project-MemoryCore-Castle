@@ -75,6 +75,7 @@ mod bridges;
 mod browser;
 mod browser_library;
 mod browser_private;
+mod browser_safe;
 mod browser_tabs;
 mod browser_welcome;
 mod chrome_import;
