@@ -4,6 +4,9 @@
 //!
 //! - A DEV tab is compacted (`/compact`, then `continue` once the screen says it was compacted, and
 //!   compacted again when it is still stuck): a summary of coding work loses nothing that matters.
+//! - A compact the member typed in a DEV tab (or Claude Code's own) is carried on too: when the
+//!   compact's line is near the end and the screen has stayed still for 30 seconds, `continue` is typed
+//!   once. A screen that changes (the member typing) gets nothing; one compact is answered once.
 //! - The companion's home chat is never compacted: there the talk is the memory, so a stuck home chat
 //!   starts fresh instead (fresh_start.rs), the talk kept in Chat and carried word for word.
 //!
@@ -32,6 +35,11 @@ const WINDOW: u64 = 30 * 60;
 const SETTLE: u64 = 20;
 /// A compact that shows nothing for this long is given up on and the tab is watched again.
 const PATIENCE: u64 = 10 * 60;
+/// A compact Castle did not type (the member's own `/compact`) is carried on once the screen has stayed
+/// still this long with the compact's line near its end.
+const QUIET: u64 = 30;
+/// How near the end the compact's line must be for such a compact to be carried on.
+const NEAR_END: usize = 6;
 /// The event a panel listens to for its one line: `{ slot, line }`, slot null for the home chat, an
 /// empty line clearing it.
 pub const EVENT: &str = "session-full";
@@ -152,6 +160,22 @@ pub fn compacted(screen_plain: &str) -> bool {
     compacted.is_some_and(|d| stuck.is_none_or(|s| s < d))
 }
 
+/// True when a compact done is among the last few lines and no stuck line came after it: a compact
+/// that has just finished, not one far up the screen. Pure.
+pub fn compacted_recently(screen_plain: &str) -> bool {
+    let lines = tail_lines(screen_plain, TAIL_LINES);
+    let at = lines.iter().rposition(|line| is_compacted_line(line));
+    compacted(screen_plain) && at.is_some_and(|i| lines.len() - i <= NEAR_END)
+}
+
+/// The tail of a screen as one number, so a still screen is known. Pure.
+fn tail_hash(screen_plain: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    tail_lines(screen_plain, TAIL_LINES).hash(&mut h);
+    h.finish()
+}
+
 /// Where one tab stands.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum State {
@@ -185,6 +209,10 @@ pub struct Tab {
     pub compacts: Vec<u64>,
     /// The member was already told for this stuck stretch.
     pub gave_up: bool,
+    /// A hand compact's still screen: its tail and since when.
+    pub idle: Option<(u64, u64)>,
+    /// The tail of the hand compact already carried on, so one compact is answered once.
+    pub answered: Option<u64>,
 }
 
 impl Tab {
@@ -213,13 +241,38 @@ pub fn step(tab: &mut Tab, screen_plain: &str, now: u64) -> Action {
     match tab.state {
         State::Watching | State::Resumed => {
             if stuck(screen_plain) {
+                tab.idle = None;
                 return tab.stuck(now);
             }
             let cleared = std::mem::take(&mut tab.gave_up);
             if tab.state == State::Resumed && !compacted(screen_plain) {
                 tab.state = State::Watching;
             }
-            if cleared { Action::Clear } else { Action::Nothing }
+            // a compact Castle did not type (the member's own /compact): carried on once the screen is still
+            let mut carry_on = false;
+            if tab.state == State::Watching && compacted_recently(screen_plain) {
+                let hash = tail_hash(screen_plain);
+                if tab.answered != Some(hash) {
+                    match tab.idle {
+                        Some((h, since)) if h == hash && now.saturating_sub(since) >= QUIET => carry_on = true,
+                        Some((h, _)) if h == hash => {}
+                        _ => tab.idle = Some((hash, now)),
+                    }
+                }
+            } else {
+                tab.idle = None;
+            }
+            // the gave-up line goes first; the carry-on waits for the next reading
+            if cleared {
+                return Action::Clear;
+            }
+            if carry_on {
+                tab.idle = None;
+                tab.answered = Some(tail_hash(screen_plain));
+                tab.state = State::Resumed;
+                return Action::Continue;
+            }
+            Action::Nothing
         }
         State::Compacting { since } => {
             if compacted(screen_plain) && !stuck(screen_plain) {
@@ -325,6 +378,32 @@ mod tests {
 
     fn screen(parts: &[&str]) -> String {
         plain(&format!("\x1b]0;claude\x07● Working on the plan.\r\n{}", parts.concat()))
+    }
+
+    #[test]
+    fn a_compact_by_hand_is_carried_on_once_when_the_screen_is_still() {
+        let hand = screen(&[LIMIT, "> /compact\r\n", DONE, BOX]);
+        assert!(!stuck(&hand) && compacted_recently(&hand));
+        let mut tab = Tab::default();
+        assert_eq!(step(&mut tab, &hand, 1000), Action::Nothing, "first seen");
+        assert_eq!(step(&mut tab, &hand, 1015), Action::Nothing, "still, not long enough");
+        assert_eq!(step(&mut tab, &hand, 1031), Action::Continue, "still for 30 s");
+        assert_eq!(tab.state, State::Resumed);
+        assert_eq!(step(&mut tab, &hand, 1046), Action::Nothing, "never twice for one compact");
+        // the member types inside the 30 s: the tail changes and nothing is typed
+        let mut tab = Tab::default();
+        assert_eq!(step(&mut tab, &hand, 2000), Action::Nothing);
+        let typing = format!("{hand}a word the member is typing\n");
+        assert_eq!(step(&mut tab, &typing, 2031), Action::Nothing);
+        // an old compact far up the screen is left alone
+        let old = format!("{}{}", plain(DONE), (0..10).map(|i| format!("line {i}\n")).collect::<String>());
+        assert!(!compacted_recently(&old));
+        let mut tab = Tab::default();
+        assert_eq!(step(&mut tab, &old, 3000), Action::Nothing);
+        assert_eq!(step(&mut tab, &old, 3040), Action::Nothing);
+        // a stuck screen still compacts as before
+        let mut tab = Tab::default();
+        assert_eq!(step(&mut tab, &screen(&[LIMIT]), 4000), Action::Compact);
     }
 
     #[test]

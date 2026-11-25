@@ -759,7 +759,7 @@ This comes from **Shard**, one of Castle's own skills. Castle keeps it in your m
 
 ### When a tab fills up
 
-A long coding session can fill Claude Code's memory until it stops with **Prompt is too long** or **Context limit reached** and answers nothing. Castle reads the end of each DEV tab's screen every 15 seconds; when a tab is stuck it types `/compact` for you, and once the session is compacted it types `continue`, so the work goes on. If the compact fails, it tries again. A summary of coding work loses nothing that matters, which is why this happens in DEV tabs and never in your companion's own chat (see **When her memory of a talk fills up**). After three compacts in thirty minutes Castle stops and says so in the tab: start a new session there when you are ready. Claude Code tabs only.
+A long coding session can fill Claude Code's memory until it stops with **Prompt is too long** or **Context limit reached** and answers nothing. Castle reads the end of each DEV tab's screen every 15 seconds; when a tab is stuck it types `/compact` for you, and once the session is compacted it types `continue`, so the work goes on. If the compact fails, it tries again. A compact you type yourself (or one Claude Code runs on its own) is carried on too: once the tab has sat still for 30 seconds after it, Castle types `continue` once. If you start typing, it leaves the tab to you. A summary of coding work loses nothing that matters, which is why this happens in DEV tabs and never in your companion's own chat (see **When her memory of a talk fills up**). After three compacts in thirty minutes Castle stops and says so in the tab: start a new session there when you are ready. Claude Code tabs only.
 
 ## 17. Market
 
