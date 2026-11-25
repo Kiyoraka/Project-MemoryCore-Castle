@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- MY PROFILE reads your browsing: each month's reading now also looks at the sites you visited in Castle's browser and what you searched for there, never quoting either (Settings > Browser > MY PROFILE reads your browsing, on to begin with). Private browsing joins only with its own switch, as before.
+
 - Castle's browser translates pages into your language through your own Claude Code (nothing goes to Google): a translate row offers Translate, Original and Always for a site, and Read bubbles lays your language over the speech bubbles of a manga or comic (Windows, with Claude Code or an OpenAI key). Never on a bank's page or a page with a password box.
 
 - Castle's browser shows up to four pages side by side as one tab: a stacked chip with their news added up, a thin row naming each page (the toolbar acts on the outlined one), and grips to change the widths. With three or four, each page gets its phone layout so narrow columns stay readable; the Phone view switch keeps them on desktop.
