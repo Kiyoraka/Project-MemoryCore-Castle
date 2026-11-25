@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 describe('the DESKTOP room', () => {
   const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
   const app = read('./App.vue')
-  const settings = read('./views/SettingsView.vue')
+  const settings = read('./views/settings/RoomsPane.vue')
   const rust = read('../src-tauri/src/settings.rs')
 
   it('is called DESKTOP in the top bar and in Settings', () => {
