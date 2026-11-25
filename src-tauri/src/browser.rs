@@ -99,6 +99,59 @@ fn tab_label(id: u32) -> String {
     format!("browser-tab-{id}")
 }
 
+/// Whether the page asks for a password: the only look inside a page, after it loads (no text is read).
+const LOGIN_PROBE: &str = "!!document.querySelector('input[type=password]')";
+
+/// After a page loads: one look for a password box, the visit kept (never while browsing privately),
+/// and the site's check - the rules, the Sentinel's mark and her patterns - shown on the tab. A page
+/// that does not answer the look counts as no password box. Off the window's thread.
+fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, private: bool) {
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let asked = view.eval_with_callback(LOGIN_PROBE, move |json| {
+        let _ = tx.send(json);
+    });
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let has_login = asked.is_ok() && rx.recv_timeout(std::time::Duration::from_secs(3)).is_ok_and(|json| json.trim() == "true");
+        let title = tabs(&app).list.iter().find(|t| t.id == id).map(|t| t.title.clone()).unwrap_or_default();
+        let checked = site_check(&app, &url, &title, has_login, private);
+        if let Some(tab) = app.state::<Browser>().0.lock().unwrap().get_mut(id) {
+            // only when the tab still shows that page
+            if tab.url.as_deref().is_none_or(|u| u == url) {
+                tab.warning = checked.as_ref().and_then(|c| c.warning.clone());
+            }
+        }
+        tell(&app);
+    });
+}
+
+/// What a page's check found.
+pub struct Checked {
+    pub host: String,
+    pub has_login: bool,
+    pub marked: bool,
+    pub warning: Option<crate::site_rules::Warning>,
+}
+
+/// The check of one page: the visit kept (unless private), then the worst of the rules, the
+/// Sentinel's mark and her active patterns. Without a memory database the rules alone speak.
+fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, private: bool) -> Option<Checked> {
+    let (host, path, title) = crate::sites::visit_of(url, title)?;
+    let memory = app.state::<SettingsStore>().get().memory_folder;
+    let mut conn = memory.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
+    let (mut mark, mut patterns) = (None, Vec::new());
+    if let Some(c) = conn.as_mut() {
+        if !private {
+            let _ = crate::sites::keep_visit(c, &host, &path, &title, has_login);
+        }
+        mark = crate::sites::mark_of(c, &host).ok().flatten();
+        patterns = crate::sites::active_patterns(c).unwrap_or_default();
+    }
+    let member_safe = mark.as_ref().is_some_and(|(w, by_member)| *by_member && w.verdict == crate::site_rules::Verdict::Safe);
+    let warning = crate::site_rules::verdict_for(&host, mark.as_ref().map(|(w, _)| w), member_safe, &patterns);
+    Some(Checked { host, has_login, marked: mark.is_some(), warning })
+}
+
 fn tabs(app: &AppHandle) -> Tabs {
     app.state::<Browser>().0.lock().unwrap().clone()
 }
@@ -251,9 +304,10 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
             }
             tell(&titles);
         })
-        .on_page_load(move |_, payload| {
+        .on_page_load(move |view, payload| {
             if payload.event() == PageLoadEvent::Finished {
                 let now = payload.url().to_string();
+                check_site(&loads, &view, id, now.clone(), !remember);
                 if payload.url().host_str().is_some_and(on_kept_site) {
                     // a sign-in sets its cookie as the page settles
                     keep_sign_ins_soon(&loads, std::time::Duration::from_secs(3));
@@ -262,6 +316,9 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
                     tab.url = Some(now);
                 }
                 tell(&loads);
+            } else if let Some(tab) = loads.state::<Browser>().0.lock().unwrap().get_mut(id) {
+                // a new page starts: the last page's warning is not this one's
+                tab.warning = None;
             }
         })
         // a page asking for a new window (target=_blank, window.open) gets a new tab instead

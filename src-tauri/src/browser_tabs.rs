@@ -14,6 +14,8 @@ pub struct Tab {
     pub id: u32,
     pub url: Option<String>,
     pub title: String,
+    /// what the site check found for the page shown (site_rules.rs); None when nothing is wrong
+    pub warning: Option<crate::site_rules::Warning>,
 }
 
 /// Every tab and the one in front.
@@ -35,7 +37,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title });
+        self.list.push(Tab { id, url, title, warning: None });
         self.active = Some(id);
         Some(id)
     }

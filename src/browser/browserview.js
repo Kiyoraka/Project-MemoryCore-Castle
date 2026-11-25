@@ -20,6 +20,13 @@ export function newTabShortcuts(servers, setting) {
   return out
 }
 
+/** The site check's line for the tab in front (Rust: site_rules::Warning), or '' when nothing is wrong. */
+export function siteWarning(warning) {
+  if (!warning?.verdict || warning.verdict === 'safe') return ''
+  const word = warning.verdict === 'dangerous' ? 'dangerous' : 'suspicious'
+  return `The Sentinel marked this site ${word}: ${warning.reason}`
+}
+
 /** The address of the tab in front, or '' for a new tab. */
 export function shownAddress(tabs) {
   const tab = tabs?.list?.find((t) => t.id === tabs.active)
