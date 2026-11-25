@@ -35,6 +35,7 @@ import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import PaneBar from './PaneBar.vue'
+import PasswordsSheet from './PasswordsSheet.vue'
 import { boundsOf, chipCount, chipTitle, columnsOf, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
@@ -91,6 +92,9 @@ watch(group, (g) => {
   if (!g) groupMenu.value = false
 })
 const takeOut = (id) => act(() => browserUnpane(id))
+// the Passwords sheet: the pages step aside while it is open
+const passwordsOpen = ref(false)
+watch(passwordsOpen, (open) => overlay('passwords', open))
 // a column's x: the tab stays open as a chip, the column goes
 const closeColumn = (id) => act(() => browserUnpane(id))
 function focusPane(id) {
@@ -311,6 +315,7 @@ onBeforeUnmount(() => {
       </span>
       <button class="chip plus" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">+</button>
       <button class="chip private-new" :title="`New private tab (${isMac ? '⌘⇧' : 'Ctrl+Shift+'}T) - keeps nothing`" @click="addPrivate"><svg class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg> Private</button>
+      <button class="chip key" title="Passwords - sealed on this PC" @click="passwordsOpen = !passwordsOpen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M17 6l3 3M15 8l2 2" /></svg> Passwords</button>
       <slot name="chips" />
       <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
         Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
@@ -388,6 +393,7 @@ onBeforeUnmount(() => {
         <div v-if="i < shownTabs.length - 1" class="grip" role="separator" aria-orientation="vertical" title="Drag to change the widths" @pointerdown="grab($event, i)"></div>
       </template>
     </div>
+    <PasswordsSheet v-if="passwordsOpen" @close="passwordsOpen = false" />
     <slot />
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>
@@ -957,6 +963,12 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   border-color: rgba(168, 120, 255, 0.7);
   background: rgba(120, 80, 220, 0.3);
+  cursor: pointer;
+}
+.chip.key {
+  gap: 6px;
+  padding: 6px 12px;
+  color: #8ff0cb;
   cursor: pointer;
 }
 .mask {

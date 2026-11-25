@@ -223,6 +223,13 @@ export function siteOf(url) {
 
 // The Keep's look: chips, columns and the boxes the pages go into.
 /** A chip's title, cut to 28 characters as the Keep's. */
+/** The Passwords sheet's search: the site or the username, case aside. */
+export function filterLogins(logins, search) {
+  const q = String(search ?? '').trim().toLowerCase()
+  if (!q) return logins ?? []
+  return (logins ?? []).filter((l) => `${l.host} ${l.username ?? ''}`.toLowerCase().includes(q))
+}
+
 export function chipTitle(title) {
   const t = String(title ?? '')
   return t.length > 28 ? `${t.slice(0, 27)}…` : t

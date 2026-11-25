@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundsOf, chipTitle, columnsOf } from './browserview.js'
+import { boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
 import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
@@ -224,5 +224,14 @@ describe("the Keep's look", () => {
   })
   it('keeps each column at least 15 percent when asked', () => {
     expect(dragWidths([0.5, 0.5], 0, 900, 1000, 0.15)[1]).toBeCloseTo(0.15)
+  })
+})
+
+describe('the Passwords sheet', () => {
+  it('finds a login by its site or its username', () => {
+    const logins = [{ id: 1, host: 'github.com', username: 'ari' }, { id: 2, host: 'shop.example', username: 'Kiyo' }]
+    expect(filterLogins(logins, 'git').map((l) => l.id)).toEqual([1])
+    expect(filterLogins(logins, 'kiyo').map((l) => l.id)).toEqual([2])
+    expect(filterLogins(logins, '  ').length).toBe(2)
   })
 })

@@ -693,6 +693,10 @@ export const browserLogins = (tab = null) => invoke('browser_logins', { tab })
 export const browserFill = (id, tab = null) => invoke('browser_fill', { id, tab })
 export const vaultList = () => invoke('vault_list')
 export const vaultForget = (id = null) => invoke('vault_forget', { id })
+// The browser's Passwords sheet: seal a login typed by hand, copy a password for 30 seconds, import Chrome's export
+export const vaultAdd = (url, username, password) => invoke('vault_add', { url, username, password })
+export const vaultCopy = (id) => invoke('vault_copy', { id })
+export const vaultImport = () => invoke('vault_import')
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
 export const browserClear = () => invoke('browser_clear')
 // The DANGER screen's two buttons (browser_guard.rs): back to safety, or one page of the site anyway
