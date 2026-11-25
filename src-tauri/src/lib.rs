@@ -40,6 +40,7 @@ mod os;
 mod files;
 mod git;
 mod import;
+mod install_check;
 mod key;
 mod link;
 mod memdb;

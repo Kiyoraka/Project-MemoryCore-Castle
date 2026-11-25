@@ -26,8 +26,24 @@ pub fn sync(app: &AppHandle, wanted: bool) -> Option<String> {
     if cfg!(debug_assertions) {
         return Some(if cfg!(windows) { "Start with Windows takes effect in the installed Castle, not in this test build." } else { "Open at login takes effect in the installed Castle, not in this test build." }.into());
     }
+    // a leftover copy inside another app's private folder never takes Windows' start-up back from
+    // the real Castle (install_check.rs)
+    let exe = std::env::current_exe().ok();
+    if exe.as_deref().is_some_and(crate::install_check::is_leftover) {
+        return None;
+    }
     let launcher = app.autolaunch();
     if launcher.is_enabled().ok() == Some(wanted) {
+        // "on" only says an entry exists: it may still start another copy of Castle
+        if let (true, Some(exe), Some(value)) = (wanted, exe.as_deref(), crate::install_check::run_value()) {
+            if !crate::install_check::run_value_points_here(&value, exe) {
+                let _ = launcher.disable();
+                return match launcher.enable() {
+                    Ok(()) => Some(if cfg!(windows) { "Start with Windows pointed at another copy of Castle; it points at this one now." } else { "Open at login pointed at another copy of Castle; it points at this one now." }.into()),
+                    Err(_) => Some("Start with Windows points at another copy of Castle, and Windows did not take the change.".into()),
+                };
+            }
+        }
         return None;
     }
     let result = if wanted { launcher.enable() } else { launcher.disable() };
