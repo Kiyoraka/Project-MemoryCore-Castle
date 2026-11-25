@@ -688,8 +688,8 @@ Each theme keeps its own places: change theme and the cards sit where that theme
 - **Changes** is a timeline with one dot for each month, the newest on the right. A dot glows when your type changed or a tile moved by ten or more. Click a dot to see that month everywhere on the page.
 - **It is only for you.** The page opens blurred and blurs again whenever Castle is hidden; press **Show my profile** or the eye to look. Nothing of it is ever said in the Foundation chat room.
 - It is a gentle reading of how your diary reads, never a diagnosis. Health numbers are never used, and private passages are never quoted.
-- **Your browsing.** With **Settings > Browser > MY PROFILE reads your browsing** on (on to begin with), each month's reading also looks at the sites you visited in Castle's browser that month and what you searched for there, as one more sign of what interested you. Your companion never quotes an address or a search. It shapes only your reading, never your companion's own traits, and it never leaves your computer. Turn the switch off and the readings go back to the diary alone.
-- **Private browsing, only if you allow it.** With **Settings > Browser > Private browsing: remember for <companion>** on (off to begin with), the sites you open while **Remember sign-ins** is off are kept in your own memory database on this PC for 30 days, never shown in any history, and each month's reading looks at them too.
+- **Your browsing.** With **Settings > Rooms > BROWSER > MY PROFILE reads your browsing** on (on to begin with), each month's reading also looks at the sites you visited in Castle's browser that month and what you searched for there, as one more sign of what interested you. Your companion never quotes an address or a search. It shapes only your reading, never your companion's own traits, and it never leaves your computer. Turn the switch off and the readings go back to the diary alone.
+- **Private browsing, only if you allow it.** With **Settings > Rooms > BROWSER > Private browsing: remember for <companion>** on (off to begin with), the sites you open while **Remember sign-ins** is off are kept in your own memory database on this PC for 30 days, never shown in any history, and each month's reading looks at them too.
 - Your companion reads with your own Claude Code or Codex, so each month uses a little of your own usage.
 - MY PROFILE lives in your memory database (Settings › Database). **Export** and **Move back to files** carry your readings as `profile/readings.json`, and moving in again brings them back. You can switch the room off in **Settings › Rooms**.
 
@@ -870,7 +870,7 @@ Every page you open in Castle's browser is checked before it loads. A **dangerou
 
 ### Bringing Chrome along
 
-The first time you open Castle's browser, its new tab asks a few questions, **one at a time**. Each is your own **Yes** or **Skip**, and a skip is never asked again. **Settings > Browser > Bring things from Chrome** opens the welcome back.
+The first time you open Castle's browser, its new tab asks a few questions, **one at a time**. Each is your own **Yes** or **Skip**, and a skip is never asked again. **Settings > Rooms > BROWSER > Bring things from Chrome** opens the welcome back.
 
 1. **Your history.** Castle reads a *copy* of Chrome's history, so Chrome itself is never touched: the sites and pages you visited, their titles, how often and when, and the words you searched for (only for the address bar's suggestions). Never the part of an address after `?` or `#`. It fills **Most visited** on the new tab. With more than one Chrome profile, you choose which.
 2. **Your bookmarks**, from a copy of Chrome's bookmarks file, with their folders. They show on the new tab, and the **star** in the toolbar keeps new ones (press it again to remove one).
@@ -879,7 +879,7 @@ The first time you open Castle's browser, its new tab asks a few questions, **on
    - Press **Choose the exported file...** and pick it. Castle's own code seals each password into a vault on this PC (AES-256-GCM; its key in your Windows Credential Manager) and **shreds the file** at once. A file that is not Chrome's export is left alone.
    - If your companion guided you, it hears only how many were sealed and that the file is gone.
    - On a saved site's sign-in page, a **Fill** button appears in the toolbar; press it (or choose the username) and Castle fills the page. It never fills by itself, and only on that site.
-   - **Settings > Browser > Saved passwords** lists each site and username, never a password, with **Remove** and **Remove all**.
+   - **Settings > Rooms > BROWSER > Saved passwords** lists each site and username, never a password, with **Remove** and **Remove all**.
 4. **Let your companion check sites for you?** (see **Websites** above).
 
 Everything stays in your own memory database and your own Credential Manager on this PC; nothing goes to the Foundation or anyone else. Chrome only for now.
@@ -1011,6 +1011,11 @@ your screen: tabs, an address bar, and your Chrome history, bookmarks and saved 
 brought them along (see **Bringing Chrome along** under The Sentinel, where every page's phishing
 check is explained too). Its pages keep their sign-ins in a store of their own, apart from Castle,
 and a page can never reach Castle itself.
+
+**Its settings** fold out under BROWSER in **Settings > Rooms**: press the small arrow beside BROWSER
+in the Top bar list (pinning BROWSER opens it too). Everything about the browser is there: where it
+opens, Remember sign-ins, what MY PROFILE may read, private browsing, where chat links open, the new
+tab, saved passwords, bringing things from Chrome, and clearing the browsing data.
 
 ### Signing in with Google, Apple or Microsoft
 
