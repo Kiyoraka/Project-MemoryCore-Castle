@@ -871,7 +871,7 @@ Every page you open in Castle's browser is checked before it loads. A **dangerou
 
 The first time you open Castle's browser, its new tab asks a few questions, **one at a time**. Each is your own **Yes** or **Skip**, and a skip is never asked again. **Settings > Browser > Bring things from Chrome** opens the welcome back.
 
-1. **Your history.** Castle reads a *copy* of Chrome's history, so Chrome itself is never touched: the sites and pages you visited, their titles, how often and when. Never what you typed, never the part of an address after `?` or `#`. It fills **Most visited** on the new tab. With more than one Chrome profile, you choose which.
+1. **Your history.** Castle reads a *copy* of Chrome's history, so Chrome itself is never touched: the sites and pages you visited, their titles, how often and when, and the words you searched for (only for the address bar's suggestions). Never the part of an address after `?` or `#`. It fills **Most visited** on the new tab. With more than one Chrome profile, you choose which.
 2. **Your bookmarks**, from a copy of Chrome's bookmarks file, with their folders. They show on the new tab, and the **star** in the toolbar keeps new ones (press it again to remove one).
 3. **Your saved passwords**, only if you want them. Castle never opens Chrome's own password store. Chrome exports them itself: **Password Manager > Settings > Export passwords** (it asks for your Windows PIN).
    - Press **Ask <companion> to guide me** and your companion walks you through it in HOME's chat and explains why a sealed vault is safer than an export file lying around. It never asks for a password and never opens the file.
@@ -1018,6 +1018,20 @@ which closes by itself when you are signed in, and the site you were on shows yo
 small window shares the browser's sign-ins, so with **Remember sign-ins** off it is private too. A
 plain link that opens in a new window still opens as a new tab, and a site that looks like a fake
 never gets a small window: it opens as a tab, where its warning shows.
+
+### Suggestions as you type
+
+Type in the address bar and, after a moment, a list opens under it from your own past: the words
+you searched for before as small pills on top, and the sites you visited and your bookmarks as
+cards below (a bookmark has a gold star). Matches at the start come first, then matches at a word,
+and what you used more and more recently ranks higher. Click a row, or move with the arrow keys and
+press **Enter**; **Esc** closes the list. In an empty address bar (a new tab) the list shows your
+newest searches. The **x** on a search forgets it.
+
+Castle keeps the words you search for in your own memory database, only when what you typed becomes
+a search (never an address), and never while **Remember sign-ins** is off: suggestions still show
+then, but nothing you type is kept. Chrome's past searches come along with your history in the
+browser's welcome. While the list is open the page steps aside so the list can sit on top.
 
 ### What is new in your tabs
 

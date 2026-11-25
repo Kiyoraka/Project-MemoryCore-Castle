@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Castle's address bar suggests as you type, from your own past: your earlier searches as pills, the sites you visited and your bookmarks as cards. Arrow keys, Enter and Esc work, and the x forgets a search. Searches are kept only in your own memory database, never while Remember sign-ins is off, and Chrome's past searches come along with your history in the welcome.
+
 - Castle's browser shows what is new in your tabs: a site like WhatsApp Web or Gmail gets a mint count on its tab, and the BROWSER tile (and its top-bar tab) shows the total and glows like CHAT when something arrives while the browser is not in front. Only the tab's title is read, never the page.
 
 - Castle's browser holds a dangerous site back before it loads and shows a red DANGER screen in its place: the threat, which guards caught it, **Go back to safety**, and **Open anyway** for that one page. Google Safe Browsing joins the guards with your own free key (Settings > Keys); Google's lists stay on your computer and only a short hash of an address is ever sent. Suspicious sites still open with the amber line.
