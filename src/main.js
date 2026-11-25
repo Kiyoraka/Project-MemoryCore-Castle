@@ -21,8 +21,10 @@ window.addEventListener('keydown', (event) => {
   if (BLOCKED.has(combo) || BLOCKED.has(event.key)) event.preventDefault()
 })
 
-// A window on another screen is told what it is before the page loads (world.rs):
-// { view: 'world', screen, lead, music, volume, config } or { view: 'identify', number }.
+// A window on another screen is told what it is before the page loads (world.rs, browser.rs,
+// browser_out.rs): { view: 'world', screen, lead, music, volume, config }, { view: 'identify', number },
+// { view: 'browser' }, a tab's own window { view: 'browser-out', window, ids } or the card a dragged
+// tab shows { view: 'browser-ghost', title, site, count, private, from }.
 // Dev only: http://localhost:<port>/?world=3d/crystal-isle&camera=orbit draws one world in the
 // browser, for tuning a world.json by eye (MAKE-IT-YOURS, "A world of your own").
 const devWorld = import.meta.env.DEV ? new URLSearchParams(location.search).get('world') : null
@@ -60,6 +62,16 @@ if (devThemeRoom) {
   Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden' })
   Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: '#050b1f' })
   import('./browser/BrowserWindow.vue').then(({ default: BrowserWindow }) => createApp(BrowserWindow).mount('#app'))
+} else if (view?.view === 'browser-ghost') {
+  // the card a dragged browser tab shows (browser_out.rs): see-through around the card
+  Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden', background: 'transparent' })
+  Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: 'transparent' })
+  import('./browser/BrowserGhost.vue').then(({ default: BrowserGhost }) => createApp(BrowserGhost, { initial: view }).mount('#app'))
+} else if (view?.view === 'browser-out') {
+  // a browser tab's window of its own (browser_out.rs): { window, ids }; the pages are separate webviews
+  Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden' })
+  Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: 'var(--background, #050b1f)' })
+  import('./browser/BrowserOut.vue').then(({ default: BrowserOut }) => createApp(BrowserOut, { initial: view }).mount('#app'))
 } else if (view?.view === 'identify') {
   // see-through, so only the number and its frame show over whatever is on that screen
   Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden', background: 'transparent' })

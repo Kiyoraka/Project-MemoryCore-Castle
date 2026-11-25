@@ -1132,6 +1132,29 @@ narrow columns stay readable; the page reloads once to change. The **Phone view*
 right of the strip (shown only then, on to begin with) keeps them on their desktop layout instead.
 Back to two pages, they return to desktop by themselves. Sign-ins are kept through every change.
 
+### A tab on another screen
+
+Any tab can live in a window of its own, on this screen or another one. Drag its chip past the edge
+of the browser and let go: while you drag, a glowing card with a small picture of the page follows the
+cursor and says **Let go to open in a new window**, the chip's spot shows a dashed outline and the
+nearest edge of the browser glows. A window opens where you let go. Drag the one chip of pages side by
+side and they go together, still side by side. **Right-click** a chip and choose **Move to a new
+window** to open it where you last left one (1100 by 760 the first time). The page itself moves, it
+never reloads: sign-ins, a playing video and a half-typed reply come along.
+
+The tab's chip stays in the browser, dimmer, with a **⧉** mark and its news still counted; press it to
+bring its window to the front (right-click it to **Bring it back**). The window has its own header: a
+chip for each page (its news in mint, the mask for a private one, and the icon that brings it home),
+back, forward, reload, the address with its suggestions, **Back to Castle** (when the browser lives
+inside Castle) or **Back to the browser**, full screen (**F11**, **Esc** to leave) and **×**. To bring
+the pages home, press that pill or drag a header chip back onto the browser and let go when the card
+says **Let go to bring it back**; pages that went out together come back side by side.
+
+Closing the window (its **×** or the system's close) **closes its tabs for good**, as in other
+browsers. A private tab stays private in its own window and is never pictured on the card (it shows
+the mask). Every page there is still checked by the guards, and a page held back shows the DANGER
+screen inside that window. The window opens where you last left one, at that size.
+
 ### Reading a page in your language
 
 A page that says it is in another language than yours gets a thin **translate row** under the
