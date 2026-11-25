@@ -21,6 +21,9 @@ import {
   browserWelcome,
   browserWelcomeAnswer,
   browserBookmarkToggle,
+  browserChrome,
+  browserForgetSearch,
+  browserSuggest,
   browserFill,
   browserIsBookmarked,
   browserLogins,
@@ -32,7 +35,8 @@ import {
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
-import { chipCount, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import SuggestList from './SuggestList.vue'
+import { chipCount, fillLabel, libraryTiles, moveSelection, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
@@ -60,7 +64,70 @@ async function act(work) {
   }
 }
 
-const go = () => act(() => browserGo(typed.value))
+// The address bar's suggestions: asked after a short pause while the member types, the pages
+// stepping aside while the list is open over them.
+const BAR_PX = 94
+const suggestions = ref([])
+const selected = ref(-1)
+const focused = ref(false)
+const suggestOrder = computed(() => suggestionGroups(suggestions.value).order)
+const suggestOpen = computed(() => focused.value && suggestions.value.length > 0)
+let suggestTimer = null
+
+async function askSuggest() {
+  const asked = typed.value
+  const rows = await browserSuggest(asked).catch(() => [])
+  if (asked === typed.value && focused.value) suggestions.value = rows
+}
+function onType() {
+  clearTimeout(suggestTimer)
+  selected.value = -1
+  suggestTimer = setTimeout(askSuggest, 120)
+}
+function closeSuggest() {
+  clearTimeout(suggestTimer)
+  suggestions.value = []
+  selected.value = -1
+}
+function onFieldFocus(event) {
+  focused.value = true
+  event.target.select()
+  // an empty field (the new tab) offers the newest searches
+  if (!typed.value.trim()) askSuggest()
+}
+function onFieldBlur() {
+  focused.value = false
+  closeSuggest()
+}
+function onFieldKey(event) {
+  if (!suggestOpen.value) return
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    selected.value = moveSelection(selected.value, event.key, suggestOrder.value.length)
+    event.preventDefault()
+  } else if (event.key === 'Escape') {
+    closeSuggest()
+    event.preventDefault()
+  }
+}
+function pickSuggestion(row) {
+  closeSuggest()
+  field.value?.blur()
+  act(() => browserGo(suggestionInput(row)))
+}
+function forgetSuggestion(row) {
+  act(async () => {
+    await browserForgetSearch(row.text)
+    await askSuggest()
+  })
+}
+watch(suggestOpen, (open) => browserChrome(BAR_PX, open).catch(() => {}))
+
+function go() {
+  const row = selected.value >= 0 ? suggestOrder.value[selected.value] : null
+  if (row) return pickSuggestion(row)
+  closeSuggest()
+  act(() => browserGo(typed.value))
+}
 const openShortcut = (url) => act(() => browserGo(url))
 const step = (name) => act(() => browserStep(name))
 const putInChat = () => act(() => browserPutInChat(page.value))
@@ -237,7 +304,21 @@ onBeforeUnmount(() => {
         <form class="address" @submit.prevent="go">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="secure ? 'var(--good)' : 'var(--warn)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
           <label class="hidden" for="browser-address">Address</label>
-          <input id="browser-address" ref="field" v-model="typed" placeholder="Type an address or search" spellcheck="false" autocomplete="off" @focus="$event.target.select()" />
+          <input
+            id="browser-address"
+            ref="field"
+            v-model="typed"
+            placeholder="Type an address or search"
+            spellcheck="false"
+            autocomplete="off"
+            role="combobox"
+            :aria-expanded="suggestOpen"
+            @focus="onFieldFocus"
+            @blur="onFieldBlur"
+            @input="onType"
+            @keydown="onFieldKey"
+          />
+          <SuggestList v-if="suggestOpen" class="suggest-under" :rows="suggestions" :selected="selected" @pick="pickSuggestion" @forget="forgetSuggestion" @hover="selected = $event" />
         </form>
         <button class="icon" :disabled="!page" :aria-label="starred ? 'Remove bookmark' : 'Bookmark this page'" :title="starred ? 'Remove bookmark' : 'Bookmark this page'" :class="{ starred }" @click="toggleStar">
           <svg width="17" height="17" viewBox="0 0 24 24" :fill="starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4 6.5 20.3l1-6.2L3 9.7l6.2-.9z" /></svg>
@@ -492,6 +573,14 @@ onBeforeUnmount(() => {
   border-radius: 18px;
   background: rgba(5, 11, 31, 0.85);
   border: 1px solid var(--line);
+}
+.address {
+  position: relative;
+}
+.suggest-under {
+  top: 42px;
+  left: 0;
+  right: 0;
 }
 .address:focus-within {
   border-color: var(--accent);

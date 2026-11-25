@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, chipCount, dangerWords, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { ARTIFACTS, chipCount, dangerWords, fillLabel, libraryTiles, moveSelection, newTabShortcuts, shownAddress, signInHint, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -101,5 +101,35 @@ describe('the news on a tab', () => {
     expect(chipCount(120)).toBe('99+')
     expect(chipCount(0)).toBe('')
     expect(chipCount(undefined)).toBe('')
+  })
+})
+
+describe('the suggestions', () => {
+  const rows = [
+    { kind: 'page', text: 'Google Calendar', url: 'https://calendar.google.com/', sub: 'calendar.google.com' },
+    { kind: 'search', text: 'google meet', url: 'https://duckduckgo.com/?q=google+meet', sub: '' },
+    { kind: 'bookmark', text: 'Google Drive', url: 'https://drive.google.com/', sub: 'drive.google.com' },
+  ]
+
+  it('puts past searches on top as pills and sites below as cards, in one order', () => {
+    const g = suggestionGroups(rows)
+    expect(g.pills.map((r) => r.text)).toEqual(['google meet'])
+    expect(g.cards.map((r) => r.text)).toEqual(['Google Calendar', 'Google Drive'])
+    expect(g.order.map((r) => r.text)).toEqual(['google meet', 'Google Calendar', 'Google Drive'])
+  })
+
+  it('moves the selection with the arrows, through the typed text and around', () => {
+    expect(moveSelection(-1, 'ArrowDown', 3)).toBe(0)
+    expect(moveSelection(2, 'ArrowDown', 3)).toBe(-1)
+    expect(moveSelection(-1, 'ArrowUp', 3)).toBe(2)
+    expect(moveSelection(0, 'ArrowUp', 3)).toBe(-1)
+    expect(moveSelection(1, 'a', 3)).toBe(1)
+    expect(moveSelection(1, 'ArrowDown', 0)).toBe(-1)
+  })
+
+  it('types a search again as words and a site as its address', () => {
+    expect(suggestionInput(rows[1])).toBe('google meet')
+    expect(suggestionInput(rows[0])).toBe('https://calendar.google.com/')
+    expect(suggestionInput(null)).toBe('')
   })
 })

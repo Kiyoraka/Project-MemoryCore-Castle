@@ -631,6 +631,7 @@ pub fn run() {
             browser::browser_outside,
             browser::browser_danger_back,
             browser::browser_danger_open,
+            browser::browser_chrome,
             browser_suggest::browser_suggest,
             browser_suggest::browser_forget_search,
             browser::browser_put_in_chat,

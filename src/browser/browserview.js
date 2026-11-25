@@ -110,3 +110,28 @@ export function chipCount(unread) {
   if (n <= 0) return ''
   return n > 99 ? '99+' : String(n)
 }
+
+// The address bar's suggestions (browser_suggest.rs): past searches as pills on top, sites and
+// bookmarks as cards below, one selection moving through both in that order.
+/** The rows split as they are shown: { pills, cards }, each row keeping its place in the order. */
+export function suggestionGroups(rows) {
+  const list = rows ?? []
+  const pills = list.filter((r) => r.kind === 'search')
+  const cards = list.filter((r) => r.kind !== 'search')
+  return { pills, cards, order: [...pills, ...cards] }
+}
+
+/** The selection after a key: -1 is the typed text itself; arrows wrap through the rows. */
+export function moveSelection(index, key, count) {
+  if (!count) return -1
+  if (key === 'ArrowDown') return index + 1 >= count ? -1 : index + 1
+  if (key === 'ArrowUp') return index <= -1 ? count - 1 : index - 1
+  return index
+}
+
+/** What pressing Enter on a row types into the address bar: a past search its words (kept again),
+ * a site or bookmark its address. */
+export function suggestionInput(row) {
+  if (!row) return ''
+  return row.kind === 'search' ? row.text : row.url
+}

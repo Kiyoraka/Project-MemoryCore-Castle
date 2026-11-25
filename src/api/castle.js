@@ -696,6 +696,11 @@ export const browserClear = () => invoke('browser_clear')
 // The DANGER screen's two buttons (browser_guard.rs): back to safety, or one page of the site anyway
 export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
 export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
+// The layout: how tall the toolbar page's bar is, and whether it has something open over the pages
+export const browserChrome = (bar, overlay) => invoke('browser_chrome', { bar, overlay })
+// The address bar's suggestions (browser_suggest.rs): -> [{ kind: 'search'|'page'|'bookmark', text, url, sub }]
+export const browserSuggest = (input) => invoke('browser_suggest', { input })
+export const browserForgetSearch = (term) => invoke('browser_forget_search', { term })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
 // How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }

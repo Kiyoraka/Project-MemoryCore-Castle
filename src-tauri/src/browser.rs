@@ -27,8 +27,17 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalP
 
 pub const WINDOW: &str = "browser";
 pub const UI: &str = "browser-ui";
-/// The tabs and toolbar above a page, in logical pixels (the UI page draws exactly this tall).
+/// The tabs and toolbar above a page, in logical pixels, until the UI page says otherwise
+/// (`browser_chrome`: a row under the toolbar makes it taller).
 const BAR: f64 = 94.0;
+
+/// What Castle's own page asks of the layout: how tall its bar is now, and whether something of its
+/// own (the suggestions under the address bar) is open over the pages, which then step aside.
+static CHROME: Mutex<(f64, bool)> = Mutex::new((BAR, false));
+
+fn bar_height() -> f64 {
+    CHROME.lock().unwrap().0
+}
 /// Where the Artifacts tile and the new-tab shortcut go (CASTLE-13).
 pub const ARTIFACTS: &str = "https://claude.ai/code/artifacts";
 /// The pages' own store on macOS (WKWebsiteDataStore): fixed, so sign-ins stay between runs.
@@ -330,6 +339,7 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         }
         WindowEvent::Destroyed => {
             *events.state::<Browser>().0.lock().unwrap() = Tabs::default();
+            *CHROME.lock().unwrap() = (BAR, false);
             // the pages are gone, and so is their news
             tell_unread(&events, (0, String::new()));
         }
@@ -406,20 +416,21 @@ fn logical_size(window: &Window) -> (f64, f64) {
 }
 
 /// The toolbar on top and the tab in front below it; a new tab (no page yet) shows the UI page
-/// whole, with its new-tab page.
+/// whole, with its new-tab page, and so does an overlay of Castle's own (the pages step aside).
 fn layout(app: &AppHandle) {
     let Some(window) = app.get_window(WINDOW) else { return };
     let (w, h) = logical_size(&window);
     let tabs = tabs(app);
+    let (bar, overlay) = *CHROME.lock().unwrap();
     // a tab held back by the guard shows Castle's own page whole: the DANGER screen
-    let page = tabs.current().is_some_and(|t| t.url.is_some() && t.danger.is_none());
+    let page = tabs.current().is_some_and(|t| t.url.is_some() && t.danger.is_none()) && !overlay;
     if let Some(ui) = app.get_webview(UI) {
-        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if page { BAR } else { h }).into() });
+        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if page { bar } else { h }).into() });
     }
     for tab in &tabs.list {
         let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        if Some(tab.id) == tabs.active && tab.url.is_some() && tab.danger.is_none() {
-            let _ = view.set_bounds(Rect { position: LogicalPosition::new(0.0, BAR).into(), size: LogicalSize::new(w, (h - BAR).max(0.0)).into() });
+        if Some(tab.id) == tabs.active && tab.url.is_some() && tab.danger.is_none() && !overlay {
+            let _ = view.set_bounds(Rect { position: LogicalPosition::new(0.0, bar).into(), size: LogicalSize::new(w, (h - bar).max(0.0)).into() });
             let _ = view.show();
         } else {
             let _ = view.hide();
@@ -477,7 +488,7 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     let _ = PAGE_STORE;
     let (w, h) = logical_size(window);
     let view = window
-        .add_child(builder, LogicalPosition::new(0.0, BAR), LogicalSize::new(w, (h - BAR).max(0.0)))
+        .add_child(builder, LogicalPosition::new(0.0, bar_height()), LogicalSize::new(w, (h - bar_height()).max(0.0)))
         .map_err(|_| "The page could not be opened.".to_string())?;
     // the platform's own phishing warning, switched on and proven
     crate::browser_native::harden(&view);
@@ -701,6 +712,22 @@ pub async fn browser_step(app: AppHandle, step: String) -> Result<(), String> {
         _ => return Err("Back, forward or reload.".into()),
     };
     done.map_err(|_| "The page did not answer.".to_string())
+}
+
+/// Castle's own page tells the layout how tall its bar is and whether it has something open over the
+/// pages (the suggestions); the pages step aside while it does.
+#[tauri::command]
+pub async fn browser_chrome(app: AppHandle, bar: f64, overlay: bool) -> Result<(), String> {
+    {
+        let mut chrome = CHROME.lock().unwrap();
+        let bar = bar.clamp(BAR, 400.0);
+        if *chrome == (bar, overlay) {
+            return Ok(());
+        }
+        *chrome = (bar, overlay);
+    }
+    layout(&app);
+    Ok(())
 }
 
 /// Go back to safety: the DANGER screen goes, and the tab shows the page it was on before, or the
