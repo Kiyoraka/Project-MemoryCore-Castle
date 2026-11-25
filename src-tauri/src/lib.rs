@@ -86,6 +86,8 @@ mod signin;
 mod screen;
 mod servers;
 mod session;
+mod site_rules;
+mod sites;
 mod settings;
 mod setup;
 mod startup;
