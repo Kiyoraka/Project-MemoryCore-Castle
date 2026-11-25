@@ -278,7 +278,10 @@ mod tests {
                 std::process::id(),
                 COUNT.fetch_add(1, Ordering::Relaxed)
             ));
-            std::fs::create_dir(&folder).unwrap();
+            // a folder left by an earlier run whose process had the same number is cleared first,
+            // so the fixture never trips over it
+            let _ = std::fs::remove_dir_all(&folder);
+            std::fs::create_dir_all(&folder).unwrap();
             Self { folder }
         }
         fn file(&self, name: &str, text: &str) -> String {
@@ -309,11 +312,8 @@ mod tests {
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
-            for name in ["fixture script.ps1", "allowed.exe", "blocked.exe"] {
-                let _ = std::fs::remove_file(self.folder.join(name));
-            }
-            let _ = std::fs::remove_dir(self.folder.join("bin"));
-            let _ = std::fs::remove_dir(&self.folder);
+            // everything a test made in it goes, not only the files named here
+            let _ = std::fs::remove_dir_all(&self.folder);
         }
     }
     fn allow(s: &Spec) -> Vec<String> {
