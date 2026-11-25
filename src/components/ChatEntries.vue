@@ -22,7 +22,7 @@ const props = defineProps({
   companion: { type: String, default: 'Your companion' },
   cli: { type: String, default: 'claude' },
 })
-const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose-designs', 'open-media', 'media-play'])
+const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose-designs', 'open-media', 'media-play', 'resend'])
 
 // One film or sound plays at a time: a player that starts pauses the others and the voice line.
 function pauseOthers(except = null) {
@@ -54,7 +54,7 @@ function chooseDesigns(item) {
 }
 
 const TICK_TITLES = {
-  sending: 'Sent to the terminal',
+  sending: 'Typed into the terminal - two ticks once it is read',
   queued: 'Waiting in the queue - read after the current step',
   read: 'Read',
 }
@@ -148,7 +148,8 @@ defineExpose({ nearBottom, toBottom })
           <span class="time">
             <button v-if="item.entry.state === 'queued' && readsClaudeScreen(cli)" class="send-now" title="Send it now (Ctrl+X Ctrl+S)" @click="emit('send-now')">send now</button>
             {{ clock(item.entry.at) }}
-            <span v-if="item.entry.role === 'member' && item.entry.state" class="ticks" :class="item.entry.state" :title="TICK_TITLES[item.entry.state]">{{ item.entry.state === 'read' ? '✓✓' : '✓' }}</span>
+            <button v-if="item.entry.notSent" class="send-now resend" title="The terminal kept these words in its box - press to send them again" @click="emit('resend', item.entry)">Not sent · Send again</button>
+            <span v-else-if="item.entry.role === 'member' && item.entry.state" class="ticks" :class="item.entry.state" :title="TICK_TITLES[item.entry.state]">{{ item.entry.state === 'read' ? '✓✓' : '✓' }}</span>
           </span>
           <span v-if="item.reaction" class="reaction" title="Your reaction from the phone">{{ item.reaction }}</span>
         </div>
@@ -352,6 +353,15 @@ defineExpose({ nearBottom, toBottom })
 
 .member .bubble:has(.send-now) {
   min-width: 170px;
+}
+
+/* the words never got through: coral, so it is seen */
+.resend {
+  color: var(--bad, #ff7f6e);
+}
+
+.member .bubble:has(.resend) {
+  min-width: 210px;
 }
 
 .send-now:hover {

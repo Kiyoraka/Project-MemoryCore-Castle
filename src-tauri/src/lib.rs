@@ -398,6 +398,7 @@ pub fn run() {
             messages::send_message,
             messages::queued_messages,
             messages::queued_message_action,
+            messages::chat_prompt_holds,
             providers::image_retry,
             providers::image_dismiss,
             providers::image_cancel,

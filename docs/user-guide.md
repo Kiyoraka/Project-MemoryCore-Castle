@@ -110,6 +110,7 @@ Chat shows your conversation as message bubbles, like a messaging app.
 - **Share a picture:** drag it onto Chat, or paste it with **Ctrl + V**. It shows above the box before you send.
 - A plan your companion proposes appears as a **PLAN** card; click it to read the whole plan. The card is there while Claude Code asks you to approve the plan, even before the plan reaches the conversation.
 - Ticks on your messages: one tick means it is waiting in the queue (your companion reads it after its current step); two ticks mean it was read.
+- A message that did not get through shows **Not sent · Send again** instead of a tick; press it to send it again. Castle waits a little longer before pressing Enter when pictures are attached, and with Claude Code it presses Enter once more when your words are still sitting in the terminal's box a few seconds later.
 - **Your reaction from the phone:** when you react to your companion's reply on Telegram, Discord or WhatsApp (a heart, a laugh), the same emoji appears at the lower corner of that bubble in Chat. A reaction is only shown: it never wakes your companion or costs a turn. Take it back on the phone and it leaves the bubble too.
 
 **Claude Code:** when your companion asks you to choose (for example, to allow a command), a card shows the whole question with the words around it, and each choice as a button with its description under it.

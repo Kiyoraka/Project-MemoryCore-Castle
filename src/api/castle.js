@@ -87,6 +87,8 @@ export const sendMessage = (text, room) => {
 }
 export const queuedMessages = () => invoke('queued_messages')
 export const queuedMessageAction = (id, retry = false) => invoke('queued_message_action', { id, retry })
+// whether the room's Claude Code session still holds the sent words in its input box (messages.rs)
+export const chatPromptHolds = (room, text) => invoke('chat_prompt_holds', { room, text })
 // `greet`: only the Wake button asks for it - Castle then opens the conversation so the companion greets.
 // `fresh`: the member pressed "Start fresh" - a new talk whatever the start setting says
 export const terminalStart = (cols, rows, room, greet = false, fresh = false) => invoke('terminal_start', { cols, rows, room, greet, fresh })

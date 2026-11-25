@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { localSend, mergeEntries, resetEntries } from './ticks.js'
+import { clearNotSent, localSend, markNotSent, mergeEntries, resetEntries, stillSending } from './ticks.js'
 
 const states = (list) => list.map((m) => [m.role, m.text, m.state ?? null])
 
@@ -39,5 +39,30 @@ describe("the member's message ticks", () => {
     const old = [localSend('kept'), localSend('answered')]
     const list = resetEntries(old, [{ id: 'u1', role: 'member', text: 'answered' }])
     expect(states(list)).toEqual([['member', 'answered', 'read'], ['member', 'kept', 'sending']])
+  })
+
+  it('a message the terminal kept in its box is marked Not sent, cleared on Send again', () => {
+    const bubble = localSend('fix the upload')
+    let list = [{ id: 'a0', role: 'companion', text: 'hi' }, bubble]
+    expect(stillSending(list, bubble.id)).toBe(true)
+    list = markNotSent(list, bubble.id)
+    expect(list[1].notSent).toBe(true)
+    expect(list[0]).toEqual({ id: 'a0', role: 'companion', text: 'hi' })
+    expect(stillSending(list, bubble.id)).toBe(false)
+    list = clearNotSent(list, bubble.id)
+    expect('notSent' in list[1]).toBe(false)
+    expect(stillSending(list, bubble.id)).toBe(true)
+  })
+
+  it('only a local bubble is marked, and the record taking it in drops the mark', () => {
+    const read = { id: 'u1', role: 'member', text: 'hello', state: 'read' }
+    expect(markNotSent([read], 'u1')).toEqual([read])
+    let list = markNotSent([localSend('fix the upload')], 'nope')
+    expect(list[0].notSent).toBeUndefined()
+    const bubble = localSend('fix the upload')
+    list = mergeEntries(markNotSent([bubble], bubble.id), [{ id: 'u2', role: 'member', text: 'fix the upload' }])
+    expect(states(list)).toEqual([['member', 'fix the upload', 'read']])
+    expect(list[0].notSent).toBeUndefined()
+    expect(stillSending(list, bubble.id)).toBe(false)
   })
 })

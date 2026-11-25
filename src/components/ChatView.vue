@@ -1,14 +1,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { chatHistory, chatMediaOpen, chatPlanFile, chatPoll, claudeVoice, getSettings, onPhoneReaction, phoneReactions, queuedMessageAction, queuedMessages, sendMessage } from '../api/castle.js'
-import { localSend, mergeEntries, resetEntries } from './ticks.js'
+import { chatHistory, chatMediaOpen, chatPlanFile, chatPoll, chatPromptHolds, claudeVoice, getSettings, onPhoneReaction, phoneReactions, queuedMessageAction, queuedMessages, sendMessage } from '../api/castle.js'
+import { clearNotSent, localSend, markNotSent, mergeEntries, resetEntries, stillSending } from './ticks.js'
 import { isMicShortcut, micOffer, voiceMic } from './voicehold.js'
 import { isMac } from '../platform.js'
 import { isOwnAnswer, readChoices, tellOf } from './choices.js'
 import { buildItems, isMarker, openPlanFile, placeReactions, withReaction } from './chatItems.js'
 import { MODES, readContext, readMode, SHIFT_TAB } from './modes.js'
 import { useChatMedia } from './useChatMedia.js'
-import { typeLine } from './typeline.js'
+import { enterDelay, typeLine } from './typeline.js'
 import { pasted } from '../views/dev/devtabs.js'
 import ChatChoices from './ChatChoices.vue'
 import ChatComposer from './ChatComposer.vue'
@@ -360,7 +360,11 @@ async function send(text) {
   try {
     // the member's bubble at once, one grey tick until the companion's record holds it
     if (sent.queued) pendingMessages.value = await queuedMessages()
-    else entries.value = [...entries.value, localSend(text)]
+    else {
+      const bubble = localSend(text)
+      entries.value = [...entries.value, bubble]
+      watchLanding(bubble.id, text)
+    }
     sendProblem.value = ''
   } catch (reason) {
     sendProblem.value = String(reason)
@@ -368,6 +372,60 @@ async function send(text) {
   await nextTick()
   conversation.value?.toBottom()
   return true
+}
+
+// ---------- A message that really got through ----------
+
+// Claude Code can take the words and their Enter as one paste (or be busy taking in a picture) and
+// keep the words in its box unsent. 3 s after a direct send and its Enter (which waits longer for
+// pictures), words still in the box get one more Enter; still there 3 s later, the bubble says
+// "Not sent · Send again" instead of a tick.
+const LANDING_MS = 3000
+
+async function promptHolds(text) {
+  if (!isClaude.value) return false
+  try {
+    return await chatPromptHolds(props.room, text)
+  } catch {
+    return false
+  }
+}
+
+function watchLanding(id, text) {
+  setTimeout(async () => {
+    if (!stillSending(entries.value, id) || !(await promptHolds(text))) return
+    try {
+      await props.write('\r')
+    } catch {
+      // the check below still tells
+    }
+    await pause(LANDING_MS)
+    if (stillSending(entries.value, id) && (await promptHolds(text))) entries.value = markNotSent(entries.value, id)
+  }, LANDING_MS + enterDelay(text))
+}
+
+/** Send again on a Not sent bubble: Enter when the words still sit in the box, else typed again. */
+async function resend(entry) {
+  if (!props.running) return
+  try {
+    if (await promptHolds(entry.text)) {
+      await props.write('\r')
+    } else {
+      const sent = await sendMessage(entry.text, props.room)
+      if (sent.queued) {
+        // it waits in the queue now and shows there instead
+        entries.value = entries.value.filter((m) => m.id !== entry.id)
+        pendingMessages.value = await queuedMessages()
+        return
+      }
+    }
+    entries.value = clearNotSent(entries.value, entry.id)
+    watchLanding(entry.id, entry.text)
+    sendProblem.value = ''
+  } catch (reason) {
+    // it stays Not sent
+    sendProblem.value = String(reason)
+  }
 }
 
 // A queued message goes in now instead of after the companion's current step (Claude Code's Ctrl+X Ctrl+S).
@@ -506,6 +564,7 @@ defineExpose({ poll, addPaths, addText })
       :cli="cli"
       @show-log="emit('show-log')"
       @send-now="sendNow"
+      @resend="resend"
       @open-plan="planOpen = $event"
       @open-picture="openPicture"
       @toggle-voice="toggleVoice"
