@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, areaOf, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
+import { boundsOf, chipTitle, columnsOf } from './browserview.js'
+import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -204,11 +205,24 @@ describe('the translate row', () => {
   })
 })
 
-describe('the browser inside Castle', () => {
-  it("gives the pages the room's area under the bar", () => {
-    expect(areaOf({ left: 20.4, top: 60, width: 1200.6, height: 700 }, 124)).toEqual([20, 184, 1201, 576])
-    expect(areaOf({ left: 0, top: 0, width: 0, height: 700 }, 124)).toBe(null)
-    expect(areaOf({ left: 0, top: 0, width: 800, height: 100 }, 124)).toBe(null, 'nothing under the bar')
-    expect(areaOf(null, 94)).toBe(null)
+
+describe("the Keep's look", () => {
+  it('cuts a chip title to 28 characters', () => {
+    expect(chipTitle('Short')).toBe('Short')
+    expect(chipTitle('x'.repeat(40))).toBe(`${'x'.repeat(27)}…`)
+    expect(chipTitle(null)).toBe('')
+  })
+  it('lays the panes out with a grip between two', () => {
+    expect(columnsOf([])).toBe('1fr')
+    expect(columnsOf([0.5, 0.5])).toBe('0.5fr 10px 0.5fr')
+    expect(columnsOf([0.25, 0.25, 0.25, 0.25]).split(' 10px ').length).toBe(4)
+  })
+  it('gives the core whole-pixel boxes, never a sliver', () => {
+    expect(boundsOf({ left: 10.4, top: 120.6, width: 600.2, height: 500 })).toEqual({ x: 10, y: 121, w: 600, h: 500 })
+    expect(boundsOf({ left: 0, top: 0, width: 1, height: 400 })).toBe(null)
+    expect(boundsOf(null)).toBe(null)
+  })
+  it('keeps each column at least 15 percent when asked', () => {
+    expect(dragWidths([0.5, 0.5], 0, 900, 1000, 0.15)[1]).toBeCloseTo(0.15)
   })
 })

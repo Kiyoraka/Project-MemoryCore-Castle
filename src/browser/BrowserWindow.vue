@@ -1,44 +1,32 @@
 <script setup>
-// The BROWSER window's own page (browser.rs, webview `browser-ui`), or the BROWSER room inside Castle
-// (`embedded`, Settings > Rooms > BROWSER > Browser opens): the tabs and the toolbar,
-// exactly BAR (94 px) tall above the web page, or the whole window with the new-tab page when the
-// tab in front has no page yet. The web pages themselves are separate webviews below it.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// The browser, the Keep's way: the BROWSER window's own page (browser.rs, webview `browser-ui`), or
+// the BROWSER room inside Castle (`embedded`, Settings > Rooms > BROWSER > Browser opens). Chips for
+// the tabs (each with Open on the right and its x), the pages side by side as one group chip with its
+// list, then the panes, each with its own toolbar (PaneBar.vue). This page measures the box under each
+// pane's toolbar and the core puts that tab's web page there (browser_show); while a list or a sheet is
+// open over the pages, or the room is not in front, every page hides.
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
+  browserBeside,
   browserClose,
   browserDangerBack,
   browserDangerOpen,
   browserGo,
-  browserOpen,
-  browserOutside,
-  browserPutInChat,
-  browserState,
-  browserStep,
-  browserSwitch,
   browserImportBookmarks,
   browserImportHistory,
   browserImportPasswords,
+  browserNewTab,
+  browserOpen,
   browserPasswordGuide,
+  browserPhoneView,
+  browserShow,
+  browserState,
+  browserSwitch,
+  browserTranslateSettings,
+  browserUnpane,
   browserWelcome,
   browserWelcomeAnswer,
-  browserBeside,
-  browserBookmarkToggle,
-  browserPhoneView,
-  browserTranslate,
-  browserTranslateLanguage,
-  browserTranslateOff,
-  browserTranslatePictures,
-  browserTranslateSettings,
-  browserTranslateSite,
-  browserUnpane,
   browserWidths,
-  browserChrome,
-  browserForgetSearch,
-  browserSuggest,
-  browserFill,
-  browserIsBookmarked,
-  browserLogins,
-  browserNewTab,
   devServers,
   getSettings,
   onBrowserState,
@@ -46,10 +34,8 @@ import {
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
-import SuggestList from './SuggestList.vue'
-import PaneRow from './PaneRow.vue'
-import TranslateRow from './TranslateRow.vue'
-import { areaOf, chipCount, fillLabel, groupOf, showTranslateRow, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import PaneBar from './PaneBar.vue'
+import { boundsOf, chipCount, chipTitle, columnsOf, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 // inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
@@ -57,23 +43,16 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
   visible: { type: Boolean, default: true },
 })
-const root = ref(null)
 
-const tabs = ref({ list: [], active: null })
-const typed = ref('')
+const tabs = ref({ list: [], active: null, panes: [], widths: [], phoneView: true })
 const problem = ref('')
 const servers = ref([])
 const newTab = ref('shortcuts')
-const field = ref(null)
 let stop = null
 
 const current = computed(() => tabs.value.list.find((t) => t.id === tabs.value.active) ?? null)
-const page = computed(() => current.value?.url ?? '')
 const shortcuts = computed(() => newTabShortcuts(servers.value, newTab.value))
-const secure = computed(() => page.value.startsWith('https://'))
-const hint = computed(() => signInHint(page.value))
-
-watch(page, (url) => (typed.value = url), { immediate: true })
+const hint = computed(() => signInHint(current.value?.url ?? ''))
 
 async function act(work) {
   problem.value = ''
@@ -84,141 +63,12 @@ async function act(work) {
   }
 }
 
-// The address bar's suggestions: asked after a short pause while the member types, the pages
-// stepping aside while the list is open over them.
-const BAR_PX = 94
-const suggestions = ref([])
-const selected = ref(-1)
-const focused = ref(false)
-const suggestOrder = computed(() => suggestionGroups(suggestions.value).order)
-const suggestOpen = computed(() => focused.value && suggestions.value.length > 0)
-let suggestTimer = null
-
-async function askSuggest() {
-  const asked = typed.value
-  const rows = await browserSuggest(asked).catch(() => [])
-  if (asked === typed.value && focused.value) suggestions.value = rows
-}
-function onType() {
-  clearTimeout(suggestTimer)
-  selected.value = -1
-  suggestTimer = setTimeout(askSuggest, 120)
-}
-function closeSuggest() {
-  clearTimeout(suggestTimer)
-  suggestions.value = []
-  selected.value = -1
-}
-function onFieldFocus(event) {
-  focused.value = true
-  event.target.select()
-  // an empty field (the new tab) offers the newest searches
-  if (!typed.value.trim()) askSuggest()
-}
-function onFieldBlur() {
-  focused.value = false
-  closeSuggest()
-}
-function onFieldKey(event) {
-  if (!suggestOpen.value) return
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    selected.value = moveSelection(selected.value, event.key, suggestOrder.value.length)
-    event.preventDefault()
-  } else if (event.key === 'Escape') {
-    closeSuggest()
-    event.preventDefault()
-  }
-}
-function pickSuggestion(row) {
-  closeSuggest()
-  field.value?.blur()
-  act(() => browserGo(suggestionInput(row)))
-}
-function forgetSuggestion(row) {
-  act(async () => {
-    await browserForgetSearch(row.text)
-    await askSuggest()
-  })
-}
-// Pages side by side: the group's chip, the row above the columns, and the bar grown to hold it.
-const PANE_ROW = 30
+// ---------- the chips and the group ----------
 const group = computed(() => groupOf(tabs.value))
 const singles = computed(() => singleTabs(tabs.value))
 const shownIds = computed(() => onScreen(tabs.value))
-const split = computed(() => shownIds.value.length >= 2)
 const shownTabs = computed(() => shownIds.value.map((id) => tabs.value.list.find((t) => t.id === id)).filter(Boolean))
-// The translate row: the page in front in the member's language (browser_translate.rs).
-const TRANSLATE_ROW = 30
-const translating = ref({ languages: [], language: 'en', sites: [], canTranslate: false, canKeepSites: false, bubbleWay: '' })
-const translateAsked = ref(false)
-// the language list is open over the pages
-const translateListing = ref(false)
-const translateBusy = ref('')
-const translateSaid = ref('')
-const bubbleCount = ref(0)
-const translateShown = computed(() => Boolean(current.value) && showTranslateRow(current.value, translating.value.language, translateAsked.value))
-watch(page, () => {
-  translateAsked.value = false
-  translateSaid.value = ''
-  bubbleCount.value = 0
-})
-
-async function readTranslating() {
-  translating.value = await browserTranslateSettings().catch(() => translating.value)
-}
-async function translateNow(quiet = false) {
-  const tab = current.value
-  if (!tab || translateBusy.value) return
-  if (!quiet) translateBusy.value = 'Translating with your Claude Code...'
-  try {
-    const done = await browserTranslate(tab.id, translating.value.language)
-    if (!quiet) translateSaid.value = done.same ? 'This page is already in your language.' : done.translated ? '' : 'Nothing left to translate on screen.'
-  } catch (reason) {
-    if (!quiet) translateSaid.value = String(reason)
-  } finally {
-    if (!quiet) translateBusy.value = ''
-  }
-}
-const translateOriginal = () => act(async () => {
-  await browserTranslateOff(current.value.id)
-  bubbleCount.value = 0
-})
-async function translateLanguage(code) {
-  translating.value = { ...translating.value, language: await browserTranslateLanguage(code).catch(() => translating.value.language) }
-  if (current.value?.translated) {
-    await browserTranslateOff(current.value.id).catch(() => {})
-    translateNow()
-  }
-}
-const translateAlways = (on) => act(async () => {
-  translating.value = { ...translating.value, sites: await browserTranslateSite(current.value.id, on) }
-  if (on && !current.value?.translated) translateNow()
-})
-async function readBubbles() {
-  const tab = current.value
-  if (!tab || translateBusy.value) return
-  translateBusy.value = 'Reading the bubbles... (10 to 30 seconds)'
-  try {
-    bubbleCount.value += await browserTranslatePictures(tab.id, translating.value.language)
-    translateSaid.value = bubbleCount.value ? '' : 'No bubbles to translate on screen.'
-  } catch (reason) {
-    translateSaid.value = String(reason)
-  } finally {
-    translateBusy.value = ''
-  }
-}
-// while a page is being read in another language, what scrolls into view is translated too
-let translateRounds = null
-watch(
-  () => current.value?.translated,
-  (on) => {
-    clearInterval(translateRounds)
-    if (on) translateRounds = setInterval(() => translateNow(true), 4000)
-  },
-)
-
-const barHeight = computed(() => BAR_PX + (split.value ? PANE_ROW : 0) + (translateShown.value ? TRANSLATE_ROW : 0))
-// the group's chip brings back the page last in front in it
+const many = computed(() => shownTabs.value.length > 1)
 const groupFocus = ref(null)
 watch(
   () => tabs.value.active,
@@ -226,40 +76,96 @@ watch(
     if (group.value?.ids.includes(id)) groupFocus.value = id
   },
 )
-const pickGroup = () => pick(group.value.ids.includes(groupFocus.value) ? groupFocus.value : group.value.ids[0])
-const beside = (id) => act(() => browserBeside(id))
-const unpane = (id) => act(() => browserUnpane(id))
-const setWidths = (widths) => act(() => browserWidths(widths))
-const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
-// what the layout needs: the bar's height and an overlay; inside Castle also the room's page area and
-// whether the room is in front (the pages hide when it is not)
-function sendChrome() {
-  const overlay = suggestOpen.value || translateListing.value
-  if (!props.embedded) return browserChrome(barHeight.value, overlay).catch(() => {})
-  const area = areaOf(root.value?.getBoundingClientRect(), barHeight.value)
-  return browserChrome(barHeight.value, overlay, area, props.visible).catch(() => {})
-}
-watch([barHeight, suggestOpen, translateListing, () => props.visible], sendChrome)
-let roomSize = null
-
-function go() {
-  const row = selected.value >= 0 ? suggestOrder.value[selected.value] : null
-  if (row) return pickSuggestion(row)
-  closeSuggest()
-  act(() => browserGo(typed.value))
-}
-const openShortcut = (url) => act(() => browserGo(url))
-const step = (name) => act(() => browserStep(name))
-const putInChat = () => act(() => browserPutInChat(page.value))
-const outside = () => act(() => browserOutside(page.value))
 const pick = (id) => act(() => browserSwitch(id))
+const pickGroup = () => pick(group.value.ids.includes(groupFocus.value) ? groupFocus.value : group.value.ids[0])
 const close = (id) => act(() => browserClose(id))
 const add = () => act(() => browserOpen(null))
-// the DANGER screen's two ways out (browser_guard.rs)
-const dangerBack = () => act(() => browserDangerBack(current.value.id))
-const dangerOpen = () => act(() => browserDangerOpen(current.value.id))
+const beside = (id) => act(() => browserBeside(id))
+const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
+// the group chip's list: its pages, each with Take out
+const groupMenu = ref(false)
+watch(groupMenu, (open) => overlay('group-menu', open))
+watch(group, (g) => {
+  if (!g) groupMenu.value = false
+})
+const takeOut = (id) => act(() => browserUnpane(id))
+// a column's x: the tab stays open as a chip, the column goes
+const closeColumn = (id) => act(() => browserUnpane(id))
+function focusPane(id) {
+  if (id !== tabs.value.active) act(() => browserSwitch(id))
+}
 
-// The first-open welcome: one step at a time on the new tab, each the member's Yes or Skip.
+// ---------- the panes: columns, grips, and where each page goes ----------
+const shares = ref([])
+watch(
+  () => tabs.value.widths,
+  (w) => (shares.value = [...(w ?? [])]),
+  { immediate: true },
+)
+const gridColumns = computed(() => columnsOf(many.value ? shares.value : []))
+const panesEl = ref(null)
+let dragging = null
+function grab(event, at) {
+  dragging = { at, x: event.clientX, start: [...shares.value] }
+  event.target.setPointerCapture(event.pointerId)
+}
+function drag(event) {
+  if (!dragging) return
+  shares.value = dragWidths(dragging.start, dragging.at, event.clientX - dragging.x, panesEl.value?.clientWidth ?? 0, 0.15)
+}
+function release() {
+  if (!dragging) return
+  dragging = null
+  act(() => browserWidths([...shares.value]))
+}
+
+// the boxes the pages go into, measured; while something is open over the pages they all hide
+const pageEls = new Map()
+const overlays = reactive(new Set())
+function overlay(key, on) {
+  if (on) overlays.add(key)
+  else overlays.delete(key)
+}
+let frame = 0
+let boxes = null
+function schedule() {
+  if (frame) return
+  frame = requestAnimationFrame(() => {
+    frame = 0
+    place()
+  })
+}
+function place() {
+  const hidden = overlays.size > 0 || (props.embedded && !props.visible)
+  const placed = hidden
+    ? []
+    : shownTabs.value
+        .filter((t) => t.url && !t.danger)
+        .map((t) => {
+          const box = boundsOf(pageEls.get(t.id)?.getBoundingClientRect())
+          return box ? { id: t.id, ...box } : null
+        })
+        .filter(Boolean)
+  browserShow(placed).catch(() => {})
+}
+function pageEl(id, el) {
+  const before = pageEls.get(id)
+  if (before) boxes?.unobserve(before)
+  if (el) {
+    pageEls.set(id, el)
+    boxes?.observe(el)
+  } else pageEls.delete(id)
+  schedule()
+}
+watch([tabs, () => overlays.size, () => props.visible, shares], schedule, { deep: true })
+
+// ---------- translation settings, shared by the panes ----------
+const translating = ref({ languages: [], language: 'en', sites: [], canTranslate: false, canKeepSites: false, bubbleWay: '' })
+async function readTranslating() {
+  translating.value = await browserTranslateSettings().catch(() => translating.value)
+}
+
+// ---------- the first-open welcome, one step at a time on the new tab ----------
 const welcome = ref(null)
 const welcomeBusy = ref(false)
 const welcomeSaid = ref('')
@@ -311,12 +217,8 @@ async function askGuide() {
   }
 }
 
-// The new tab's own lists, the star and Fill (browser_library.rs): a password never reaches this page.
+// ---------- the new tab's lists ----------
 const library = ref({ visited: [], marks: [] })
-const starred = ref(false)
-const logins = ref([])
-const choosing = ref(false)
-
 async function refreshNewTab() {
   try {
     servers.value = await devServers()
@@ -325,60 +227,41 @@ async function refreshNewTab() {
   }
   library.value = libraryTiles(await browserNewTab().catch(() => null))
 }
+const openShortcut = (url, id) => act(() => browserGo(url, id))
+watch(
+  () => current.value && !current.value.url,
+  async (blank) => {
+    if (!blank) return
+    await readWelcome()
+    if (newTab.value === 'artifacts' && !shownStep.value) return openShortcut(shortcuts.value[0]?.url, current.value.id)
+    await refreshNewTab()
+    await nextTick()
+    paneRefs.get(current.value?.id)?.selectAddress()
+  },
+)
 
-async function readPage(url) {
-  choosing.value = false
-  if (!url) {
-    starred.value = false
-    logins.value = []
-    return
-  }
-  starred.value = await browserIsBookmarked(url).catch(() => false)
-  logins.value = await browserLogins().catch(() => [])
+// ---------- keys: Ctrl/Cmd T a new tab, W closes the tab in front, L its address ----------
+const paneRefs = new Map()
+function paneRef(id, el) {
+  if (el) paneRefs.set(id, el)
+  else paneRefs.delete(id)
 }
-watch(page, readPage)
-// a sign-in page loading in the same address: read again once the page has had a moment
-watch(() => current.value?.title, () => page.value && browserLogins().then((l) => (logins.value = l)).catch(() => {}))
-
-const toggleStar = () => act(async () => (starred.value = await browserBookmarkToggle(page.value, current.value?.title ?? '')))
-function fill(login) {
-  choosing.value = false
-  act(() => browserFill(login.id))
-}
-const pressFill = () => (logins.value.length === 1 ? fill(logins.value[0]) : (choosing.value = !choosing.value))
-
 function onKey(event) {
   const mod = isMac ? event.metaKey : event.ctrlKey
   if (!mod || (props.embedded && !props.visible)) return
   const key = event.key.toLowerCase()
   if (key === 't') add()
   else if (key === 'w' && current.value) close(current.value.id)
-  else if (key === 'l') field.value?.select()
+  else if (key === 'l') paneRefs.get(current.value?.id)?.selectAddress()
   else return
   event.preventDefault()
 }
 
-watch(
-  () => current.value && !current.value.url,
-  async (blank) => {
-    if (!blank) return
-    await readWelcome()
-    if (newTab.value === 'artifacts' && !shownStep.value) return openShortcut(shortcuts.value[0]?.url)
-    await refreshNewTab()
-    await nextTick()
-    field.value?.focus()
-  },
-)
-
 onMounted(async () => {
   if (!props.embedded) document.title = 'MemoryCore · Browser'
-  // inside Castle the room's place follows its size and the window's
-  if (props.embedded && root.value) {
-    roomSize = new ResizeObserver(sendChrome)
-    roomSize.observe(root.value)
-    window.addEventListener('resize', sendChrome)
-    sendChrome()
-  }
+  boxes = new ResizeObserver(schedule)
+  for (const el of pageEls.values()) boxes.observe(el)
+  window.addEventListener('resize', schedule)
   window.addEventListener('keydown', onKey)
   stop = await onBrowserState((next) => (tabs.value = next))
   try {
@@ -392,163 +275,116 @@ onMounted(async () => {
   await readTranslating()
   await readWelcome()
   if (current.value && !current.value.url) refreshNewTab()
+  schedule()
 })
 onBeforeUnmount(() => {
-  roomSize?.disconnect()
-  window.removeEventListener('resize', sendChrome)
-  if (props.embedded) browserChrome(barHeight.value, false, null, false).catch(() => {})
-  clearInterval(translateRounds)
+  boxes?.disconnect()
+  cancelAnimationFrame(frame)
+  window.removeEventListener('resize', schedule)
   window.removeEventListener('keydown', onKey)
+  if (props.embedded) browserShow([]).catch(() => {})
   stop?.()
 })
 </script>
 
 <template>
-  <div ref="root" class="browser" :class="{ embedded }">
-    <div class="bar" :style="{ height: `${barHeight}px` }">
-      <div class="strip" role="tablist" aria-label="Tabs">
-        <div v-if="group" class="tab group" :class="{ on: group.on, news: group.unread > 0 }" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}`" @click="pickGroup">
+  <div class="browser" :class="{ embedded }">
+    <div class="chips" role="tablist" aria-label="Tabs">
+      <span v-if="group" class="chip group" :class="{ on: group.on, news: group.unread > 0 }">
+        <button class="name" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}`" @click="pickGroup">
           <span class="minimap" aria-hidden="true"><i v-for="id in group.ids" :key="id"></i></span>
-          <span class="name">{{ group.label }}</span>
-          <span v-if="chipCount(group.unread)" class="news-count" :aria-label="`${group.unread} new`">{{ chipCount(group.unread) }}</span>
-        </div>
-        <div v-for="t in singles" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger, news: t.unread > 0 }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
-          <span class="dot" :class="{ local: t.url?.startsWith('http://'), blank: !t.url }" aria-hidden="true"></span>
-          <span class="name">{{ t.title }}</span>
-          <span v-if="chipCount(t.unread)" class="news-count" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
-          <button v-if="page && t.id !== tabs.active && shownIds.length < 4" class="x beside" :aria-label="`Put ${t.title} side by side`" title="Side by side with the page in front" @click.stop="beside(t.id)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
-          </button>
-          <button class="x" :aria-label="`Close ${t.title}`" @click.stop="close(t.id)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          </button>
-        </div>
-        <button class="icon add" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          {{ chipTitle(group.label) }}
+          <span v-if="chipCount(group.unread)" class="unread" :aria-label="`${group.unread} new`">{{ chipCount(group.unread) }}</span>
         </button>
-        <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
-          Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
+        <button class="mini" :aria-expanded="groupMenu" aria-label="The pages in this tab" title="The pages in this tab" @click="groupMenu = !groupMenu">▾</button>
+      </span>
+      <span v-for="t in singles" :key="t.id" class="chip" :class="{ on: shownIds.includes(t.id), danger: t.danger, news: t.unread > 0, private: t.private }">
+        <button class="name" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+          {{ chipTitle(t.title) }}
+          <span v-if="chipCount(t.unread)" class="unread" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
         </button>
-        <span v-if="siteWarning(current?.warning)" class="safe warning" :class="current.warning.verdict" role="alert" :title="siteWarning(current.warning)">{{ siteWarning(current.warning) }}</span>
-        <span v-else-if="hint" class="safe hint" role="status">{{ hint }}</span>
-        <span v-else class="safe" title="Web pages here get no Castle permissions: they cannot read your memory, chats or files.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6z" /></svg>
-          This window can't reach Castle or your memory
-        </span>
-      </div>
-      <div class="tools">
-        <button class="icon" aria-label="Back" :disabled="!page" @click="step('back')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
-        </button>
-        <button class="icon" aria-label="Forward" :disabled="!page" @click="step('forward')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
-        </button>
-        <button class="icon" aria-label="Reload" :disabled="!page" @click="step('reload')">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
-        </button>
-        <form class="address" @submit.prevent="go">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="secure ? 'var(--good)' : 'var(--warn)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-          <label class="hidden" for="browser-address">Address</label>
-          <input
-            id="browser-address"
-            ref="field"
-            v-model="typed"
-            placeholder="Type an address or search"
-            spellcheck="false"
-            autocomplete="off"
-            role="combobox"
-            :aria-expanded="suggestOpen"
-            @focus="onFieldFocus"
-            @blur="onFieldBlur"
-            @input="onType"
-            @keydown="onFieldKey"
-          />
-          <SuggestList v-if="suggestOpen" class="suggest-under" :rows="suggestions" :selected="selected" @pick="pickSuggestion" @forget="forgetSuggestion" @hover="selected = $event" />
-        </form>
-        <button class="icon" :disabled="!page" :aria-label="starred ? 'Remove bookmark' : 'Bookmark this page'" :title="starred ? 'Remove bookmark' : 'Bookmark this page'" :class="{ starred }" @click="toggleStar">
-          <svg width="17" height="17" viewBox="0 0 24 24" :fill="starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.2L12 17.4 6.5 20.3l1-6.2L3 9.7l6.2-.9z" /></svg>
-        </button>
-        <button class="icon" :disabled="!page" :class="{ starred: translateShown }" aria-label="Translate this page" title="Translate this page into your language" @click="translateAsked = !translateAsked">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h8M8 3v2M6 5c0 4 2 7 5 8M10 5c0 4-3 7-6 8" /><path d="M13 21l4-9 4 9M14.5 18h5" /></svg>
-        </button>
-        <div v-if="page && logins.length" class="fill">
-          <button class="pill" title="Castle fills this page's sign-in from your vault" @click="pressFill">{{ fillLabel(logins) }}</button>
-          <div v-if="choosing" class="logins" role="menu">
-            <button v-for="l in logins" :key="l.id" role="menuitem" @click="fill(l)">{{ l.username || '(no username)' }}</button>
-          </div>
-        </div>
-        <button class="pill" :disabled="!page" title="Put this page's address in HOME's chat" @click="putInChat">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
-          Put in chat
-        </button>
-        <button class="pill" :disabled="!page" @click="outside">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
-          Open in your browser
-        </button>
-      </div>
-      <PaneRow v-if="split" :panes="shownTabs" :widths="tabs.widths" :active="tabs.active" @focus="pick" @close="unpane" @widths="setWidths" />
-      <TranslateRow
-        v-if="translateShown"
-        :tab="current"
-        :settings="translating"
-        :busy="translateBusy"
-        :said="translateSaid"
-        :bubbles="bubbleCount"
-        @translate="translateNow()"
-        @original="translateOriginal"
-        @language="translateLanguage"
-        @always="translateAlways"
-        @bubbles="readBubbles"
-        @listing="translateListing = $event"
-      />
+        <button class="mini" :aria-label="`Open ${t.title} on the right`" title="Open on the right" @click="beside(t.id)">⫼</button>
+        <button class="mini" :aria-label="`Close ${t.title}`" title="Close" @click="close(t.id)">×</button>
+      </span>
+      <button class="chip plus" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">+</button>
+      <slot name="chips" />
+      <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
+        Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
+      </button>
+      <span v-if="hint" class="safe hint" role="status">{{ hint }}</span>
+      <span v-else class="safe" title="Web pages here get no Castle permissions: they cannot read your memory, chats or files.">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6z" /></svg>
+        Pages here can't reach Castle or your memory
+      </span>
+    </div>
+    <div v-if="groupMenu && group" class="group-list" role="menu" aria-label="The pages in this tab">
+      <span class="group-row" v-for="t in group.members" :key="t.id">
+        <span class="title">{{ chipTitle(t.title) }}</span>
+        <button role="menuitem" @click="takeOut(t.id)">Take out</button>
+      </span>
+      <button class="close" @click="groupMenu = false">Close</button>
     </div>
 
-    <!-- side by side: a column with no page to show (a new tab, a DANGER screen) is drawn here, under the pages -->
-    <div v-if="split" class="columns">
-      <div v-for="(t, i) in shownTabs" :key="t.id" class="column" :style="{ flex: `${tabs.widths[i] ?? 1} 1 0` }">
-        <DangerScreen v-if="t.danger" :danger="t.danger" @back="act(() => browserDangerBack(t.id))" @open="act(() => browserDangerOpen(t.id))" />
-        <div v-else-if="!t.url" class="column-new" @click="pick(t.id)">
-          <span class="label">NEW TAB</span>
-          <span class="hint">Click here, then type an address above</span>
-        </div>
-      </div>
-    </div>
-
-    <DangerScreen v-if="!split && current?.danger" :danger="current.danger" @back="dangerBack" @open="dangerOpen" />
-    <main v-else-if="!split && current && !current.url" class="new-tab">
-      <section v-if="words" class="welcome" aria-live="polite">
-        <span class="count">{{ stepNumber(shownStep) }} of {{ STEPS.length }}</span>
-        <h2>{{ words.title }}</h2>
-        <p>{{ words.body }}</p>
-        <div v-if="(shownStep === 'history' || shownStep === 'bookmarks') && welcome.profiles.length > 1" class="profile">
-          Chrome profile
-          <GlassSelect v-model="profile" :options="welcome.profiles.map((p) => ({ value: p.folder, label: p.name }))" aria-label="Chrome profile" />
-        </div>
-        <div class="choices">
-          <button class="pill" :disabled="welcomeBusy" @click="answer('skip')">Skip</button>
-          <button v-if="words.guide && !guided" class="pill" :disabled="welcomeBusy" @click="askGuide">{{ words.guide }}</button>
-          <button class="pill primary" :disabled="welcomeBusy" @click="answer('yes')">{{ welcomeBusy ? 'Working...' : words.yes }}</button>
-        </div>
-      </section>
-      <p v-if="welcomeSaid" class="said" role="status">{{ welcomeSaid }}</p>
-      <span class="label">NEW TAB</span>
-      <div v-if="shortcuts.length" class="grid">
-        <button v-for="s in shortcuts" :key="s.url" class="shortcut" @click="openShortcut(s.url)">
-          <span class="letter" aria-hidden="true">{{ s.letter }}</span>{{ s.name }}
-        </button>
-      </div>
-      <span class="hint">{{ shortcuts.length ? 'Your Artifacts and the dev servers running now' : 'Type an address or something to search for' }}</span>
-      <template v-for="list in [{ name: 'MOST VISITED', tiles: library.visited }, { name: 'BOOKMARKS', tiles: library.marks }]" :key="list.name">
-        <template v-if="list.tiles.length">
-          <span class="label">{{ list.name }}</span>
-          <div class="grid">
-            <button v-for="s in list.tiles" :key="s.url" class="shortcut" :title="s.url" @click="openShortcut(s.url)">
-              <span class="letter" aria-hidden="true">{{ s.letter }}</span>{{ s.name }}
-            </button>
-          </div>
-        </template>
+    <div ref="panesEl" class="panes" :style="{ gridTemplateColumns: gridColumns }" @pointermove="drag" @pointerup="release" @pointercancel="release">
+      <template v-for="(t, i) in shownTabs" :key="t.id">
+        <PaneBar
+          :ref="(el) => paneRef(t.id, el)"
+          :tab="t"
+          :focused="t.id === tabs.active"
+          :many="many"
+          :translating="translating"
+          @focus="focusPane"
+          @close-column="closeColumn"
+          @overlay="overlay"
+          @page-el="pageEl"
+          @problem="problem = $event"
+          @translating="translating = $event"
+        >
+          <template #tools="{ tab }"><slot name="pane-tools" :tab="tab" /></template>
+          <template #below="{ tab }"><slot name="pane-below" :tab="tab" /></template>
+          <template #page="{ tab }">
+            <DangerScreen v-if="tab.danger" :danger="tab.danger" @back="act(() => browserDangerBack(tab.id))" @open="act(() => browserDangerOpen(tab.id))" />
+            <main v-else-if="!tab.url && !many" class="new-tab">
+              <section v-if="words" class="welcome" aria-live="polite">
+                <span class="count">{{ stepNumber(shownStep) }} of {{ STEPS.length }}</span>
+                <h2>{{ words.title }}</h2>
+                <p>{{ words.body }}</p>
+                <div v-if="(shownStep === 'history' || shownStep === 'bookmarks') && welcome.profiles.length > 1" class="profile">
+                  Chrome profile
+                  <GlassSelect v-model="profile" :options="welcome.profiles.map((p) => ({ value: p.folder, label: p.name }))" aria-label="Chrome profile" />
+                </div>
+                <div class="choices">
+                  <button class="pill" :disabled="welcomeBusy" @click="answer('skip')">Skip</button>
+                  <button v-if="words.guide && !guided" class="pill" :disabled="welcomeBusy" @click="askGuide">{{ words.guide }}</button>
+                  <button class="pill primary" :disabled="welcomeBusy" @click="answer('yes')">{{ welcomeBusy ? 'Working...' : words.yes }}</button>
+                </div>
+              </section>
+              <p v-if="welcomeSaid" class="said" role="status">{{ welcomeSaid }}</p>
+              <span class="label">NEW TAB</span>
+              <div v-if="shortcuts.length" class="grid">
+                <button v-for="s in shortcuts" :key="s.url" class="shortcut" @click="openShortcut(s.url, tab.id)">
+                  <span class="letter" aria-hidden="true">{{ s.letter }}</span>{{ s.name }}
+                </button>
+              </div>
+              <span class="hint">{{ shortcuts.length ? 'Your Artifacts and the dev servers running now' : 'Type an address or something to search for' }}</span>
+              <template v-for="list in [{ name: 'MOST VISITED', tiles: library.visited }, { name: 'BOOKMARKS', tiles: library.marks }]" :key="list.name">
+                <template v-if="list.tiles.length">
+                  <span class="label">{{ list.name }}</span>
+                  <div class="grid">
+                    <button v-for="s in list.tiles" :key="s.url" class="shortcut" :title="s.url" @click="openShortcut(s.url, tab.id)">
+                      <span class="letter" aria-hidden="true">{{ s.letter }}</span>{{ s.name }}
+                    </button>
+                  </div>
+                </template>
+              </template>
+            </main>
+            <p v-else-if="!tab.url" class="empty">{{ tab.private ? 'A private tab keeps nothing: no history, no sign-in, nothing after it closes.' : 'Type an address or a search above.' }}</p>
+          </template>
+        </PaneBar>
+        <div v-if="i < shownTabs.length - 1" class="grip" role="separator" aria-orientation="vertical" title="Drag to change the widths" @pointerdown="grab($event, i)"></div>
       </template>
-    </main>
+    </div>
+    <slot />
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>
 </template>
@@ -1029,5 +865,140 @@ onBeforeUnmount(() => {
   .safe {
     display: none;
   }
+}
+
+/* ---------- the Keep's look: chips, the group's list, panes with their own toolbars ---------- */
+.chips {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(20, 16, 50, 0.45);
+  font-size: 13px;
+  color: var(--text);
+}
+.chip.on {
+  border-color: rgba(168, 140, 255, 0.9);
+  background: rgba(168, 140, 255, 0.14);
+}
+.chip .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 230px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.chip .mini {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.chip .mini:hover {
+  background: rgba(168, 140, 255, 0.15);
+  color: var(--text);
+}
+.chip.plus {
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 15px;
+}
+.chip .unread {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #7ee0b8;
+  color: #0b2a20;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.chip.news {
+  box-shadow:
+    inset 0 0 0 1px rgba(230, 194, 122, 0.9),
+    0 0 10px rgba(230, 194, 122, 0.45);
+}
+.chip.danger {
+  border-color: #ff3a46;
+  background: rgba(200, 10, 20, 0.35);
+  box-shadow: 0 0 12px rgba(255, 40, 50, 0.6);
+}
+.chip.private {
+  border-color: rgba(168, 120, 255, 0.7);
+}
+.chip.group .name {
+  gap: 8px;
+}
+.group-list {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+.group-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid rgba(168, 140, 255, 0.5);
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+.group-row button,
+.group-list .close {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(5, 11, 31, 0.85);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 100%;
+  padding: 0 10px 10px;
+}
+.grip {
+  cursor: col-resize;
+  background: linear-gradient(90deg, transparent 4px, rgba(168, 140, 255, 0.35) 4px, rgba(168, 140, 255, 0.35) 6px, transparent 6px);
+}
+.grip:hover {
+  background: linear-gradient(90deg, transparent 3px, rgba(168, 140, 255, 0.9) 3px, rgba(168, 140, 255, 0.9) 7px, transparent 7px);
+}
+.empty {
+  margin: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 0 16px;
+}
+.new-tab {
+  overflow-y: auto;
 }
 </style>

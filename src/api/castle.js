@@ -671,8 +671,9 @@ export const browserOpen = (url = null) => invoke('browser_open', { url })
 export const browserState = () => invoke('browser_state')
 export const browserSwitch = (id) => invoke('browser_switch', { id })
 export const browserClose = (id) => invoke('browser_close', { id })
-export const browserGo = (input) => invoke('browser_go', { input })
-export const browserStep = (step) => invoke('browser_step', { step })
+// `id`: a pane's own tab (its toolbar); null for the tab in front
+export const browserGo = (input, id = null) => invoke('browser_go', { input, id })
+export const browserStep = (step, id = null) => invoke('browser_step', { step, id })
 export const browserOutside = (url) => invoke('browser_outside', { url })
 // The browser's first-open welcome (browser_welcome.rs): -> { answers, chrome, profiles: [{ folder, name }], companion }
 export const browserWelcome = () => invoke('browser_welcome')
@@ -687,8 +688,8 @@ export const browserImportPasswords = (guided) => invoke('browser_import_passwor
 export const browserNewTab = () => invoke('browser_new_tab')
 export const browserIsBookmarked = (url) => invoke('browser_is_bookmarked', { url })
 export const browserBookmarkToggle = (url, title) => invoke('browser_bookmark_toggle', { url, title })
-export const browserLogins = () => invoke('browser_logins')
-export const browserFill = (id) => invoke('browser_fill', { id })
+export const browserLogins = (tab = null) => invoke('browser_logins', { tab })
+export const browserFill = (id, tab = null) => invoke('browser_fill', { id, tab })
 export const vaultList = () => invoke('vault_list')
 export const vaultForget = (id = null) => invoke('vault_forget', { id })
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
@@ -697,9 +698,8 @@ export const browserClear = () => invoke('browser_clear')
 export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
 export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
 // The layout: how tall the toolbar page's bar is, and whether it has something open over the pages
-// Inside Castle also the room's page area ([x, y, width, height] in Castle's window) and whether the
-// room is in front with no sheet over it; the pages hide when it is not
-export const browserChrome = (bar, overlay, area = null, shown = null) => invoke('browser_chrome', { bar, overlay, area, shown })
+// Where each page goes: [{ id, x, y, w, h }] measured under its pane's toolbar; [] hides every page
+export const browserShow = (placed) => invoke('browser_show', { placed })
 // Browser opens changed: every page closes (sign-ins kept) and opens in its new home next time
 export const browserCloseAll = () => invoke('browser_close_all')
 export const onBrowserShowRoom = (handler) => listen('browser-show-room', () => handler())

@@ -170,11 +170,11 @@ export function onScreen(tabs) {
 
 /** New column shares after dragging the grip after column `at` by `dx` pixels across `width`:
  * the two columns beside it share the move, neither below a tenth. */
-export function dragWidths(widths, at, dx, width) {
+export function dragWidths(widths, at, dx, width, least = 0.1) {
   const next = [...widths]
   if (at < 0 || at >= next.length - 1 || !width) return next
   const pair = next[at] + next[at + 1]
-  const left = Math.min(Math.max(next[at] + dx / width, 0.1), pair - 0.1)
+  const left = Math.min(Math.max(next[at] + dx / width, least), pair - least)
   next[at] = left
   next[at + 1] = pair - left
   return next
@@ -220,12 +220,23 @@ export function siteOf(url) {
   }
 }
 
-/** Inside Castle: the room's page area under the bar, as [x, y, width, height] in Castle's window,
- * rounded; null while the room has no size. */
-export function areaOf(rect, bar) {
+
+// The Keep's look: chips, columns and the boxes the pages go into.
+/** A chip's title, cut to 28 characters as the Keep's. */
+export function chipTitle(title) {
+  const t = String(title ?? '')
+  return t.length > 28 ? `${t.slice(0, 27)}…` : t
+}
+
+/** The panes' grid columns: one share each, a 10 px grip between two (one column: the whole width). */
+export function columnsOf(widths) {
+  const list = widths?.length ? widths : [1]
+  return list.map((w) => `${Math.max(Number(w) || 0, 0.01)}fr`).join(' 10px ')
+}
+
+/** A page box as the core takes it: whole pixels, or null while it has no real size. */
+export function boundsOf(rect) {
   if (!rect) return null
-  const w = Math.round(rect.width)
-  const h = Math.round(rect.height - bar)
-  if (w <= 0 || h <= 0) return null
-  return [Math.round(rect.left), Math.round(rect.top + bar), w, h]
+  const box = { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) }
+  return box.w >= 2 && box.h >= 2 ? box : null
 }
