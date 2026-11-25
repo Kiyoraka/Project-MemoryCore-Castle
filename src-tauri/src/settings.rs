@@ -488,6 +488,12 @@ pub struct Settings {
     /// Sites whose pages are translated by themselves (the browser's Always switch); never added
     /// while Remember sign-ins is off.
     pub browser_translate_sites: Vec<String>,
+    /// Where the browser's downloads land (None = the system's Downloads folder).
+    pub downloads_folder: Option<String>,
+    /// Each download goes into a folder for its type (Video, Music, Documents...). On by default.
+    pub downloads_sort: bool,
+    /// The video quality last chosen in the downloader (its own command keeps it, never the Settings page).
+    pub downloads_video_pick: Option<String>,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
     /// one-line manner, by audience). On by default; the switch is beside its public card.
     pub emotion_room_voice: bool,
@@ -680,6 +686,9 @@ impl Default for Settings {
             browser_opens: "window".into(),
             browser_language: "en".into(),
             browser_translate_sites: Vec::new(),
+            downloads_folder: None,
+            downloads_sort: true,
+            downloads_video_pick: None,
             emotion_room_voice: true,
             emotion_market_voice: true,
             profile_look: "cards".into(),
@@ -1239,6 +1248,9 @@ mod tests {
             browser_site_check: true,
             browser_new_tab: "blank".into(),
             browser_opens: "castle".into(),
+            downloads_folder: Some("D:/Downloads".into()),
+            downloads_sort: false,
+            downloads_video_pick: Some("720p".into()),
             browser_language: "ja".into(),
             browser_translate_sites: vec!["ncode.syosetu.com".into()],
             emotion_room_voice: false,

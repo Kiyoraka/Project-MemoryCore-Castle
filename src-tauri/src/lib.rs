@@ -83,6 +83,8 @@ mod browser_suggest;
 mod browser_translate;
 mod browser_tabs;
 mod browser_welcome;
+mod downloads;
+mod downloads_video;
 mod chrome_import;
 mod roomalert;
 mod roomdraw;
@@ -234,6 +236,8 @@ fn save_settings(app: AppHandle, settings: Settings, store: State<SettingsStore>
         settings.whatsapp_bridge_me_name = current.whatsapp_bridge_me_name.clone();
         settings.whatsapp_bridge_me_digits = current.whatsapp_bridge_me_digits.clone();
         settings.whatsapp_guests = current.whatsapp_guests.clone();
+        // the downloader's last video quality is kept by its own command (video_add)
+        settings.downloads_video_pick = current.downloads_video_pick.clone();
     }
     settings::save(&store.path, &settings).map_err(|_| "The settings could not be saved.".to_string())?;
     *store.startup_note.lock().unwrap() = startup::sync(&app, settings.start_with_windows);
@@ -656,6 +660,19 @@ pub fn run() {
             browser_translate::browser_translate_site,
             browser::browser_put_in_chat,
             browser::browser_clear,
+            downloads::downloads_list,
+            downloads::download_add,
+            downloads::download_pause,
+            downloads::download_resume,
+            downloads::download_cancel,
+            downloads::download_remove,
+            downloads::download_open,
+            downloads::download_show,
+            downloads_video::video_tool_state,
+            downloads_video::video_tool_get,
+            downloads_video::video_formats,
+            downloads_video::video_add,
+            downloads_video::video_from_page,
             world::castle_move_to_screen,
             world::world_music,
             world::world_identify,
@@ -835,6 +852,8 @@ pub fn run() {
                 });
             }
             app.manage(store);
+            // the browser's downloads list, from the settings folder
+            downloads::start(app.handle(), config.clone());
             let at_sign_in = startup::is_sign_in_launch(std::env::args());
             app.manage(Launch { at_sign_in });
             app.manage(AutoWake(std::sync::Mutex::new(startup::should_auto_wake(
