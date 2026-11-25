@@ -37,6 +37,7 @@ export const SETTINGS_DEFAULTS = {
   linkOpen: 'castle',
   browserRemember: true,
   browserPrivateRemember: false,
+  browserProfileRead: true,
   browserNewTab: 'shortcuts',
   emotionRoomVoice: true,
   profileLook: 'cards',
