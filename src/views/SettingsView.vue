@@ -1059,7 +1059,7 @@ onMounted(async () => {
                 <button @click="emit('whatsnew')">What's new</button>
                 <button @click="releasesPage().then(openUrl).catch(() => {})">All releases</button>
               </SettingRow>
-              <SettingRow v-if="copiesLine(copies)" id="copies" label="Two copies of Castle" :description="copiesLine(copies)" tip="An installer run from inside another app can leave a copy of Castle in that app's private folder, and Windows may start that copy. Castle keeps Start with Windows and the Start menu pointing at the real one; the leftover folder can be deleted once Castle opens from the right place." />
+              <SettingRow v-if="copiesLine(copies)" id="copies" :label="copies?.leftover || copies?.two ? 'Two copies of Castle' : 'An older Castle'" :description="copiesLine(copies)" tip="An installer run from inside another app can leave a copy of Castle in that app's private folder, and Windows may start that copy. Castle keeps Start with Windows and the Start menu pointing at the real one; the leftover folder can be deleted once Castle opens from the right place." />
               <SettingRow id="licence" label="Licence" description="Free and open source under the MIT license." tip="Change anything - see MAKE-IT-YOURS.md in the source." />
               <SettingRow id="privacy" label="Your data" description="Your memory, keys and settings stay on this computer." tip="Castle checks GitHub for new versions, and talks to the MemoryCore Foundation only when you sign in or use CHAT. Your memory, keys and settings stay on this computer (and in your private backup, if you choose)." />
             </SettingGroup>

@@ -19,6 +19,15 @@ describe('two copies of Castle', () => {
     expect(copiesChip({ two: true })).toBe('Two copies')
   })
 
+  it('says when a newer Castle used these settings or the database', () => {
+    expect(copiesLine({ this: 'x', installed: null, leftover: false, two: false, newerSettings: '0.6.0', newerDatabase: false })).toBe(
+      'These settings were last used by Castle 0.6.0; this one is older. Open the newer Castle.',
+    )
+    expect(copiesLine({ this: 'x', installed: null, leftover: false, two: false, newerSettings: null, newerDatabase: true })).toMatch(/memory database was last used by a newer Castle/)
+    expect(copiesChip({ newerDatabase: true })).toBe('Older Castle')
+    expect(copiesChip({ leftover: true, newerSettings: '0.6.0' })).toBe('Leftover copy', 'the leftover is said first')
+  })
+
   it('says nothing for the one real copy', () => {
     expect(copiesLine({ this: `${real}\\memorycore-castle.exe`, installed: real, leftover: false, two: false })).toBe('')
     expect(copiesLine(null)).toBe('')

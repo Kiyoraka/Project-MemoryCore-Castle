@@ -221,6 +221,10 @@ pub async fn releases_page() -> String {
 pub fn version_seen(version: String, store: tauri::State<crate::settings::SettingsStore>) -> Result<Option<String>, String> {
     let mut settings = store.get();
     let before = settings.last_seen_version.clone();
+    // never written backwards: an older Castle opening a newer one's settings leaves the newer version
+    if before.as_deref().is_some_and(|seen| crate::settings::version_newer(seen, &version)) {
+        return Ok(before);
+    }
     settings.last_seen_version = Some(version);
     let settings = settings.normalized();
     crate::settings::save(&store.path, &settings).map_err(|_| "The settings could not be saved.".to_string())?;

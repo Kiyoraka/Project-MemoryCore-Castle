@@ -207,6 +207,19 @@ pub fn provision(port: u16, admin_user: &str, admin_password: &str, companion: &
     Ok(access)
 }
 
+/// Database updates a newer Castle applied that this one does not know (the last database read).
+static NEWER: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The applied migrations this Castle does not know: a newer Castle used this database.
+pub fn newer_than_this(done: &[String]) -> Vec<String> {
+    done.iter().filter(|d| !MIGRATIONS.iter().any(|(name, _)| name == d)).cloned().collect()
+}
+
+/// Whether the database last read was used by a newer Castle.
+pub fn used_by_newer() -> bool {
+    !NEWER.lock().unwrap_or_else(|p| p.into_inner()).is_empty()
+}
+
 /// Applies every migration not yet in schema_migrations; returns the names it applied.
 pub fn migrate(conn: &mut Conn) -> Result<Vec<String>, String> {
     conn.query_drop(
@@ -215,6 +228,7 @@ pub fn migrate(conn: &mut Conn) -> Result<Vec<String>, String> {
     )
     .map_err(sql_err("Preparing the database"))?;
     let done: Vec<String> = conn.query("SELECT name FROM schema_migrations").map_err(sql_err("Reading the database's version"))?;
+    *NEWER.lock().unwrap_or_else(|p| p.into_inner()) = newer_than_this(&done);
     let mut applied = Vec::new();
     for (name, sql) in MIGRATIONS {
         if done.iter().any(|d| d == name) {
@@ -262,6 +276,18 @@ pub fn shutdown(port: u16, root_password: &str) -> Result<(), String> {
     // the server closes the connection while answering: an error here is the success
     let _ = root.query_drop("SHUTDOWN");
     Ok(())
+}
+
+#[cfg(test)]
+mod newer_tests {
+    #[test]
+    fn a_database_update_this_castle_does_not_know_means_a_newer_castle() {
+        let known: Vec<String> = super::MIGRATIONS.iter().map(|(n, _)| n.to_string()).collect();
+        assert!(super::newer_than_this(&known).is_empty());
+        let mut later = known.clone();
+        later.push("099_from_the_future".into());
+        assert_eq!(super::newer_than_this(&later), vec!["099_from_the_future".to_string()]);
+    }
 }
 
 #[cfg(test)]

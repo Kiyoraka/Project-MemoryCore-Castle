@@ -66,11 +66,15 @@ pub struct Copies {
     pub leftover: bool,
     /// this program is not the installed copy
     pub two: bool,
+    /// these settings were last opened by a newer Castle (its version)
+    pub newer_settings: Option<String>,
+    /// the memory database was last updated by a newer Castle
+    pub newer_database: bool,
 }
 
 pub fn copies_of(exe: &Path, installed: Option<PathBuf>) -> Copies {
     let two = installed.as_deref().is_some_and(|folder| !is_in(exe, folder));
-    Copies { this: exe.display().to_string(), installed: installed.map(|p| p.display().to_string()), leftover: is_leftover(exe), two }
+    Copies { this: exe.display().to_string(), installed: installed.map(|p| p.display().to_string()), leftover: is_leftover(exe), two, ..Copies::default() }
 }
 
 /// This program's copies, read from Windows (a test build is never "two copies": it lives in target).
@@ -167,10 +171,11 @@ pub fn repair_start_menu(_exe: &Path) -> Option<String> {
     None
 }
 
-/// What the page reads about Castle's copies.
+/// What the page reads about Castle's copies, and whether a newer Castle used these settings or
+/// the memory database.
 #[tauri::command]
-pub fn install_copies() -> Copies {
-    check()
+pub fn install_copies(store: tauri::State<crate::settings::SettingsStore>) -> Copies {
+    Copies { newer_settings: crate::settings::used_by_newer(&store.get()), newer_database: crate::memdb::used_by_newer(), ..check() }
 }
 
 #[cfg(test)]

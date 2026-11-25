@@ -115,6 +115,21 @@ pub struct QuickAction {
     pub command: String,
 }
 
+/// Whether version `a` ("0.10.2") is newer than `b` ("0.9.3"), number by number; anything that is
+/// not a version is never newer.
+pub fn version_newer(a: &str, b: &str) -> bool {
+    let parts = |v: &str| -> Option<Vec<u64>> { v.trim().trim_start_matches('v').split(['.', '-', '+']).take(3).map(|p| p.parse().ok()).collect() };
+    match (parts(a), parts(b)) {
+        (Some(a), Some(b)) => a > b,
+        _ => false,
+    }
+}
+
+/// The version a newer Castle last opened these settings with, when it is newer than this one.
+pub fn used_by_newer(settings: &Settings) -> Option<String> {
+    settings.last_seen_version.clone().filter(|seen| version_newer(seen, env!("CARGO_PKG_VERSION")))
+}
+
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
 pub const ROOMS: [&str; 18] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance"];
@@ -440,6 +455,10 @@ pub struct Settings {
     /// A Claude Code session whose model has used up its own weekly share (Claude's per-model limit)
     /// starts on another model until the share opens again (model_pick.rs). On by default.
     pub share_fallback: bool,
+    /// Settings this Castle does not know (a newer Castle's), kept as they are and written back on
+    /// every save, so an older Castle opening this file never resets what a newer one chose.
+    #[serde(flatten)]
+    pub unknown: BTreeMap<String, serde_json::Value>,
     /// Where a link clicked in a chat opens: one of LINK_OPENS - `castle` the BROWSER window,
     /// `system` the member's own browser, `ask` a small menu each time.
     pub link_open: String,
@@ -626,6 +645,7 @@ impl Default for Settings {
             diary_look: "list".into(),
             main_start: "rested".into(),
             share_fallback: true,
+            unknown: BTreeMap::new(),
             link_open: "castle".into(),
             browser_remember: true,
             browser_new_tab: "shortcuts".into(),
@@ -1173,6 +1193,7 @@ mod tests {
             diary_look: "book".into(),
             main_start: "continue".into(),
             share_fallback: false,
+            unknown: BTreeMap::from([("aNewerSetting".to_string(), serde_json::json!(1))]),
             link_open: "system".into(),
             browser_remember: false,
             browser_new_tab: "blank".into(),
@@ -1330,6 +1351,33 @@ mod tests {
         assert!(!s.room_on("market"), "the Market stays off for a Castle that never chose it");
         assert!(!s.rooms.contains_key("spaceship") && !s.rooms.contains_key("home"));
         assert_eq!(s.rooms.len(), ROOMS.len());
+    }
+
+    #[test]
+    fn a_setting_this_castle_does_not_know_survives_a_save() {
+        let folder = temp_folder("unknown-kept");
+        let path = folder.join(FILE_NAME);
+        fs::write(&path, r#"{"memoryFolder":"D:\\MemoryCore","aNewerSetting":{"on":true},"anotherOne":7}"#).unwrap();
+        let (settings, _) = load(&path);
+        assert_eq!(settings.unknown.get("aNewerSetting"), Some(&serde_json::json!({"on": true})));
+        save(&path, &settings).unwrap();
+        let written: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["aNewerSetting"]["on"], true, "an older Castle never resets a newer one's setting");
+        assert_eq!(written["anotherOne"], 7);
+        assert_eq!(written["memoryFolder"], "D:\\MemoryCore");
+        assert!(written.get("unknown").is_none(), "kept at the top level, as the newer Castle wrote them");
+    }
+
+    #[test]
+    fn a_newer_castles_version_is_noticed() {
+        assert!(version_newer("0.10.0", "0.9.3"));
+        assert!(version_newer("1.0.0", "0.99.99"));
+        assert!(!version_newer("0.5.0", "0.5.0"));
+        assert!(!version_newer("0.2.25", "0.5.0"));
+        assert!(!version_newer("soon", "0.5.0"));
+        let newer = Settings { last_seen_version: Some("999.0.0".into()), ..Settings::default() };
+        assert_eq!(used_by_newer(&newer).as_deref(), Some("999.0.0"));
+        assert_eq!(used_by_newer(&Settings { last_seen_version: Some("0.0.1".into()), ..Settings::default() }), None);
     }
 
     #[test]
