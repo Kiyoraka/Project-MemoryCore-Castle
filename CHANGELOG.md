@@ -7,7 +7,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 - A DEV tab you compacted yourself carries on: once it has sat still for 30 seconds, Castle types continue once (never in your companion's chat).
 
 - The browser wears your theme, in its own window and inside Castle: chips, toolbars, the Passwords and Downloads panels take the theme's colours.
-- A YouTube video keeps its address in the toolbar as you move between videos, and a downloaded video opens: its real file is found, with no empty twin beside it.
+- A YouTube video keeps its address in the toolbar as you move between videos, and a downloaded video opens: its real file is found, with no empty twin beside it. Show in folder selects the file in its own folder (it opened Documents for a name with spaces).
 
 - A downloader in Castle's browser: every page download caught, up to 8 parts at once, pause and resume (even after a restart), folders by type, YouTube and Threads videos at the quality you pick, and every file past the guards first.
 

@@ -823,21 +823,70 @@ pub fn download_remove(id: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// The card's file, mended when it is missing or empty: a file of the same name in the same folder, told
+/// apart only by characters a misread name lost (`Sparkle  Your Name AMV.mp4` for the real
+/// `Sparkle ｜ Your Name AMV.mp4`), the largest such one. The card then points at it. None when nothing
+/// real is there.
+fn real_file(id: u64) -> Option<PathBuf> {
+    let path = PathBuf::from(book().lock().unwrap().items.iter().find(|i| i.id == id).map(|i| i.path.clone())?);
+    let found = mended(&path)?;
+    if found != path {
+        let name = found.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let size = std::fs::metadata(&found).map(|m| m.len()).unwrap_or(0);
+        set(id, |i| {
+            i.path = found.display().to_string();
+            i.name = name;
+            i.done = size;
+            i.size = Some(size);
+        });
+    }
+    Some(found)
+}
+
+/// The file itself when it is there and not empty, else its twin in the same folder (pure but for reading
+/// the folder): the same letters and digits in its name, not a half file, not empty, the largest.
+pub fn mended(path: &Path) -> Option<PathBuf> {
+    let real = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() > 0);
+    if real(path) {
+        return Some(path.to_path_buf());
+    }
+    let key = |p: &Path| p.file_name().map(|n| n.to_string_lossy().chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase()).unwrap_or_default();
+    let want = key(path);
+    if want.is_empty() {
+        return None;
+    }
+    std::fs::read_dir(path.parent()?)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| real(p) && key(p) == want)
+        .max_by_key(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+}
+
 #[tauri::command]
 pub fn download_open(id: u64) -> Result<(), String> {
-    let path = book().lock().unwrap().items.iter().find(|i| i.id == id && i.state == "done").map(|i| i.path.clone()).ok_or("That download is not finished.")?;
+    if !book().lock().unwrap().items.iter().any(|i| i.id == id && i.state == "done") {
+        return Err("That download is not finished.".into());
+    }
+    // never a path that is not there: Explorer would open Documents instead
+    let path = real_file(id).ok_or("The file is not where it was saved - it may have been moved or deleted.")?;
     open_file(&path)
 }
 
-/// The file in its folder, selected (Explorer on Windows, Finder on macOS).
+/// The file in its folder, selected (Explorer on Windows, Finder on macOS); its folder alone when the
+/// file is gone.
 #[tauri::command]
 pub fn download_show(id: u64) -> Result<(), String> {
-    let path = book().lock().unwrap().items.iter().find(|i| i.id == id).map(|i| i.path.clone()).ok_or("That download is gone.")?;
-    show_file(&path)
+    if let Some(path) = real_file(id) {
+        return show_file(&path);
+    }
+    let saved = book().lock().unwrap().items.iter().find(|i| i.id == id).map(|i| i.path.clone()).ok_or("That download is gone.")?;
+    let folder = Path::new(&saved).parent().filter(|f| f.is_dir()).ok_or("The folder it was saved in is gone.")?;
+    open_file(folder)
 }
 
-/// Opens a finished file with the program the system picks for it.
-fn open_file(path: &str) -> Result<(), String> {
+/// Opens a file (or a folder) with the program the system picks for it.
+fn open_file(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     let started = std::process::Command::new("explorer.exe").arg(path).spawn(); // platform: windows-only
     #[cfg(not(windows))]
@@ -845,10 +894,19 @@ fn open_file(path: &str) -> Result<(), String> {
     started.map(|_| ()).map_err(|_| "The file could not be opened.".to_string())
 }
 
+/// Explorer's own form for "this file, selected": the path in quotes after the comma. Explorer cannot
+/// read `"/select,C:\a b.mp4"` (the quoting Rust gives one argument with a space) and opens Documents.
+pub fn select_arg(path: &Path) -> String {
+    format!("/select,\"{}\"", path.display())
+}
+
 /// Shows a file selected in its folder.
-fn show_file(path: &str) -> Result<(), String> {
+fn show_file(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
-    let started = std::process::Command::new("explorer.exe").arg(format!("/select,{path}")).spawn(); // platform: windows-only
+    let started = {
+        use std::os::windows::process::CommandExt; // platform: windows-only
+        std::process::Command::new("explorer.exe").raw_arg(select_arg(path)).spawn() // platform: windows-only
+    };
     #[cfg(not(windows))]
     let started = std::process::Command::new("open").arg("-R").arg(path).spawn();
     started.map(|_| ()).map_err(|_| "The folder could not be opened.".to_string())
@@ -878,6 +936,31 @@ pub fn set(id: u64, f: impl FnOnce(&mut Item)) {
 #[cfg(test)]
 mod referer_tests {
     use super::*;
+
+    #[test]
+    fn a_card_with_a_misread_or_empty_file_finds_its_real_one() {
+        let dir = std::env::temp_dir().join(format!("castle-mend-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("Sparkle \u{ff5c} Your Name AMV.mp4");
+        std::fs::write(&real, b"the video").unwrap();
+        let twin = dir.join("Sparkle  Your Name AMV.mp4");
+        std::fs::write(&twin, b"").unwrap();
+        std::fs::write(dir.join("Other.mp4"), b"another").unwrap();
+        // the empty twin and a name that was never written both lead to the real file
+        assert_eq!(mended(&twin), Some(real.clone()));
+        assert_eq!(mended(&dir.join("Sparkle ? Your Name AMV.mp4")), Some(real.clone()));
+        // a real file is itself; nothing alike is nothing
+        assert_eq!(mended(&real), Some(real.clone()));
+        assert_eq!(mended(&dir.join("Gone.mp4")), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explorer_is_asked_to_select_a_file_in_its_own_form() {
+        let p = Path::new(r"C:\Users\x\Downloads\Video\Marshmello - Alone (Official Music Video).mp4");
+        assert_eq!(select_arg(p), r#"/select,"C:\Users\x\Downloads\Video\Marshmello - Alone (Official Music Video).mp4""#);
+    }
 
     #[test]
     fn a_file_is_never_its_own_referrer() {
