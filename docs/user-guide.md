@@ -130,6 +130,15 @@ The Log is the real terminal underneath, exactly as Claude Code or Codex shows i
 - **Paste:** **Ctrl + V**, or right-click with nothing selected. A copied picture is saved and its file path is pasted.
 - Drop a file on the Log to type its path.
 
+### When her memory of a talk fills up
+
+Your companion's chat is never compacted: a compact would fold your talk into a short summary, and in her own chat the talk is the memory. Castle turns Claude Code's own auto-compact off there (DEV tabs keep theirs).
+
+- **At 85%** of the meter, she asks in a small card: *"My memory of this talk is getting full. Shall I start fresh?"* **Start fresh** keeps every word of your talk in Chat, ends the session and wakes her again with her whole memory and your latest talk carried word for word, so she knows where you were. **Not now** asks once more at 95%, then waits until the next session.
+- **If it fills up anyway** and the session stops with "Prompt is too long", she starts fresh by herself (it needs nothing from her, so it works even then) and answers your last message, including one you sent from your phone.
+- A line above Chat says when she is starting fresh and when she is back, in her own name.
+- Claude Code only: Codex keeps its own **Start fresh** on the resting screen.
+
 ### Making the panel bigger
 
 - Drag the panel's right edge to make it wider or narrower.
@@ -744,6 +753,10 @@ Push from a DEV tab (or from your own terminal while the tab is open) and your c
 When a code file your companion is working on passes 1,000 lines, she proposes splitting it: a short main file that keeps every name the rest of the project uses, and a few smaller files grouped by what they do. She shows the split as a plan and waits for your yes; nothing is split before it, and the project's tests run before and after. Generated files, lock files, other people's libraries and data files are never split.
 
 This comes from **Shard**, one of Castle's own skills. Castle keeps it in your memory database, like every skill, so it is listed in **Settings > Database > Skills**; only a short note to load it sits in your memory folder.
+
+### When a tab fills up
+
+A long coding session can fill Claude Code's memory until it stops with **Prompt is too long** or **Context limit reached** and answers nothing. Castle reads the end of each DEV tab's screen every 15 seconds; when a tab is stuck it types `/compact` for you, and once the session is compacted it types `continue`, so the work goes on. If the compact fails, it tries again. A summary of coding work loses nothing that matters, which is why this happens in DEV tabs and never in your companion's own chat (see **When her memory of a talk fills up**). After three compacts in thirty minutes Castle stops and says so in the tab: start a new session there when you are ready. Claude Code tabs only.
 
 ## 17. Market
 

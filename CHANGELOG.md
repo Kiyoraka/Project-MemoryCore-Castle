@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- A session that fills up no longer stays stuck on "Prompt is too long": a DEV tab compacts itself and carries on, and your companion's own chat is never compacted. At 85% she asks to start fresh, and Chat keeps every word while she comes back with her memory and your latest talk. If her chat fills up anyway, she starts fresh by herself and answers your last message.
+
 - Castle's browser checks every page for phishing as it loads: a coral or amber line under the address says why a site looks dangerous or suspicious (a brand on the wrong domain, a look-alike name, a disguised name). With the Sentinel on, your companion also judges the sites you visit by name, asks at once about a sign-in page it has not seen, and writes down the patterns it learns; the Sentinel's panel lists them with Mark safe and Switch off. Private browsing is checked too, and never kept.
 
 - Fixed: after an in-app update, a second, older copy of Castle could still open at every sign-in (an installer run from inside another app leaves one in that app's private folder). Castle now points Windows' start-up and the Start menu back at itself, a leftover copy says so and where the real one is, and Settings > About names both copies. Thanks to Ari and Mei for the careful report.
