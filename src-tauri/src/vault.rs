@@ -107,6 +107,22 @@ pub fn fill_secret(c: &mut Conn, key: &[u8; 32], id: u64, page_host: &str) -> Re
     Ok((username, open(key, &sealed)?))
 }
 
+/// A login's password opened for the member's own Copy in the Passwords sheet (never for a page).
+pub fn secret_of(c: &mut Conn, key: &[u8; 32], id: u64) -> Result<String, String> {
+    let row: Option<Vec<u8>> = c.exec_first("SELECT secret FROM browser_vault WHERE id = ?", (id,)).map_err(sql("reading a login"))?;
+    open(key, &row.ok_or("That login is gone.")?)
+}
+
+/// The site a login is kept under, from what the member typed: an address or a bare site name.
+pub fn host_of_typed(typed: &str) -> Option<String> {
+    let t = typed.trim();
+    let rest = t.split("://").nth(1).unwrap_or(t);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("");
+    crate::site_rules::clean_host(host.trim_start_matches("www."))
+}
+
 pub fn forget(c: &mut Conn, id: u64) -> Result<(), String> {
     c.exec_drop("DELETE FROM browser_vault WHERE id = ?", (id,)).map_err(sql("removing a login"))
 }

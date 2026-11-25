@@ -140,9 +140,87 @@ pub fn vault_forget(store: State<'_, SettingsStore>, id: Option<u64>) -> Result<
     }
 }
 
+/// How long a copied password stays on the clipboard.
+pub const CLIPBOARD_SECS: u64 = 30;
+
+/// Whether the clipboard is cleared when the time is up (pure): only while it still holds the
+/// password Castle put there, never something the member copied since.
+pub fn clears(now_on_clipboard: Option<&str>, copied: &str) -> bool {
+    now_on_clipboard == Some(copied)
+}
+
+/// The Passwords sheet's Add a login: sealed under the site of the address typed.
+#[tauri::command]
+pub async fn vault_add(app: AppHandle, url: String, username: String, password: String) -> Result<(), String> {
+    if password.is_empty() {
+        return Err("Type the password to seal.".into());
+    }
+    let host = vault::host_of_typed(&url).ok_or("Type the site's address, like example.com.")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut c = conn(&app.state::<SettingsStore>())?;
+        vault::save(&mut c, &vault::key()?, &host, username.trim(), &password)
+    })
+    .await
+    .map_err(|_| "The login could not be sealed.".to_string())?
+}
+
+/// The Passwords sheet's Copy: the password on the clipboard for 30 seconds, then cleared if it is
+/// still the one there. It never reaches a page, a log or the companion.
+#[tauri::command]
+pub async fn vault_copy(app: AppHandle, id: u64) -> Result<(), String> {
+    let password = tauri::async_runtime::spawn_blocking(move || {
+        let mut c = conn(&app.state::<SettingsStore>())?;
+        vault::secret_of(&mut c, &vault::key()?, id)
+    })
+    .await
+    .map_err(|_| "The password could not be opened.".to_string())??;
+    crate::clipboard::write_text(&password)?;
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(CLIPBOARD_SECS));
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            if clears(clipboard.get_text().ok().as_deref(), &password) {
+                let _ = clipboard.set_text(String::new());
+            }
+        }
+    });
+    Ok(())
+}
+
+/// The Passwords sheet's Import from Chrome: the exported file sealed and shredded, the welcome's
+/// answers left alone. None when the member closed the picker.
+#[tauri::command]
+pub async fn vault_import(app: AppHandle) -> Result<Option<crate::chrome_import::PasswordsDone>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let picked = app.dialog().file().set_title("Choose Chrome's password export").add_filter("Chrome Passwords", &["csv"]).blocking_pick_file().and_then(|p| p.into_path().ok());
+        let Some(path) = picked else { return Ok(None) };
+        let mut c = conn(&app.state::<SettingsStore>())?;
+        crate::chrome_import::import_passwords(&mut c, &vault::key()?, &path).map(Some)
+    })
+    .await
+    .map_err(|_| "The passwords could not be brought over.".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copied_password_is_cleared_only_while_it_is_still_there() {
+        assert!(clears(Some("hunter2"), "hunter2"));
+        assert!(!clears(Some("something I copied since"), "hunter2"), "the member's own copy stays");
+        assert!(!clears(None, "hunter2"));
+        assert_eq!(CLIPBOARD_SECS, 30);
+    }
+
+    #[test]
+    fn a_login_is_kept_under_the_site_typed() {
+        assert_eq!(vault::host_of_typed("https://www.github.com/login?x=1").as_deref(), Some("github.com"));
+        assert_eq!(vault::host_of_typed("accounts.example.org").as_deref(), Some("accounts.example.org"));
+        assert_eq!(vault::host_of_typed("http://me@shop.example:8080/").as_deref(), Some("shop.example"));
+        assert_eq!(vault::host_of_typed("not a site"), None);
+        assert_eq!(vault::host_of_typed(""), None);
+    }
 
     #[test]
     fn the_fill_script_carries_the_values_as_strings_never_as_code() {
