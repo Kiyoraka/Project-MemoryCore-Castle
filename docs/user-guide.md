@@ -1038,6 +1038,29 @@ narrow columns stay readable; the page reloads once to change. The **Phone view*
 right of the strip (shown only then, on to begin with) keeps them on their desktop layout instead.
 Back to two pages, they return to desktop by themselves. Sign-ins are kept through every change.
 
+### Reading a page in your language
+
+A page that says it is in another language than yours gets a thin **translate row** under the
+toolbar, *Japanese → English*; the toolbar's translate button (two letters) shows the row on any page.
+Choose your language from the list at the arrow (Castle remembers it), then press **Translate**: the
+words on the page change to your language in place, those on screen first, and what you scroll to
+is translated as it comes into view. **Original** puts the page's own words back. **Always** (shown
+while **Remember sign-ins** is on) translates that site's pages by themselves from then on; turn it
+off the same way.
+
+**Read bubbles** is for manga, comics and pictures with words in them: Castle takes a picture of
+what the page shows, reads each speech bubble and caption, and lays white boxes with the words in
+your language over them (10 to 30 seconds for one screen; press again after scrolling). The picture
+is deleted the moment it has been read. It works on Windows, with Claude Code (which may read only
+that picture, in a folder of its own) or with an OpenAI key in **Settings > Keys**.
+
+The translating is done by **your own Claude Code**, on your own subscription, with no tools at all,
+and nothing goes to Google or any other translation service. The page's words are only ever words to
+translate: a page that hides instructions in its text cannot make your companion do anything, and a
+"translation" much longer than its original is thrown away. With Codex, translating pages is not
+offered, because Codex can read files even in its read-only mode. A bank's page or any page with a
+password box is never translated, and translations are kept only while Castle is open.
+
 ### Suggestions as you type
 
 Type in the address bar and, after a moment, a list opens under it from your own past: the words

@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Castle's browser translates pages into your language through your own Claude Code (nothing goes to Google): a translate row offers Translate, Original and Always for a site, and Read bubbles lays your language over the speech bubbles of a manga or comic (Windows, with Claude Code or an OpenAI key). Never on a bank's page or a page with a password box.
+
 - Castle's browser shows up to four pages side by side as one tab: a stacked chip with their news added up, a thin row naming each page (the toolbar acts on the outlined one), and grips to change the widths. With three or four, each page gets its phone layout so narrow columns stay readable; the Phone view switch keeps them on desktop.
 
 - Castle's address bar suggests as you type, from your own past: your earlier searches as pills, the sites you visited and your bookmarks as cards. Arrow keys, Enter and Esc work, and the x forgets a search. Searches are kept only in your own memory database, never while Remember sign-ins is off, and Chrome's past searches come along with your history in the welcome.
