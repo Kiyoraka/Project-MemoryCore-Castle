@@ -120,10 +120,11 @@ ul {
   padding: 0;
   list-style: none;
 }
-/* TODAY and PROJECTS keep about four rows tall and scroll for the rest, so a long list never
-   pushes the card into the one below it */
+/* TODAY and PROJECTS are never taller than four one-line rows (the card's height before it
+   listed everything) and scroll for the rest. HOME places widgets freely with no collision check,
+   so a taller card would cover the one below it (W4). */
 ul.scroll {
-  max-height: 11.5em;
+  max-height: calc(4 * 22px + 3 * 8px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
