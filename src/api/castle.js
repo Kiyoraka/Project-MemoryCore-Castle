@@ -558,6 +558,8 @@ export const devPlanItems = (slot) => invoke('dev_plan_items', { slot })
 export const devPlanBody = (slot, id) => invoke('dev_plan_body', { slot, id })
 export const onDevOutput = (slot, handler) => listen(`dev-output-${slot}`, (event) => handler(event.payload))
 export const onDevExit = (slot, handler) => listen(`dev-exit-${slot}`, (event) => handler(event.payload))
+// A session that keeps filling up (unstick.rs): { slot (null = the home chat), line ('' clears it) }
+export const onSessionFull = (handler) => listen('session-full', (event) => handler(event.payload))
 // Which DEV tabs' chats are showing (their chat is read about once a second only then).
 const devShownSlots = new Set()
 export const devChatShown = (slot, on) => (on ? devShownSlots.add(slot) : devShownSlots.delete(slot))

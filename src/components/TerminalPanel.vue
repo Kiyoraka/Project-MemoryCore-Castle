@@ -21,6 +21,7 @@ import {
   devWrite,
   onDevExit,
   onDevOutput,
+  onSessionFull,
   onStoryExit,
   onStoryOutput,
   onTerminalExit,
@@ -33,7 +34,7 @@ import {
   terminalWrite,
 } from '../api/castle.js'
 import { devRoom, sessionView, tabForSlot } from '../views/dev/devtabs.js'
-import { noticeKey, noticeWords } from './modelnotice.js'
+import { fullLineFor, noticeKey, noticeWords } from './modelnotice.js'
 
 const props = defineProps({
   // Changes whenever Settings saves, so the session status is read again.
@@ -411,6 +412,15 @@ if (isDev) {
   onBeforeUnmount(() => devChatShown(props.devSlot, false))
 }
 
+// A session that keeps filling up: the watch's one line for this panel (unstick.rs), cleared by an
+// empty line or the close button. STORY has no such line.
+const fullLine = ref('')
+if (props.room !== 'story') {
+  onSessionFull((payload) => {
+    if (fullLineFor(payload, isDev ? props.devSlot : null) !== null) fullLine.value = payload.line
+  }).then((stop) => stopListening.push(stop))
+}
+
 // What Chat sends goes into the same session, exactly as if typed in the Log.
 function writeToSession(data) {
   if (!running.value) return Promise.resolve()
@@ -477,6 +487,10 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
     <p v-if="running && noticeLine()" class="model-notice" role="status">
       <span>{{ noticeLine() }}</span>
       <button title="Close" aria-label="Close" @click="closedNotice = noticeKey(notice)">×</button>
+    </p>
+    <p v-if="fullLine" class="model-notice" role="status">
+      <span>{{ fullLine }}</span>
+      <button title="Close" aria-label="Close" @click="fullLine = ''">×</button>
     </p>
 
     <div class="body">

@@ -110,6 +110,7 @@ mod traits;
 mod tree;
 mod transcript;
 mod tray;
+mod unstick;
 mod update;
 mod world;
 mod worlds;
@@ -834,6 +835,7 @@ pub fn run() {
             bridges::discord::start(app.handle());
             bridges::whatsapp::start(app.handle());
             link::start(app.handle());
+            unstick::start(app.handle().clone());
             meter_watch::start(app.handle());
             page_reader::start(app.handle());
             market::engine::start(app.handle());
