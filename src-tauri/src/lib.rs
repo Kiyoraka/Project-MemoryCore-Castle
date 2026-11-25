@@ -61,6 +61,7 @@ mod projectdb;
 mod projectdb_login;
 mod cmd_projectdb;
 mod pty;
+mod pushed;
 mod providers;
 mod messages;
 mod page_reader;
@@ -290,6 +291,10 @@ pub fn run() {
     // `--sentinel-tick [--cause alarm]`: the Sentinel's watch, run by the system's scheduler; it ends, no window
     if args.first().map(String::as_str) == Some(sentinel::watch::TICK_FLAG) {
         std::process::exit(sentinel::watch::tick_cli(&args[1..]));
+    }
+    // `--pushed`: the session's hook asks whether the member just pushed; it reads git's files and ends, no window
+    if args.first().map(String::as_str) == Some(pushed::FLAG) {
+        std::process::exit(pushed::main());
     }
     // `--sweep-deep <result file>`: Sweep's Deep clean, run elevated by Castle itself; it ends, no window
     if args.first().map(String::as_str) == Some(sweep::DEEP_FLAG) {
