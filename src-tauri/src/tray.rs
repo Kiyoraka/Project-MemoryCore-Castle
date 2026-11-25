@@ -16,7 +16,7 @@ pub const HIDDEN_EVENT: &str = "castle-hidden";
 
 /// Castle went out of sight: the page hears it, and the WORLD on the other screens goes too.
 pub fn went_hidden(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+    if let Some(window) = app.get_window(MAIN_WINDOW) {
         let _ = window.emit(HIDDEN_EVENT, ());
     }
     crate::world::set_visible(app, false);
@@ -24,7 +24,7 @@ pub fn went_hidden(app: &AppHandle) {
 
 /// Brings Castle to the front, whatever state it was in.
 pub fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+    if let Some(window) = app.get_window(MAIN_WINDOW) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = crate::screen::fill_desktop(&window);
@@ -36,7 +36,7 @@ pub fn show_main(app: &AppHandle) {
 
 /// Hides Castle when it is in front, otherwise brings it forward.
 pub fn toggle_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+    if let Some(window) = app.get_window(MAIN_WINDOW) {
         let in_front = window.is_visible().unwrap_or(false)
             && !window.is_minimized().unwrap_or(false)
             && window.is_focused().unwrap_or(false);

@@ -219,7 +219,7 @@ pub fn alert_sounds_folder(app: AppHandle) -> Result<String, String> {
 
 /// The member is looking at the room when CHAT is the tab on screen in a visible, focused Castle.
 fn looking(app: &AppHandle, chat_shown: bool) -> bool {
-    chat_shown && app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
+    chat_shown && app.get_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
 }
 
 /// Does the text name one of `names` as a whole word (or phrase), case and spacing aside?
@@ -318,7 +318,7 @@ pub fn open_room(app: &AppHandle, room: &str) {
     crate::tray::show_main(app);
     // If Windows still kept the keyboard focus from Castle (it may when Castle was not the program the
     // member just clicked), the window is at least raised above the others, not just flashed.
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = window.set_always_on_top(true);
         let _ = window.set_always_on_top(false);
     }

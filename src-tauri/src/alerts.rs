@@ -68,7 +68,7 @@ pub fn alert_active_room(room: String, active: State<ActiveRoom>) {
 /// The member is looking at a room when it is the tab on screen in a visible, focused Castle.
 fn looking(app: &AppHandle, room: &str) -> bool {
     app.state::<ActiveRoom>().0.lock().unwrap().as_str() == room
-        && app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
+        && app.get_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
 }
 
 /// Something happened that this source's member may want to hear about.

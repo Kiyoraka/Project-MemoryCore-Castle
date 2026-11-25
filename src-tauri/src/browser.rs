@@ -61,7 +61,7 @@ fn in_castle(app: &AppHandle) -> bool {
 /// is a room inside Castle.
 fn host(app: &AppHandle) -> Option<Window> {
     if in_castle(app) {
-        app.get_webview_window("main").map(|main| main.as_ref().window())
+        app.get_window("main")
     } else {
         app.get_window(WINDOW)
     }
@@ -350,13 +350,13 @@ fn window(app: &AppHandle) -> Result<Window, String> {
     start_once(app);
     if in_castle(app) {
         // the room inside Castle: Castle comes forward and turns to BROWSER
-        let main = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
+        let main = app.get_window("main").ok_or("Castle's window is not open.")?;
         let _ = main.unminimize();
         let _ = main.show();
         let _ = main.set_focus();
         let _ = app.emit_to("main", "browser-show-room", ());
         layout(app);
-        return Ok(main.as_ref().window());
+        return Ok(main);
     }
     if let Some(window) = app.get_window(WINDOW) {
         let _ = window.unminimize();
@@ -409,7 +409,7 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         _ => {}
     });
     let monitor = app
-        .get_webview_window("main")
+        .get_window("main")
         .and_then(|main| main.current_monitor().ok().flatten())
         .or_else(|| window.primary_monitor().ok().flatten());
     if let Some(monitor) = &monitor {
@@ -986,7 +986,7 @@ pub async fn browser_put_in_chat(app: AppHandle, url: String) -> Result<(), Stri
         return Err("There is no page to put in the chat.".into());
     }
     app.emit_to("main", "browser-put-in-chat", url).map_err(|_| "Castle's chat could not be reached.".to_string())?;
-    if let Some(main) = app.get_webview_window("main") {
+    if let Some(main) = app.get_window("main") {
         let _ = main.set_focus();
     }
     Ok(())

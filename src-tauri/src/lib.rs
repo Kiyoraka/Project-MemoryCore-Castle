@@ -857,7 +857,7 @@ pub fn run() {
                 eprintln!("MemoryCore Castle: the hotkey could not be registered: {error}");
             }
 
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 if !world::place_saved(app.handle(), &window) {
                     screen::fill_desktop(&window)?;
                 }

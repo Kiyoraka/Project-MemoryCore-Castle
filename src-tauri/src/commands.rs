@@ -76,7 +76,7 @@ pub async fn user_themes(store: State<'_, SettingsStore>) -> Result<Vec<themes::
 /// comes back when Castle does (the tray, or the window getting focus again from the taskbar).
 #[tauri::command]
 pub fn hide_castle(app: AppHandle, store: State<SettingsStore>) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = if store.get().minimize_to_taskbar { window.minimize() } else { window.hide() };
     }
     crate::tray::went_hidden(&app);

@@ -1,7 +1,7 @@
 //! How much of the screen Castle takes. Every sizing decision lives here.
 
 use crate::settings::{self, SettingsStore};
-use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, Result, WebviewWindow};
+use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, Result, Window};
 
 /// How much of its screen Castle takes (Settings' `window_layout`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,7 +93,7 @@ fn first_free(area: DesktopArea) -> DesktopArea {
 }
 
 /// Puts the main window where its layout says, on the monitor whose work area is `area`.
-fn place(window: &WebviewWindow, area: DesktopArea) -> Result<()> {
+fn place(window: &Window, area: DesktopArea) -> Result<()> {
     let (layout, bounds) = layout_of(window.app_handle());
     // macOS only lets a resizable window into full screen
     window.set_resizable(matches!(layout, Layout::Free | Layout::FullScreen))?;
@@ -127,7 +127,7 @@ pub fn castle_window_layout(app: AppHandle, layout: String) -> std::result::Resu
     let (current, _) = layout_of(&app);
     let (next, before) = resolve(&layout, current, before_of(&app));
     save_layout(&app, next, before)?;
-    let window = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
+    let window = app.get_window("main").ok_or("Castle's window is not open.")?;
     fill_desktop(&window).map_err(|_| "Castle's window could not be resized.".to_string())?;
     Ok(next.as_setting().into())
 }
@@ -180,7 +180,7 @@ struct DesktopArea {
     height: u32,
 }
 
-fn desktop_area(window: &WebviewWindow) -> Result<Option<DesktopArea>> {
+fn desktop_area(window: &Window) -> Result<Option<DesktopArea>> {
     let monitor = match window.current_monitor()? {
         Some(monitor) => Some(monitor),
         None => window.primary_monitor()?,
@@ -191,7 +191,7 @@ fn desktop_area(window: &WebviewWindow) -> Result<Option<DesktopArea>> {
     }))
 }
 
-fn apply_desktop_area(window: &WebviewWindow, area: DesktopArea) -> Result<()> {
+fn apply_desktop_area(window: &Window, area: DesktopArea) -> Result<()> {
     window.set_position(PhysicalPosition::new(area.x, area.y))?;
     window.set_size(PhysicalSize::new(area.width, area.height))?;
     Ok(())
@@ -202,21 +202,21 @@ fn needs_fit(previous: Option<DesktopArea>, current: DesktopArea) -> bool {
 }
 
 /// Fills a whole monitor, taskbar and all: a world window on one of the extra screens.
-pub fn fill_monitor(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
+pub fn fill_monitor(window: &Window, monitor: &Monitor) -> Result<()> {
     window.set_position(PhysicalPosition::new(monitor.position().x, monitor.position().y))?;
     window.set_size(PhysicalSize::new(monitor.size().width, monitor.size().height))?;
     Ok(())
 }
 
 /// Places Castle on one given monitor's work area (the screen the member chose), in its layout.
-pub fn fill_work_area(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
+pub fn fill_work_area(window: &Window, monitor: &Monitor) -> Result<()> {
     let area = monitor.work_area();
     place(window, DesktopArea { x: area.position.x, y: area.position.y, width: area.size.width, height: area.size.height })
 }
 
 /// Places Castle on its monitor's work area in its layout: by default the whole desktop, with the
 /// Windows taskbar still showing.
-pub fn fill_desktop(window: &WebviewWindow) -> Result<()> {
+pub fn fill_desktop(window: &Window) -> Result<()> {
     if let Some(area) = desktop_area(window)? {
         place(window, area)?;
     }
@@ -237,7 +237,7 @@ pub fn watch_desktop(app: &AppHandle) {
         let mut asked_full_screen = false;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            let Some(window) = app.get_webview_window("main") else { break };
+            let Some(window) = app.get_window("main") else { break };
             if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(true) {
                 // Refit on return, even if the work area changed and then changed back.
                 fitted = None;
@@ -291,7 +291,7 @@ pub fn watch_desktop(app: &AppHandle) {
 }
 
 /// The free layout: saves the window's place and size when the member has moved or resized it.
-fn remember_bounds(app: &AppHandle, window: &WebviewWindow, saved: Option<[i32; 4]>) {
+fn remember_bounds(app: &AppHandle, window: &Window, saved: Option<[i32; 4]>) {
     let (Ok(at), Ok(size)) = (window.outer_position(), window.outer_size()) else { return };
     let now = [at.x, at.y, size.width as i32, size.height as i32];
     if saved == Some(now) || window.is_maximized().unwrap_or(false) {

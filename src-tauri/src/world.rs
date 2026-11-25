@@ -95,7 +95,7 @@ fn boxes(monitors: &[Monitor]) -> Vec<ScreenBox> {
 }
 
 fn main_index(app: &AppHandle, monitors: &[Monitor]) -> Option<usize> {
-    let main = app.get_webview_window("main")?.current_monitor().ok().flatten()?;
+    let main = app.get_window("main")?.current_monitor().ok().flatten()?;
     monitors.iter().position(|m| m.position() == main.position())
 }
 
@@ -139,7 +139,7 @@ async fn apply(app: &AppHandle, entries: &[WorldScreen]) -> Result<(), String> {
             let _ = app.emit_to(label(index), "castle-world-config", &payload);
             // re-fit every time, not just at creation: an older window kept open across settings
             // changes must not keep whatever bounds it had before, or it stays mis-sized/mis-placed
-            let _ = screen::fill_monitor(&existing, &monitors[index]);
+            let _ = screen::fill_monitor(&existing.as_ref().window(), &monitors[index]);
             let _ = existing.show();
             continue;
         }
@@ -155,7 +155,7 @@ async fn apply(app: &AppHandle, entries: &[WorldScreen]) -> Result<(), String> {
             .initialization_script(&format!("window.__CASTLE_VIEW__ = {init};{NO_START_SCREEN}"))
             .build()
             .map_err(|_| "The world window could not be opened.".to_string())?;
-        screen::fill_monitor(&window, &monitors[index]).map_err(|_| "The world window could not be placed.".to_string())?;
+        screen::fill_monitor(&window.as_ref().window(), &monitors[index]).map_err(|_| "The world window could not be placed.".to_string())?;
         window.show().map_err(|_| "The world window could not be shown.".to_string())?;
     }
     Ok(())
@@ -186,7 +186,7 @@ pub async fn world_apply(app: AppHandle, screens: Vec<WorldScreen>, store: State
 pub async fn castle_move_to_screen(app: AppHandle, index: usize, store: State<'_, SettingsStore>) -> Result<(), String> {
     let monitors = app.available_monitors().map_err(|_| "The screens could not be read.".to_string())?;
     let monitor = monitors.get(index).ok_or("That screen is not connected.")?.clone();
-    let window = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
+    let window = app.get_window("main").ok_or("Castle's window is not open.")?;
     let mut next = store.get();
     next.castle_screen = monitor.name().cloned().unwrap_or_default();
     settings::save(&store.path, &next).map_err(|_| "The screen could not be saved.".to_string())?;
@@ -202,7 +202,7 @@ pub async fn castle_move_to_screen(app: AppHandle, index: usize, store: State<'_
 
 /// At start: puts Castle on the screen the member chose, if it is still connected. False when
 /// there is none (the caller then fills the screen it opened on).
-pub fn place_saved(app: &AppHandle, window: &tauri::WebviewWindow) -> bool {
+pub fn place_saved(app: &AppHandle, window: &tauri::Window) -> bool {
     let chosen = app.state::<SettingsStore>().get().castle_screen;
     if chosen.is_empty() {
         return false;
@@ -259,7 +259,7 @@ pub async fn world_identify(app: AppHandle, index: usize) -> Result<(), String> 
         .initialization_script(&format!("{init}{NO_START_SCREEN}"))
         .build()
         .map_err(|_| "The screen number could not be shown.".to_string())?;
-    screen::fill_monitor(&window, &monitor).map_err(|_| "The screen number could not be placed.".to_string())?;
+    screen::fill_monitor(&window.as_ref().window(), &monitor).map_err(|_| "The screen number could not be placed.".to_string())?;
     let _ = window.set_ignore_cursor_events(true);
     window.show().map_err(|_| "The screen number could not be shown.".to_string())?;
     tauri::async_runtime::spawn(async move {
