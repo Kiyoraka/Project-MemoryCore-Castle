@@ -127,15 +127,37 @@ trait NoWindow {
 }
 
 impl NoWindow for Command {
-    /// No console window flashes up on Windows; nothing to do elsewhere.
+    /// No console window flashes up on Windows; elsewhere the tool gets its own process group, so a stop
+    /// can end the whole group.
     fn creation_flags_no_window(&mut self) -> &mut Self {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             self.creation_flags(0x0800_0000);
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            self.process_group(0);
+        }
         self
     }
+}
+
+/// Ends the video tool and everything it started. yt-dlp is a launcher that starts the real tool (and
+/// ffmpeg) as children: ending the launcher alone left the download running and holding the output.
+fn end_tree(child: &mut std::process::Child) {
+    let pid = child.id().to_string();
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]).creation_flags_no_window().status(); // platform: windows-only
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -322,8 +344,9 @@ pub fn run(app: &AppHandle, item: &Item, stop: Arc<AtomicBool>) -> Result<bool, 
     });
     loop {
         if stop.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = reader.join();
+            // the whole tree, and never a wait on the reader: a child still holding the pipe would hold it forever
+            end_tree(&mut child);
+            drop(reader);
             return Ok(false);
         }
         match child.try_wait() {
