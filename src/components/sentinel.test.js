@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAC_LINE, STALE_MINUTES, findingButtons, moveLabel, guardWords, networkLine, patrolAgo, shieldLook, watchAgo } from './sentinel.js'
+import { MAC_LINE, STALE_MINUTES, canMarkSafe, canSwitchOff, findingButtons, moveLabel, guardWords, networkLine, patrolAgo, patternLine, shieldLook, siteMarkLine, watchAgo } from './sentinel.js'
 
 describe('the card on HOME says the watch is working', () => {
   it('tells how long ago the last patrol ran', () => {
@@ -119,5 +119,24 @@ describe('Test my guard', () => {
     expect(one.verdict).toBe('Not yet: see what did not pass.')
     expect(one.lines[1]).toBe('✗ b: not set up')
     expect(guardWords(null)).toEqual({ verdict: '', lines: [] })
+  })
+})
+
+describe('the Sites fold', () => {
+  it('reads a mark and a pattern in plain words', () => {
+    expect(siteMarkLine({ host: 'paypal-login.top', verdict: 'dangerous', reason: 'a fake PayPal sign-in', by: 'sentinel' })).toBe('paypal-login.top: dangerous - a fake PayPal sign-in')
+    expect(siteMarkLine({ host: 'mybank.example', verdict: 'safe', reason: 'x', by: 'member' })).toBe('mybank.example: you marked it safe')
+    expect(patternLine({ kind: 'suffix', value: '-secure.top', verdict: 'dangerous', why: 'fake sign-ins', learnedFrom: 'paypal-login-secure.top', active: true })).toBe(
+      'names ending -secure.top: dangerous - fake sign-ins (learned from paypal-login-secure.top)',
+    )
+    expect(patternLine({ kind: 'keyword', value: 'verify', verdict: 'suspicious', why: 'odd', learnedFrom: 'a.top', active: false })).toContain(', switched off')
+    expect(siteMarkLine(null)).toBe('')
+  })
+
+  it('offers Mark safe and Switch off only where they mean something', () => {
+    expect(canMarkSafe({ by: 'sentinel', verdict: 'dangerous' })).toBe(true)
+    expect(canMarkSafe({ by: 'member', verdict: 'safe' })).toBe(false)
+    expect(canSwitchOff({ active: true })).toBe(true)
+    expect(canSwitchOff({ active: false })).toBe(false)
   })
 })

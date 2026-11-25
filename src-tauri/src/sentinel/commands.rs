@@ -239,6 +239,51 @@ pub async fn sentinel_alarms_seen(app: AppHandle) -> Result<(), String> {
     .map_err(|_| "The alarms could not be marked seen.".to_string())?
 }
 
+/// The Sites fold: the latest marks that are not safe (and the member's own), and every pattern.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sites {
+    pub marks: Vec<crate::sites::MarkRow>,
+    pub patterns: Vec<crate::sites::PatternRow>,
+}
+
+#[tauri::command]
+pub async fn sentinel_sites(app: AppHandle) -> Result<Sites, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = book::open(&memory(&app.state::<SettingsStore>())?)?;
+        let (marks, patterns) = crate::sites::listing(&mut conn)?;
+        Ok(Sites { marks, patterns })
+    })
+    .await
+    .map_err(|_| "The sites could not be read.".to_string())?
+}
+
+/// The member's Mark safe: their word stands over the Sentinel's.
+#[tauri::command]
+pub async fn sentinel_site_safe(app: AppHandle, host: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = book::open(&memory(&app.state::<SettingsStore>())?)?;
+        crate::sites::mark(&mut conn, &host, crate::site_rules::Verdict::Safe, "You marked this site safe.", "member", None)?;
+        changed(&app);
+        Ok(())
+    })
+    .await
+    .map_err(|_| "The site could not be marked.".to_string())?
+}
+
+/// Switch off: a pattern stops matching; it is kept with its why.
+#[tauri::command]
+pub async fn sentinel_pattern_off(app: AppHandle, id: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = book::open(&memory(&app.state::<SettingsStore>())?)?;
+        crate::sites::switch_off(&mut conn, id)?;
+        changed(&app);
+        Ok(())
+    })
+    .await
+    .map_err(|_| "The pattern could not be switched off.".to_string())?
+}
+
 /// What Settings > Sentinel shows: the set-up and remove lines, where it stands, and the
 /// recommended model for the member's CLI.
 #[derive(Debug, Clone, Serialize)]

@@ -3,8 +3,8 @@
 // its buttons (Fix, This is normal, Undo - each one the member's own click), what was settled,
 // kept as normal or fixed, and the officer's log.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { onSentinelChanged, sentinelAlarmsSeen, sentinelClick, sentinelFindings, sentinelLog, sentinelPatrolNow, sentinelStatus, sentinelTest } from '../api/castle.js'
-import { findingButtons, guardWords, moveLabel, networkLine, patrolAgo, shieldLook } from './sentinel.js'
+import { onSentinelChanged, sentinelAlarmsSeen, sentinelClick, sentinelFindings, sentinelLog, sentinelPatrolNow, sentinelPatternOff, sentinelSiteSafe, sentinelSites, sentinelStatus, sentinelTest } from '../api/castle.js'
+import { canMarkSafe, canSwitchOff, findingButtons, guardWords, moveLabel, networkLine, patrolAgo, patternLine, shieldLook, siteMarkLine } from './sentinel.js'
 
 const emit = defineEmits(['settings'])
 const status = ref(null)
@@ -32,6 +32,7 @@ async function read() {
     if (!status.value.problem) {
       open.value = await sentinelFindings(['open'])
       closed.value = await sentinelFindings(['settled', 'accepted', 'fixed'])
+      sites.value = await sentinelSites().catch(() => ({ marks: [], patterns: [] }))
     }
     if (logOpen.value) log.value = await sentinelLog()
   } catch (reason) {
@@ -85,6 +86,27 @@ async function press(finding, word) {
     read()
   }
 }
+
+// The Sites fold: her marks on websites and the patterns she learned
+const sites = ref({ marks: [], patterns: [] })
+const sitesOpen = ref(false)
+const siteCount = computed(() => sites.value.marks.length + sites.value.patterns.length)
+
+async function siteWord(key, run) {
+  said.value = ''
+  problem.value = ''
+  busy.value = key
+  try {
+    await run()
+  } catch (reason) {
+    problem.value = String(reason)
+  } finally {
+    busy.value = 0
+    read()
+  }
+}
+const markSafe = (mark) => siteWord(`m:${mark.host}`, () => sentinelSiteSafe(mark.host))
+const switchOff = (pattern) => siteWord(`p:${pattern.id}`, () => sentinelPatternOff(pattern.id))
 
 async function toggleLog() {
   logOpen.value = !logOpen.value
@@ -159,6 +181,24 @@ onBeforeUnmount(() => stop?.())
             <div v-if="f.stateWhy" class="why">{{ f.stateWhy }}</div>
             <div v-if="findingButtons(f).length" class="buttons">
               <button v-for="word in findingButtons(f)" :key="word" class="quiet" :disabled="busy !== 0" @click="press(f, word)">{{ buttonText(f, word) }}</button>
+            </div>
+          </article>
+        </template>
+      </section>
+
+      <section v-if="siteCount" class="group">
+        <button class="fold" @click="sitesOpen = !sitesOpen">{{ sitesOpen ? '▾' : '▸' }} Websites ({{ siteCount }})</button>
+        <template v-if="sitesOpen">
+          <article v-for="m in sites.marks" :key="m.host" class="finding site" :class="m.verdict">
+            <div class="detail">{{ siteMarkLine(m) }}</div>
+            <div v-if="canMarkSafe(m)" class="buttons">
+              <button class="quiet" :disabled="busy !== 0" @click="markSafe(m)">Mark safe</button>
+            </div>
+          </article>
+          <article v-for="p in sites.patterns" :key="p.id" class="finding site" :class="{ off: !p.active }">
+            <div class="detail">{{ patternLine(p) }}</div>
+            <div v-if="canSwitchOff(p)" class="buttons">
+              <button class="quiet" :disabled="busy !== 0" @click="switchOff(p)">Switch off</button>
             </div>
           </article>
         </template>
@@ -261,6 +301,15 @@ onBeforeUnmount(() => stop?.())
 }
 .finding.look {
   border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.finding.site.dangerous {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+}
+.finding.site.suspicious {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.finding.site.off {
+  opacity: 0.6;
 }
 .title {
   font-weight: 600;

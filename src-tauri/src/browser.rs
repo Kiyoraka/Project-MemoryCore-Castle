@@ -115,14 +115,25 @@ fn check_site(app: &AppHandle, view: &tauri::Webview, id: u32, url: String, priv
         let has_login = asked.is_ok() && rx.recv_timeout(std::time::Duration::from_secs(3)).is_ok_and(|json| json.trim() == "true");
         let title = tabs(&app).list.iter().find(|t| t.id == id).map(|t| t.title.clone()).unwrap_or_default();
         let checked = site_check(&app, &url, &title, has_login, private);
-        if let Some(tab) = app.state::<Browser>().0.lock().unwrap().get_mut(id) {
-            // only when the tab still shows that page
-            if tab.url.as_deref().is_none_or(|u| u == url) {
-                tab.warning = checked.as_ref().and_then(|c| c.warning.clone());
+        show_warning(&app, id, &url, checked.as_ref());
+        // a sign-in page on a host she has not judged: she is asked now, then the page is checked again
+        if let Some(c) = checked.filter(|c| c.has_login && !c.marked) {
+            if crate::sentinel::site_judge::judge_one(&app.state::<SettingsStore>(), &c.host) {
+                let again = site_check(&app, &url, &title, false, true);
+                show_warning(&app, id, &url, again.as_ref());
             }
         }
-        tell(&app);
     });
+}
+
+/// Puts a page's warning on its tab, only while the tab still shows that page.
+fn show_warning(app: &AppHandle, id: u32, url: &str, checked: Option<&Checked>) {
+    if let Some(tab) = app.state::<Browser>().0.lock().unwrap().get_mut(id) {
+        if tab.url.as_deref().is_none_or(|u| u == url) {
+            tab.warning = checked.and_then(|c| c.warning.clone());
+        }
+    }
+    tell(app);
 }
 
 /// What a page's check found.
@@ -133,15 +144,16 @@ pub struct Checked {
     pub warning: Option<crate::site_rules::Warning>,
 }
 
-/// The check of one page: the visit kept (unless private), then the worst of the rules, the
-/// Sentinel's mark and her active patterns. Without a memory database the rules alone speak.
+/// The check of one page: the visit kept (only while the Sentinel is on, never while browsing
+/// privately), then the worst of the rules, the Sentinel's mark and her active patterns. Without a
+/// memory database the rules alone speak.
 fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, private: bool) -> Option<Checked> {
     let (host, path, title) = crate::sites::visit_of(url, title)?;
-    let memory = app.state::<SettingsStore>().get().memory_folder;
-    let mut conn = memory.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
+    let settings = app.state::<SettingsStore>().get();
+    let mut conn = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
     let (mut mark, mut patterns) = (None, Vec::new());
     if let Some(c) = conn.as_mut() {
-        if !private {
+        if settings.sentinel.on && !private {
             let _ = crate::sites::keep_visit(c, &host, &path, &title, has_login);
         }
         mark = crate::sites::mark_of(c, &host).ok().flatten();

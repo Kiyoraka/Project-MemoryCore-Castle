@@ -88,3 +88,19 @@ const MOVES = {
   'stop-process': 'Stop this program',
 }
 export const moveLabel = (move) => MOVES[move] || 'Fix'
+
+// The Sites fold: one line per mark and per pattern, as the member reads them.
+const KIND_WORDS = { host: 'the site', suffix: 'names ending', keyword: 'names containing', lookalike: 'names that look like' }
+export function siteMarkLine(mark) {
+  if (!mark) return ''
+  if (mark.by === 'member') return `${mark.host}: you marked it safe`
+  return `${mark.host}: ${mark.verdict} - ${mark.reason}`
+}
+export function patternLine(pattern) {
+  if (!pattern) return ''
+  const what = `${KIND_WORDS[pattern.kind] || pattern.kind} ${pattern.value}`
+  return `${what}: ${pattern.verdict} - ${pattern.why} (learned from ${pattern.learnedFrom})${pattern.active ? '' : ', switched off'}`
+}
+// Mark safe only on the Sentinel's own warnings; Switch off only on a pattern still counting.
+export const canMarkSafe = (mark) => !!mark && mark.by !== 'member' && mark.verdict !== 'safe'
+export const canSwitchOff = (pattern) => !!pattern?.active

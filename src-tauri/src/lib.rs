@@ -751,6 +751,9 @@ pub fn run() {
             sentinel::commands::sentinel_click,
             sentinel::commands::sentinel_log,
             sentinel::commands::sentinel_alarms_seen,
+            sentinel::commands::sentinel_sites,
+            sentinel::commands::sentinel_site_safe,
+            sentinel::commands::sentinel_pattern_off,
             sentinel::commands::sentinel_setup
         ])
         .setup(|app| {

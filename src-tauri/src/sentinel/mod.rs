@@ -20,6 +20,7 @@ pub mod hand;
 pub mod look;
 pub mod network;
 pub mod officer;
+pub mod site_judge;
 pub mod watch;
 
 use crate::settings::SettingsStore;

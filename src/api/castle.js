@@ -195,6 +195,10 @@ export const sentinelFindings = (states) => invoke('sentinel_findings', { states
 export const sentinelClick = (id, word) => invoke('sentinel_click', { id, word })
 export const sentinelLog = () => invoke('sentinel_log')
 export const sentinelAlarmsSeen = () => invoke('sentinel_alarms_seen')
+// -> { marks: [{ host, verdict, reason, by, at }], patterns: [{ id, kind, value, verdict, why, learnedFrom, active }] }
+export const sentinelSites = () => invoke('sentinel_sites')
+export const sentinelSiteSafe = (host) => invoke('sentinel_site_safe', { host })
+export const sentinelPatternOff = (id) => invoke('sentinel_pattern_off', { id })
 // -> { supported, installLine, uninstallLine, installed: { installed, current, line }, recommended, cliLabel }
 export const sentinelSetup = () => invoke('sentinel_setup')
 // while a sweep runs: { group, freed } (bytes freed so far in all)
