@@ -18,6 +18,8 @@ pub struct Tab {
     pub warning: Option<crate::site_rules::Warning>,
     /// a dangerous page held back before it loaded: the DANGER screen shows in its place
     pub danger: Option<Danger>,
+    /// how many new things the site says it has, from its own title (unread_of); never kept
+    pub unread: u32,
 }
 
 /// A page the guard held back (browser_guard.rs): what was asked for and who caught it.
@@ -53,7 +55,7 @@ impl Tabs {
         self.next += 1;
         let id = self.next;
         let title = tab_title(url.as_deref(), None);
-        self.list.push(Tab { id, url, title, warning: None, danger: None });
+        self.list.push(Tab { id, url, title, warning: None, danger: None, unread: 0 });
         self.active = Some(id);
         Some(id)
     }
@@ -151,6 +153,63 @@ pub fn new_window_kind(url: &str, asked_features: bool, flagged: bool) -> Window
     } else {
         WindowKind::Tab
     }
+}
+
+/// A number in a title that is a count, not a year or a big figure: 1 to 9999, never 1900 to 2100.
+fn count_of(digits: &str) -> Option<u32> {
+    if digits.is_empty() || digits.len() > 4 || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let n: u32 = digits.parse().ok()?;
+    (n > 0 && !(1900..=2100).contains(&n)).then_some(n)
+}
+
+/// How many new things a site says it has, read from its own tab title (never from the page):
+/// "(3) WhatsApp", "(9+) Facebook", "Inbox (12) - me@gmail.com - Gmail", "[4] Forum", and a bare
+/// "•" or "*" in front (Discord's "unread, no number") as 1. A year or a price is never a count.
+pub fn unread_of(title: &str) -> u32 {
+    let t = title.trim();
+    let bracketed = |open: char, close: char| -> Option<u32> {
+        let rest = t.strip_prefix(open)?;
+        let inner = &rest[..rest.find(close)?];
+        count_of(inner.strip_suffix('+').unwrap_or(inner))
+    };
+    if let Some(n) = bracketed('(', ')').or_else(|| bracketed('[', ']')) {
+        return n;
+    }
+    if let Some(at) = t.find("Inbox (") {
+        let rest = &t[at + "Inbox (".len()..];
+        if let Some(n) = rest.find(')').and_then(|end| count_of(rest[..end].trim_end_matches('+'))) {
+            return n;
+        }
+    }
+    if t.starts_with('•') || t.starts_with("* ") {
+        return 1;
+    }
+    0
+}
+
+/// The site's short name for the unread summary: the title without its count, Gmail's last part.
+pub fn unread_name(title: &str) -> String {
+    let t = title.trim();
+    let gmail = t.contains("Inbox (");
+    let stripped = t.trim_start_matches(['•', '*']).trim_start();
+    let stripped = match stripped.chars().next() {
+        Some('(') | Some('[') if unread_of(stripped) > 0 => stripped.find([')', ']']).map(|end| stripped[end + 1..].trim()).unwrap_or(stripped),
+        _ => stripped,
+    };
+    let joined = stripped.replace(" | ", " - ").replace(" – ", " - ");
+    let parts: Vec<&str> = joined.split(" - ").map(str::trim).filter(|p| !p.is_empty()).collect();
+    let name = if gmail { parts.last() } else { parts.first() }.copied().unwrap_or(stripped);
+    name.chars().take(40).collect()
+}
+
+/// Every tab's news together, for the main window: the sum, and "WhatsApp 3 · Gmail 12".
+pub fn unread_summary(tabs: &Tabs) -> (u32, String) {
+    let with: Vec<&Tab> = tabs.list.iter().filter(|t| t.unread > 0).collect();
+    let total = with.iter().map(|t| t.unread).sum();
+    let title = with.iter().map(|t| format!("{} {}", unread_name(&t.title), t.unread)).collect::<Vec<_>>().join(" · ");
+    (total, title)
 }
 
 /// The title a tab shows: the page's own, else its host, else "New tab".
@@ -301,6 +360,36 @@ mod tests {
         for bad in ["javascript:alert(1)", "file:///etc/passwd", "castle://x"] {
             assert_eq!(new_window_kind(bad, true, false), WindowKind::Refuse, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_sites_own_title_says_how_much_is_new() {
+        assert_eq!(unread_of("(3) WhatsApp"), 3);
+        assert_eq!(unread_of("(9+) Facebook"), 9);
+        assert_eq!(unread_of("Inbox (12) - me@gmail.com - Gmail"), 12);
+        assert_eq!(unread_of("(1) Messenger"), 1);
+        assert_eq!(unread_of("(5) Discord | #general | Friends"), 5);
+        assert_eq!(unread_of("• Discord | #general | Friends"), 1, "unread with no number");
+        assert_eq!(unread_of("[4] Forum - new posts"), 4);
+        assert_eq!(unread_of("(2024) Annual report"), 0, "a year is not a count");
+        assert_eq!(unread_of("($5) Deal"), 0, "a price is not a count");
+        assert_eq!(unread_of("(0) Inbox"), 0);
+        assert_eq!(unread_of("(12345) Big"), 0);
+        assert_eq!(unread_of("WhatsApp"), 0);
+        assert_eq!(unread_of("Inbox - me@gmail.com - Gmail"), 0);
+    }
+
+    #[test]
+    fn the_summary_names_each_site_with_its_count() {
+        let mut tabs = Tabs::default();
+        for (title, unread) in [("(3) WhatsApp", 3), ("Inbox (12) - me@gmail.com - Gmail", 12), ("GitHub", 0), ("• Discord | #general", 1)] {
+            let id = tabs.open(Some("https://x.example/".into())).unwrap();
+            let tab = tabs.get_mut(id).unwrap();
+            tab.title = title.into();
+            tab.unread = unread;
+        }
+        assert_eq!(unread_summary(&tabs), (16, "WhatsApp 3 · Gmail 12 · Discord 1".to_string()));
+        assert_eq!(unread_summary(&Tabs::default()), (0, String::new()));
     }
 
     #[test]

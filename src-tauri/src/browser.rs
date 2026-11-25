@@ -261,9 +261,23 @@ fn tabs(app: &AppHandle) -> Tabs {
     app.state::<Browser>().0.lock().unwrap().clone()
 }
 
-/// Tells the toolbar what changed.
+/// The last unread summary the main window heard, so it hears only a change.
+static UNREAD_SAID: Mutex<(u32, String)> = Mutex::new((0, String::new()));
+
+/// Tells the toolbar what changed, and the main window how much is new across the tabs (its BROWSER
+/// tile shows the count, like CHAT's).
 fn tell(app: &AppHandle) {
-    let _ = app.emit_to(UI, "browser-state", tabs(app));
+    let now = tabs(app);
+    tell_unread(app, browser_tabs::unread_summary(&now));
+    let _ = app.emit_to(UI, "browser-state", now);
+}
+
+fn tell_unread(app: &AppHandle, summary: (u32, String)) {
+    let mut said = UNREAD_SAID.lock().unwrap();
+    if *said != summary {
+        let _ = app.emit_to("main", "browser-unread", serde_json::json!({ "count": summary.0, "title": summary.1 }));
+        *said = summary;
+    }
 }
 
 /// The window, opened on the right half of the screen Castle is on when it is not open yet. An open
@@ -312,7 +326,11 @@ fn window(app: &AppHandle) -> Result<Window, String> {
                 }
             });
         }
-        WindowEvent::Destroyed => *events.state::<Browser>().0.lock().unwrap() = Tabs::default(),
+        WindowEvent::Destroyed => {
+            *events.state::<Browser>().0.lock().unwrap() = Tabs::default();
+            // the pages are gone, and so is their news
+            tell_unread(&events, (0, String::new()));
+        }
         _ => {}
     });
     // while the window is open, save the sign-ins now and then (a quit skips CloseRequested)
@@ -421,6 +439,7 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
         .on_document_title_changed(move |_, title| {
             if let Some(tab) = titles.state::<Browser>().0.lock().unwrap().get_mut(id) {
                 tab.title = browser_tabs::tab_title(tab.url.as_deref(), Some(&title));
+                tab.unread = browser_tabs::unread_of(&title);
             }
             tell(&titles);
         })
