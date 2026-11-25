@@ -32,7 +32,7 @@ import {
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
-import { fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { chipCount, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
@@ -206,9 +206,10 @@ onBeforeUnmount(() => {
   <div class="browser">
     <div class="bar">
       <div class="strip" role="tablist" aria-label="Tabs">
-        <div v-for="t in tabs.list" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+        <div v-for="t in tabs.list" :key="t.id" class="tab" :class="{ on: t.id === tabs.active, held: t.danger, news: t.unread > 0 }" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
           <span class="dot" :class="{ local: t.url?.startsWith('http://'), blank: !t.url }" aria-hidden="true"></span>
           <span class="name">{{ t.title }}</span>
+          <span v-if="chipCount(t.unread)" class="news-count" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
           <button class="x" :aria-label="`Close ${t.title}`" @click.stop="close(t.id)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
@@ -345,6 +346,22 @@ onBeforeUnmount(() => {
   color: var(--text-dim);
   font-size: 13px;
   cursor: pointer;
+}
+/* a site with news: a mint count and a soft gold glow, the twin of CHAT's */
+.tab.news {
+  box-shadow:
+    inset 0 0 0 1px rgba(230, 194, 122, 0.9),
+    0 0 10px rgba(230, 194, 122, 0.45);
+}
+.news-count {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #7ee0b8;
+  color: #0b2a20;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
 }
 /* a tab the guard held back glows red until it leaves the page */
 .tab.held {

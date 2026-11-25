@@ -698,3 +698,5 @@ export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
 export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
+// How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }
+export const onBrowserUnread = (handler) => listen('browser-unread', (event) => handler(event.payload))

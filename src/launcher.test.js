@@ -236,6 +236,11 @@ describe('badges', () => {
     expect(badgesFor({ automations: { notices: [], paused: false }, calendar: { next: [], notices: [], proposed: 0 } }, now)).toEqual({})
     expect(badgesFor({}, now)).toEqual({})
   })
+  it("shows the browser tabs' news on the BROWSER tile, with each site", () => {
+    expect(badgesFor({ browser: { count: 15, title: 'WhatsApp 3 · Gmail 12' } }, now).browser).toEqual({ count: 15, tone: 'info', text: 'New in your tabs: WhatsApp 3 · Gmail 12' })
+    expect(badgesFor({ browser: { count: 0, title: '' } }, now).browser).toBeUndefined()
+    expect(badgesFor({ marks: ['browser'], browser: { count: 2, title: '' } }, now).browser.count).toBe(2)
+  })
   it('counts recent failed automation runs, and ignores old or successful ones', () => {
     const old = { ...bad, at: '2026-11-01 09:00:00' }
     const ok = { name: 'Brief', status: 'ok', at: '2026-11-22 08:00:00' }

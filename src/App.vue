@@ -18,7 +18,7 @@ import CreditWidget from './components/widgets/CreditWidget.vue'
 import DatabaseOffer from './components/DatabaseOffer.vue'
 import { shouldOffer } from './components/database.js'
 import CompanionHeader from './components/CompanionHeader.vue'
-import { alertActiveRoom, browserOpen, nodePrepare, onBrowserPutInChat, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
+import { alertActiveRoom, browserOpen, nodePrepare, onBrowserPutInChat, onBrowserUnread, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
 import { prepareStudio } from './composables/useStudio.js'
 import { prepareLibrary } from './composables/useLibrary.js'
 import { loadUserThemes } from './composables/useThemes.js'
@@ -177,12 +177,22 @@ async function refreshPending() {
   const got = await Promise.allSettled([telegramBridgeStatus(), discordBridgeStatus(), whatsappBridgeStatus()])
   pendingChats.value = got.filter((g) => g.status === 'fulfilled' && g.value?.pending).length
 }
+// The news in the browser window's tabs (browser.rs reads each site's own title): its count on the
+// BROWSER tile and tab, and the glow when it rises while the browser window is not in front.
+const browserUnread = ref({ count: 0, title: '' })
+function heardBrowserUnread(next) {
+  const rose = next.count > browserUnread.value.count
+  browserUnread.value = { count: next.count, title: next.title }
+  if (next.count === 0) marks.value = marks.value.filter((m) => m !== 'browser')
+  else if (rose && next.away && !marks.value.includes('browser')) marks.value = [...marks.value, 'browser']
+}
 // What each tile in APPS says is waiting: only state Castle already holds, nothing is fetched for it.
 const badges = computed(() => badgesFor({
   automations: rooms.value.automations ? automations.value : null,
   pending: pendingChats.value,
   marks: marks.value,
   calendar: rooms.value.calendar ? calendarCard.value : null,
+  browser: browserUnread.value,
 }))
 // The rooms pinned to the top bar (Settings `pinnedRooms`); every other room opens from APPS, the room launcher.
 const pins = ref([...DEFAULT_PINS])
@@ -604,6 +614,7 @@ onMounted(async () => {
     active.value = 'home'
     homePanel.value?.addText(url)
   }).catch(() => null)
+  onBrowserUnread(heardBrowserUnread).catch(() => null)
   window.addEventListener('keydown', onArrangeKey)
   window.addEventListener('keydown', onLauncherKey)
   stopProviderEvents = await onProviderChanged(async () => { await settingsSaved(); window.dispatchEvent(new Event('castle-provider-changed')) }).catch(() => null)
@@ -691,7 +702,8 @@ watch(settingsStamp, () => {
       :version="appVersion"
       :clock-format="barClock.format"
       :marks="barMarks"
-      :mark-titles="{ story: 'The story has new lines', chat: 'New in the room', launcher: 'Something new is waiting in a room' }"
+      :mark-titles="{ story: 'The story has new lines', chat: 'New in the room', launcher: 'Something new is waiting in a room', browser: browserUnread.title ? `New in your tabs: ${browserUnread.title}` : 'New in your tabs' }"
+      :counts="{ browser: browserUnread.count }"
       @select="active = $event; marks = marks.filter((m) => m !== $event)"
       @reorder="reorderTabs"
       @settings="openSettings"

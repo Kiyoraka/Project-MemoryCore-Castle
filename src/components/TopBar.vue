@@ -22,6 +22,8 @@ const props = defineProps({
   marks: { type: Array, default: () => [] },
   // what is new, per tab, for its tooltip ("2 new · Rin online")
   markTitles: { type: Object, default: () => ({}) },
+  // a number beside a tab's name (BROWSER: the news in its tabs), shown when above 0
+  counts: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['select', 'settings', 'hide', 'reorder', 'sentinel'])
 
@@ -161,7 +163,7 @@ onBeforeUnmount(() => {
         @click="onClick(tab.id)"
         @keydown="tab.fixed || onKey($event, tab.id)"
       >
-        {{ tab.label }}
+        {{ tab.label }}<span v-if="counts[tab.id] > 0" class="count">{{ counts[tab.id] > 99 ? '99+' : counts[tab.id] }}</span>
       </button>
     </nav>
     <div class="actions">
@@ -203,6 +205,17 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, rgba(138, 92, 240, 0.85), rgba(199, 154, 74, 0.85));
   border-radius: 8px;
   box-shadow: 0 0 14px rgba(230, 194, 122, 0.5);
+}
+
+.tab .count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #7ee0b8;
+  color: #0b2a20;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
 }
 
 .tab.fresh::after {

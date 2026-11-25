@@ -197,7 +197,7 @@ const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,
  * What each tile says is waiting, read from state Castle already holds (nothing is fetched here):
  * { roomId: { count, tone: 'bad' | 'warn' | 'info', text } }. A count of 0 is a plain dot.
  */
-export function badgesFor({ automations = null, pending = 0, marks = [], calendar = null } = {}, now = new Date()) {
+export function badgesFor({ automations = null, pending = 0, marks = [], calendar = null, browser = null } = {}, now = new Date()) {
   const out = {}
   const titles = { chat: 'New in the room', story: 'The story has new lines' }
   for (const id of marks) out[id] = { count: 0, tone: 'info', text: titles[id] || 'Something new is waiting' }
@@ -209,6 +209,7 @@ export function badgesFor({ automations = null, pending = 0, marks = [], calenda
     if (recent) out.automations = { count: recent, tone: 'bad', text: `${plural(recent, 'recent job failed or did not deliver', 'recent jobs failed or did not deliver')}` }
     else if (automations.paused) out.automations = { count: 0, tone: 'warn', text: 'Automations are paused' }
   }
+  if (browser?.count > 0) out.browser = { count: browser.count, tone: 'info', text: browser.title ? `New in your tabs: ${browser.title}` : 'New in your tabs' }
   if (pending > 0) out.messaging = { count: pending, tone: 'warn', text: `${plural(pending, 'chat is', 'chats are')} waiting for your approval` }
   if (calendar) {
     const today = isoDay(now)

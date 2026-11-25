@@ -103,3 +103,10 @@ export function dangerWords(danger, mac = false) {
     chips: guards.map((g) => ({ ...g, lit: caught.has(g.id) })),
   }
 }
+
+/** A tab chip's count of news, '' when none, capped at 99+. */
+export function chipCount(unread) {
+  const n = Number(unread) || 0
+  if (n <= 0) return ''
+  return n > 99 ? '99+' : String(n)
+}

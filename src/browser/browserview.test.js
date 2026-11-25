@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, dangerWords, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { ARTIFACTS, chipCount, dangerWords, fillLabel, libraryTiles, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -92,5 +92,14 @@ describe('the DANGER screen', () => {
   it('shows nothing when the page is not held back, and copes with an unknown threat', () => {
     expect(dangerWords(null)).toBe(null)
     expect(dangerWords({ threat: 'something-new' }).threat).toBe('Dangerous site - your companion marked it.')
+  })
+})
+
+describe('the news on a tab', () => {
+  it('shows the count the site gives, capped, and nothing without news', () => {
+    expect(chipCount(3)).toBe('3')
+    expect(chipCount(120)).toBe('99+')
+    expect(chipCount(0)).toBe('')
+    expect(chipCount(undefined)).toBe('')
   })
 })

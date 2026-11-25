@@ -275,7 +275,9 @@ fn tell(app: &AppHandle) {
 fn tell_unread(app: &AppHandle, summary: (u32, String)) {
     let mut said = UNREAD_SAID.lock().unwrap();
     if *said != summary {
-        let _ = app.emit_to("main", "browser-unread", serde_json::json!({ "count": summary.0, "title": summary.1 }));
+        // away: the browser window is not in front, so a rise is news the main window lights up for
+        let away = app.get_window(WINDOW).and_then(|w| w.is_focused().ok()) != Some(true);
+        let _ = app.emit_to("main", "browser-unread", serde_json::json!({ "count": summary.0, "title": summary.1, "away": away }));
         *said = summary;
     }
 }
