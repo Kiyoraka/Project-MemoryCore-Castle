@@ -19,6 +19,7 @@ import {
   devState,
   devWake,
   devWrite,
+  freshStart,
   onDevExit,
   onDevOutput,
   onSessionFull,
@@ -35,6 +36,7 @@ import {
 } from '../api/castle.js'
 import { devRoom, sessionView, tabForSlot } from '../views/dev/devtabs.js'
 import { fullLineFor, noticeKey, noticeWords } from './modelnotice.js'
+import { cardWords, nextCard, notNow, showsCard } from './freshstart.js'
 
 const props = defineProps({
   // Changes whenever Settings saves, so the session status is read again.
@@ -421,6 +423,27 @@ if (props.room !== 'story') {
   }).then((stop) => stopListening.push(stop))
 }
 
+// The home chat is never compacted: near full, her card asks to start fresh (fresh_start.rs). The
+// main session only, Claude Code's meter only; a draft in Chat's box is untouched by it.
+const contextPercent = ref(null)
+const freshState = ref('watching')
+if (!isDev && props.room !== 'story') {
+  watch([contextPercent, busy, running], () => {
+    freshState.value = nextCard(freshState.value, { percent: contextPercent.value, busy: busy.value, running: running.value })
+  })
+}
+async function startFresh() {
+  freshState.value = 'running'
+  try {
+    await freshStart()
+  } catch {
+    // the panel's line says why (fresh_start.rs tells it)
+  } finally {
+    contextPercent.value = null
+    freshState.value = 'watching'
+  }
+}
+
 // What Chat sends goes into the same session, exactly as if typed in the Log.
 function writeToSession(data) {
   if (!running.value) return Promise.resolve()
@@ -488,6 +511,13 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
       <span>{{ noticeLine() }}</span>
       <button title="Close" aria-label="Close" @click="closedNotice = noticeKey(notice)">×</button>
     </p>
+    <div v-if="running && showsCard(freshState)" class="fresh-card" role="alertdialog" :aria-label="`${companion} asks to start fresh`">
+      <p>{{ cardWords(contextPercent) }}</p>
+      <div class="fresh-buttons">
+        <button class="quiet" @click="freshState = notNow(freshState)">Not now</button>
+        <button @click="startFresh">Start fresh</button>
+      </div>
+    </div>
     <p v-if="fullLine" class="model-notice" role="status">
       <span>{{ fullLine }}</span>
       <button title="Close" aria-label="Close" @click="fullLine = ''">×</button>
@@ -508,7 +538,7 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
         :settings-stamp="settingsStamp"
         @show-log="setView('log')"
         @busy="busy = $event; emit('busy', $event)"
-        @context="emit('context', $event)"
+        @context="contextPercent = $event?.percent ?? null; emit('context', $event)"
       />
     </div>
 
@@ -639,6 +669,22 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
   color: var(--text-dim);
 }
 
+.fresh-card {
+  margin: 6px 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: 10px;
+  background: var(--widget-background);
+  font-size: 13px;
+}
+.fresh-card p {
+  margin: 0 0 8px;
+}
+.fresh-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .model-notice {
   display: flex;
   align-items: center;

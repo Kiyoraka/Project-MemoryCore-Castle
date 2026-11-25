@@ -71,6 +71,8 @@ export const imageCancel = (id) => invoke('image_cancel', { id })
 // `look` names an APPEARANCE drawing by its parts (kind, outfit, hair, changes, quality); castle-look.mjs writes its prompt
 export const imageRequest = (brief, output = null, references = [], room = 'studio', label = null, look = null) => invoke('image_request', { brief, output, references, room, label, look })
 export const providerSwitch = (target) => invoke('provider_switch', { target })
+// The home chat starts fresh: the talk kept in Chat and carried word for word, never compacted
+export const freshStart = () => invoke('fresh_start')
 export const providerSwitchStatus = () => invoke('provider_switch_status')
 export const providerSwitchCancel = () => invoke('provider_switch_cancel')
 export const onProviderChanged = (handler) => listen('provider-changed', handler)
