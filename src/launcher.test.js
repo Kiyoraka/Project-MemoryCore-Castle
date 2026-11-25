@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { windowRoom as windowRoomOf } from './launcher.js'
 import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, pinRows, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
@@ -307,5 +308,14 @@ describe('tile tooltips', () => {
     expect(tipDelay(1)).toBe(TIP_FIRST_MS)
     expect(tipDelay(2)).toBe(0)
     expect(tipDelay(5)).toBe(0)
+  })
+})
+
+describe('the browser inside Castle', () => {
+  it('makes BROWSER a room of its own, while ARTIFACTS still opens the browser', () => {
+    expect(windowRoomOf('browser', 'castle')).toBe(null)
+    expect(windowRoomOf('artifacts', 'castle')).toEqual({ url: 'https://claude.ai/code/artifacts' })
+    expect(windowRoomOf('browser', 'window')).toEqual({ url: null })
+    expect(windowRoomOf('browser')).toEqual({ url: null }, 'its own window to begin with')
   })
 })

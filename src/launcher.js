@@ -59,8 +59,11 @@ const WINDOW_ROOMS = {
   browser: { url: null },
   artifacts: { url: 'https://claude.ai/code/artifacts' },
 }
-/** { url } for a tile that opens the browser window, or null for a room. */
-export function windowRoom(id) {
+/** { url } for a tile that opens the browser window, or null for a room. `opens` is Settings'
+ * Browser opens: inside Castle ('castle') BROWSER is a room of its own, and ARTIFACTS still opens the
+ * browser (which then turns Castle to BROWSER). */
+export function windowRoom(id, opens = 'window') {
+  if (opens === 'castle' && id === 'browser') return null
   return Object.hasOwn(WINDOW_ROOMS, id ?? '') ? { ...WINDOW_ROOMS[id] } : null
 }
 

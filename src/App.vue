@@ -18,7 +18,7 @@ import CreditWidget from './components/widgets/CreditWidget.vue'
 import DatabaseOffer from './components/DatabaseOffer.vue'
 import { shouldOffer } from './components/database.js'
 import CompanionHeader from './components/CompanionHeader.vue'
-import { alertActiveRoom, browserOpen, nodePrepare, onBrowserPutInChat, onBrowserUnread, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
+import { alertActiveRoom, browserOpen, nodePrepare, onBrowserPutInChat, onBrowserShowRoom, onBrowserUnread, onNodeInstall, onOpenChat, onOpenRoom, onProviderChanged } from './api/castle.js'
 import { prepareStudio } from './composables/useStudio.js'
 import { prepareLibrary } from './composables/useLibrary.js'
 import { loadUserThemes } from './composables/useThemes.js'
@@ -47,6 +47,7 @@ import AppearanceView from './views/AppearanceView.vue'
 import StoryView from './views/StoryView.vue'
 import WorldView from './views/WorldView.vue'
 import ChatRoomView from './views/ChatRoomView.vue'
+import BrowserWindow from './browser/BrowserWindow.vue'
 import DevView from './views/DevView.vue'
 import SettingsView from './views/SettingsView.vue'
 import UpdateChip from './components/UpdateChip.vue'
@@ -101,8 +102,10 @@ const active = ref(devTab || 'home')
 // HOME's chat panel: the BROWSER window's Put in chat writes a page's address into its box
 const homePanel = ref(null)
 // BROWSER and ARTIFACTS (from APPS or a pinned tab) open the browser window; Castle stays where it was
+// Settings > Rooms > BROWSER > Browser opens: its own window, or a room inside Castle
+const browserOpens = ref('window')
 watch(active, (id, before) => {
-  const opens = windowRoom(id)
+  const opens = windowRoom(id, browserOpens.value)
   if (!opens) return
   active.value = before && !windowRoom(before) ? before : 'home'
   browserOpen(opens.url).catch(() => {})
@@ -130,7 +133,7 @@ const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
 // Rooms that are built; any other room shows its name until its phase lands.
-const BUILT = new Set(['launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance'])
+const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
 const marks = ref([])
 const memberName = ref('')
@@ -138,6 +141,8 @@ const storyOpened = ref(active.value === 'story')
 const chatOpened = ref(active.value === 'chat')
 // DEV stays mounted once opened, so its project sessions keep going behind the other rooms
 const devOpened = ref(active.value === 'dev')
+// BROWSER inside Castle stays mounted once opened, so its pages keep going behind the other rooms
+const browserOpened = ref(false)
 // where APPS was opened from, so Esc there goes back
 const previousRoom = ref('home')
 const launcherView = ref(null)
@@ -151,6 +156,7 @@ watch(active, (room, was) => {
   if (room === 'story') storyOpened.value = true
   if (room === 'chat') chatOpened.value = true
   if (room === 'dev') devOpened.value = true
+  if (room === 'browser') browserOpened.value = true
 })
 // a file a HOME card asked to open in its room
 const roomFile = ref('')
@@ -183,8 +189,10 @@ const browserUnread = ref({ count: 0, title: '' })
 function heardBrowserUnread(next) {
   const rose = next.count > browserUnread.value.count
   browserUnread.value = { count: next.count, title: next.title }
+  // inside Castle "away" is BROWSER not being the room in front
+  const away = browserOpens.value === 'castle' ? active.value !== 'browser' : next.away
   if (next.count === 0) marks.value = marks.value.filter((m) => m !== 'browser')
-  else if (rose && next.away && !marks.value.includes('browser')) marks.value = [...marks.value, 'browser']
+  else if (rose && away && !marks.value.includes('browser')) marks.value = [...marks.value, 'browser']
 }
 // What each tile in APPS says is waiting: only state Castle already holds, nothing is fetched for it.
 const badges = computed(() => badgesFor({
@@ -382,6 +390,12 @@ async function loadSettingsAndTheme() {
     widgetPrefs.value = { widgetsOff: view.settings.widgetsOff ?? [], widgetsOn: view.settings.widgetsOn ?? [], widgetSizes: view.settings.widgetSizes ?? {}, widgetPlaces: view.settings.widgetPlaces ?? {} }
     tabOrder.value = view.settings.tabOrder ?? []
     pins.value = cleanPins(view.settings.pinnedRooms ?? DEFAULT_PINS)
+    browserOpens.value = view.settings.browserOpens === 'castle' ? 'castle' : 'window'
+    // back to its own window: the room closes (its pages were closed by Settings)
+    if (browserOpens.value !== 'castle') {
+      browserOpened.value = false
+      if (active.value === 'browser') active.value = 'home'
+    }
     try {
       savedKeys.value = (await keyStatus()).filter((k) => k.set).map((k) => k.name)
     } catch {
@@ -615,6 +629,9 @@ onMounted(async () => {
     homePanel.value?.addText(url)
   }).catch(() => null)
   onBrowserUnread(heardBrowserUnread).catch(() => null)
+  onBrowserShowRoom(() => {
+    if (browserOpens.value === 'castle') active.value = 'browser'
+  }).catch(() => null)
   window.addEventListener('keydown', onArrangeKey)
   window.addEventListener('keydown', onLauncherKey)
   stopProviderEvents = await onProviderChanged(async () => { await settingsSaved(); window.dispatchEvent(new Event('castle-provider-changed')) }).catch(() => null)
@@ -761,6 +778,7 @@ watch(settingsStamp, () => {
       <AppsView v-if="active === 'apps'" class="room" />
       <MyProfileView v-if="active === 'myprofile'" :companion="companion" @settings="openSettings('database')" />
       <ChatRoomView v-show="active === 'chat'" v-if="chatOpened" :visible="active === 'chat'" :companion="companion" :settings-stamp="settingsStamp" @settings="openSettings" @renamed="settingsSaved" @fresh="!marks.includes('chat') && (marks = [...marks, 'chat'])" />
+      <BrowserWindow v-if="browserOpens === 'castle' && browserOpened" v-show="active === 'browser'" embedded :visible="active === 'browser' && !settingsOpen && !sentinelOpen && !backupOpen" />
       <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" @settings="openSettings" @setup="openSetup" />
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
       <StoryView v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />

@@ -697,7 +697,12 @@ export const browserClear = () => invoke('browser_clear')
 export const browserDangerBack = (id) => invoke('browser_danger_back', { id })
 export const browserDangerOpen = (id) => invoke('browser_danger_open', { id })
 // The layout: how tall the toolbar page's bar is, and whether it has something open over the pages
-export const browserChrome = (bar, overlay) => invoke('browser_chrome', { bar, overlay })
+// Inside Castle also the room's page area ([x, y, width, height] in Castle's window) and whether the
+// room is in front with no sheet over it; the pages hide when it is not
+export const browserChrome = (bar, overlay, area = null, shown = null) => invoke('browser_chrome', { bar, overlay, area, shown })
+// Browser opens changed: every page closes (sign-ins kept) and opens in its new home next time
+export const browserCloseAll = () => invoke('browser_close_all')
+export const onBrowserShowRoom = (handler) => listen('browser-show-room', () => handler())
 // The address bar's suggestions (browser_suggest.rs): -> [{ kind: 'search'|'page'|'bookmark', text, url, sub }]
 export const browserSuggest = (input) => invoke('browser_suggest', { input })
 export const browserForgetSearch = (term) => invoke('browser_forget_search', { term })

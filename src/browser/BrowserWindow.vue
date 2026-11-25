@@ -1,5 +1,6 @@
 <script setup>
-// The BROWSER window's own page (browser.rs, webview `browser-ui`): the tabs and the toolbar,
+// The BROWSER window's own page (browser.rs, webview `browser-ui`), or the BROWSER room inside Castle
+// (`embedded`, Settings > Rooms > BROWSER > Browser opens): the tabs and the toolbar,
 // exactly BAR (94 px) tall above the web page, or the whole window with the new-tab page when the
 // tab in front has no page yet. The web pages themselves are separate webviews below it.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -48,8 +49,15 @@ import DangerScreen from './DangerScreen.vue'
 import SuggestList from './SuggestList.vue'
 import PaneRow from './PaneRow.vue'
 import TranslateRow from './TranslateRow.vue'
-import { chipCount, fillLabel, groupOf, showTranslateRow, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { areaOf, chipCount, fillLabel, groupOf, showTranslateRow, libraryTiles, moveSelection, onScreen, singleTabs, suggestionGroups, suggestionInput, newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
+
+// inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  visible: { type: Boolean, default: true },
+})
+const root = ref(null)
 
 const tabs = ref({ list: [], active: null })
 const typed = ref('')
@@ -223,7 +231,16 @@ const beside = (id) => act(() => browserBeside(id))
 const unpane = (id) => act(() => browserUnpane(id))
 const setWidths = (widths) => act(() => browserWidths(widths))
 const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
-watch([barHeight, suggestOpen, translateListing], ([bar, open, listing]) => browserChrome(bar, open || listing).catch(() => {}))
+// what the layout needs: the bar's height and an overlay; inside Castle also the room's page area and
+// whether the room is in front (the pages hide when it is not)
+function sendChrome() {
+  const overlay = suggestOpen.value || translateListing.value
+  if (!props.embedded) return browserChrome(barHeight.value, overlay).catch(() => {})
+  const area = areaOf(root.value?.getBoundingClientRect(), barHeight.value)
+  return browserChrome(barHeight.value, overlay, area, props.visible).catch(() => {})
+}
+watch([barHeight, suggestOpen, translateListing, () => props.visible], sendChrome)
+let roomSize = null
 
 function go() {
   const row = selected.value >= 0 ? suggestOrder.value[selected.value] : null
@@ -332,7 +349,7 @@ const pressFill = () => (logins.value.length === 1 ? fill(logins.value[0]) : (ch
 
 function onKey(event) {
   const mod = isMac ? event.metaKey : event.ctrlKey
-  if (!mod) return
+  if (!mod || (props.embedded && !props.visible)) return
   const key = event.key.toLowerCase()
   if (key === 't') add()
   else if (key === 'w' && current.value) close(current.value.id)
@@ -354,7 +371,14 @@ watch(
 )
 
 onMounted(async () => {
-  document.title = 'MemoryCore · Browser'
+  if (!props.embedded) document.title = 'MemoryCore · Browser'
+  // inside Castle the room's place follows its size and the window's
+  if (props.embedded && root.value) {
+    roomSize = new ResizeObserver(sendChrome)
+    roomSize.observe(root.value)
+    window.addEventListener('resize', sendChrome)
+    sendChrome()
+  }
   window.addEventListener('keydown', onKey)
   stop = await onBrowserState((next) => (tabs.value = next))
   try {
@@ -363,11 +387,16 @@ onMounted(async () => {
     // the default shortcuts
   }
   tabs.value = await browserState()
+  // inside Castle the room opens on a new tab when nothing is open yet
+  if (props.embedded && !tabs.value.list.length) await browserOpen(null).catch(() => {})
   await readTranslating()
   await readWelcome()
   if (current.value && !current.value.url) refreshNewTab()
 })
 onBeforeUnmount(() => {
+  roomSize?.disconnect()
+  window.removeEventListener('resize', sendChrome)
+  if (props.embedded) browserChrome(barHeight.value, false, null, false).catch(() => {})
   clearInterval(translateRounds)
   window.removeEventListener('keydown', onKey)
   stop?.()
@@ -375,7 +404,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="browser">
+  <div ref="root" class="browser" :class="{ embedded }">
     <div class="bar" :style="{ height: `${barHeight}px` }">
       <div class="strip" role="tablist" aria-label="Tabs">
         <div v-if="group" class="tab group" :class="{ on: group.on, news: group.unread > 0 }" role="tab" :aria-selected="group.on" :title="`Side by side:\n${group.list}`" @click="pickGroup">
@@ -526,6 +555,19 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* the browser window has no App.vue around it: its own colours, Castle's defaults */
+/* inside Castle: a dark glass panel in the room, framed by Castle (the pick browser-place-2) */
+.browser.embedded {
+  position: absolute;
+  inset: 10px 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(150, 190, 255, 0.24);
+  overflow: hidden;
+  background: rgba(5, 11, 31, 0.94);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.browser.embedded .problem {
+  position: absolute;
+}
 .browser {
   --text: #eef3ff;
   --text-dim: #a6b8de;

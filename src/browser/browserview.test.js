@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
+import { ARTIFACTS, areaOf, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
   const servers = [
@@ -201,5 +201,14 @@ describe('the translate row', () => {
   it('reads the site for Always', () => {
     expect(siteOf('https://ncode.syosetu.com/n1/2/')).toBe('ncode.syosetu.com')
     expect(siteOf('not a url')).toBe('')
+  })
+})
+
+describe('the browser inside Castle', () => {
+  it("gives the pages the room's area under the bar", () => {
+    expect(areaOf({ left: 20.4, top: 60, width: 1200.6, height: 700 }, 124)).toEqual([20, 184, 1201, 576])
+    expect(areaOf({ left: 0, top: 0, width: 0, height: 700 }, 124)).toBe(null)
+    expect(areaOf({ left: 0, top: 0, width: 800, height: 100 }, 124)).toBe(null, 'nothing under the bar')
+    expect(areaOf(null, 94)).toBe(null)
   })
 })

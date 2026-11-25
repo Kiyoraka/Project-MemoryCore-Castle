@@ -14,6 +14,7 @@ import { PROFILE_LOOKS, profileLookOf } from '../profile/profile.js'
 import { roomsApply, linkView, browserClear, browserWelcomeReopen, vaultForget, vaultList } from '../../api/castle.js'
 import { SETTINGS_PAGE } from './settingsPage.js'
 import { panelAfterPin } from '../../components/settings/browserpanel.js'
+import { browserCloseAll } from '../../api/castle.js'
 
 const { settings, locked, saving, saveRow, rows, companionLabel, words, emit } = inject(SETTINGS_PAGE)
 
@@ -118,7 +119,7 @@ onMounted(async () => {
       <template v-if="r.id === 'browser' && browserPanel" #below>
         <div id="browser" class="browser-panel" role="group" aria-label="The browser's settings">
         <SettingRow id="browser-opens" label="Browser opens" description="Its own window sits beside Castle on the right half of your screen; Inside Castle makes BROWSER a room of Castle's own window.">
-          <SettingChoice :model-value="valueOf(settings, 'browserOpens')" :options="[{ value: 'window', label: 'Its own window' }, { value: 'castle', label: 'Inside Castle' }]" label="Browser opens" :disabled="locked" @update:model-value="(v) => saveRow('browser-opens', { browserOpens: v })" />
+          <SettingChoice :model-value="valueOf(settings, 'browserOpens')" :options="[{ value: 'window', label: 'Its own window' }, { value: 'castle', label: 'Inside Castle' }]" label="Browser opens" :disabled="locked" @update:model-value="(v) => saveRow('browser-opens', { browserOpens: v }).then(() => browserCloseAll()).catch(() => {})" />
         </SettingRow>
         <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
           <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />

@@ -219,3 +219,13 @@ export function siteOf(url) {
     return ''
   }
 }
+
+/** Inside Castle: the room's page area under the bar, as [x, y, width, height] in Castle's window,
+ * rounded; null while the room has no size. */
+export function areaOf(rect, bar) {
+  if (!rect) return null
+  const w = Math.round(rect.width)
+  const h = Math.round(rect.height - bar)
+  if (w <= 0 || h <= 0) return null
+  return [Math.round(rect.left), Math.round(rect.top + bar), w, h]
+}
