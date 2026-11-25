@@ -169,7 +169,7 @@ pub fn one_host_brief(host: &str, rule: Option<&str>, when: &str) -> String {
 /// host. A failure leaves the host as it was (the patrol asks again). True when a mark was written.
 pub fn judge_one(store: &SettingsStore, host: &str) -> bool {
     let settings = store.get();
-    if !settings.sentinel.on || officer::running() {
+    if !(settings.sentinel.on || settings.browser_site_check) || officer::running() {
         return false;
     }
     let Some(host) = clean_host(host) else { return false };

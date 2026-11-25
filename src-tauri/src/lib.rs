@@ -75,6 +75,7 @@ mod bridges;
 mod browser;
 mod browser_private;
 mod browser_tabs;
+mod browser_welcome;
 mod chrome_import;
 mod roomalert;
 mod roomdraw;
@@ -440,6 +441,13 @@ pub fn run() {
             dev_files::dev_reveal,
             providers::provider_switch,
             fresh_start::fresh_start,
+            browser_welcome::browser_welcome,
+            browser_welcome::browser_welcome_answer,
+            browser_welcome::browser_welcome_reopen,
+            browser_welcome::browser_import_history,
+            browser_welcome::browser_import_bookmarks,
+            browser_welcome::browser_password_guide,
+            browser_welcome::browser_import_passwords,
             providers::provider_switch_status,
             providers::provider_switch_cancel,
             chat::chat_history,

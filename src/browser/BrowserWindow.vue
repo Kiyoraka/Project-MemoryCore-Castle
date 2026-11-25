@@ -12,12 +12,20 @@ import {
   browserState,
   browserStep,
   browserSwitch,
+  browserImportBookmarks,
+  browserImportHistory,
+  browserImportPasswords,
+  browserPasswordGuide,
+  browserWelcome,
+  browserWelcomeAnswer,
   devServers,
   getSettings,
   onBrowserState,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
+import GlassSelect from '../components/GlassSelect.vue'
 import { newTabShortcuts, shownAddress, signInHint, siteWarning } from './browserview.js'
+import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 const tabs = ref({ list: [], active: null })
 const typed = ref('')
@@ -53,6 +61,58 @@ const pick = (id) => act(() => browserSwitch(id))
 const close = (id) => act(() => browserClose(id))
 const add = () => act(() => browserOpen(null))
 
+// The first-open welcome: one step at a time on the new tab, each the member's Yes or Skip.
+const welcome = ref(null)
+const welcomeBusy = ref(false)
+const welcomeSaid = ref('')
+const profile = ref('')
+const guided = ref(false)
+const shownStep = computed(() => (welcome.value ? offeredStep(welcome.value.answers, welcome.value.chrome) : null))
+const words = computed(() => stepWords(shownStep.value, welcome.value?.companion))
+
+async function readWelcome() {
+  try {
+    welcome.value = await browserWelcome()
+    profile.value = profile.value || welcome.value.profiles?.[0]?.folder || ''
+  } catch {
+    welcome.value = null
+  }
+}
+
+async function answer(kind) {
+  const s = shownStep.value
+  if (!s) return
+  welcomeBusy.value = true
+  problem.value = ''
+  try {
+    if (kind === 'skip') await browserWelcomeAnswer(s, 'skip')
+    else if (s === 'history') welcomeSaid.value = doneLine(s, await browserImportHistory(profile.value))
+    else if (s === 'bookmarks') welcomeSaid.value = doneLine(s, await browserImportBookmarks(profile.value))
+    else if (s === 'passwords') {
+      const done = await browserImportPasswords(guided.value)
+      if (!done) return
+      welcomeSaid.value = doneLine(s, done)
+    } else await browserWelcomeAnswer(s, 'yes')
+    if (kind === 'skip') welcomeSaid.value = ''
+  } catch (reason) {
+    problem.value = String(reason)
+  } finally {
+    welcomeBusy.value = false
+    await readWelcome()
+  }
+}
+
+async function askGuide() {
+  problem.value = ''
+  try {
+    await browserPasswordGuide()
+    guided.value = true
+    welcomeSaid.value = `${welcome.value?.companion ?? 'Your companion'} is ready to guide you in HOME's chat.`
+  } catch (reason) {
+    problem.value = String(reason)
+  }
+}
+
 async function refreshNewTab() {
   try {
     servers.value = await devServers()
@@ -76,7 +136,8 @@ watch(
   () => current.value && !current.value.url,
   async (blank) => {
     if (!blank) return
-    if (newTab.value === 'artifacts') return openShortcut(shortcuts.value[0]?.url)
+    await readWelcome()
+    if (newTab.value === 'artifacts' && !shownStep.value) return openShortcut(shortcuts.value[0]?.url)
     await refreshNewTab()
     await nextTick()
     field.value?.focus()
@@ -93,6 +154,7 @@ onMounted(async () => {
     // the default shortcuts
   }
   tabs.value = await browserState()
+  await readWelcome()
   if (current.value && !current.value.url) refreshNewTab()
 })
 onBeforeUnmount(() => {
@@ -149,6 +211,21 @@ onBeforeUnmount(() => {
     </div>
 
     <main v-if="current && !current.url" class="new-tab">
+      <section v-if="words" class="welcome" aria-live="polite">
+        <span class="count">{{ stepNumber(shownStep) }} of {{ STEPS.length }}</span>
+        <h2>{{ words.title }}</h2>
+        <p>{{ words.body }}</p>
+        <div v-if="(shownStep === 'history' || shownStep === 'bookmarks') && welcome.profiles.length > 1" class="profile">
+          Chrome profile
+          <GlassSelect v-model="profile" :options="welcome.profiles.map((p) => ({ value: p.folder, label: p.name }))" aria-label="Chrome profile" />
+        </div>
+        <div class="choices">
+          <button class="pill" :disabled="welcomeBusy" @click="answer('skip')">Skip</button>
+          <button v-if="words.guide && !guided" class="pill" :disabled="welcomeBusy" @click="askGuide">{{ words.guide }}</button>
+          <button class="pill primary" :disabled="welcomeBusy" @click="answer('yes')">{{ welcomeBusy ? 'Working...' : words.yes }}</button>
+        </div>
+      </section>
+      <p v-if="welcomeSaid" class="said" role="status">{{ welcomeSaid }}</p>
       <span class="label">NEW TAB</span>
       <div v-if="shortcuts.length" class="grid">
         <button v-for="s in shortcuts" :key="s.url" class="shortcut" @click="openShortcut(s.url)">
@@ -382,6 +459,53 @@ onBeforeUnmount(() => {
   font-size: 13px;
   letter-spacing: 0.22em;
   color: var(--text-dim);
+}
+.welcome {
+  position: relative;
+  width: min(560px, 100%);
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(150, 190, 255, 0.06);
+}
+.welcome h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+.welcome p {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.welcome .count {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.welcome .profile {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.pill.primary {
+  border-color: var(--accent);
+  background: rgba(143, 184, 255, 0.22);
+}
+.said {
+  margin: 0;
+  color: var(--good);
+  font-size: 13px;
 }
 .grid {
   display: grid;

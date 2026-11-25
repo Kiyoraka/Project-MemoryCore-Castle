@@ -154,7 +154,7 @@ fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, keep: Op
     let mut conn = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
     let (mut mark, mut patterns) = (None, Vec::new());
     if let Some(c) = conn.as_mut() {
-        if settings.sentinel.on && keep == Some(false) {
+        if (settings.sentinel.on || settings.browser_site_check) && keep == Some(false) {
             let _ = crate::sites::keep_visit(c, &host, &path, &title, has_login);
         }
         // private browsing remembered for the member's own companion, only on their switch

@@ -468,6 +468,12 @@ pub struct Settings {
     /// their own memory database for 30 days, never in any history, read only for their profile.
     /// Off until the member turns it on.
     pub browser_private_remember: bool,
+    /// The browser's first-open welcome: each step (history, bookmarks, passwords, sitecheck) answered
+    /// `yes` or `skip`; a step with no answer is offered. Settings' Bring things from Chrome clears skips.
+    pub browser_welcome: BTreeMap<String, String>,
+    /// The companion checks the sites opened in the browser (visits kept, a new sign-in page asked about)
+    /// without the Sentinel's helper. Off until the member says yes.
+    pub browser_site_check: bool,
     /// What a new tab in the BROWSER window shows: one of BROWSER_NEW_TABS.
     pub browser_new_tab: String,
     /// The companion's emotion engine colours how it talks in the chat room (only its traits'
@@ -653,6 +659,8 @@ impl Default for Settings {
             link_open: "castle".into(),
             browser_remember: true,
             browser_private_remember: false,
+            browser_welcome: BTreeMap::new(),
+            browser_site_check: false,
             browser_new_tab: "shortcuts".into(),
             emotion_room_voice: true,
             emotion_market_voice: true,
@@ -1202,6 +1210,8 @@ mod tests {
             link_open: "system".into(),
             browser_remember: false,
             browser_private_remember: true,
+            browser_welcome: BTreeMap::from([("history".to_string(), "yes".to_string())]),
+            browser_site_check: true,
             browser_new_tab: "blank".into(),
             emotion_room_voice: false,
             emotion_market_voice: false,
@@ -1409,6 +1419,7 @@ mod tests {
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
         assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");
+        assert!(old.browser_welcome.is_empty() && !old.browser_site_check, "the welcome is offered and the site check waits for a yes");
     }
 
     #[test]
