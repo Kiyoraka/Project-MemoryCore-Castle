@@ -480,6 +480,9 @@ pub struct Settings {
     pub browser_site_check: bool,
     /// What a new tab in the BROWSER window shows: one of BROWSER_NEW_TABS.
     pub browser_new_tab: String,
+    /// Where the browser opens: one of BROWSER_OPENS - `window` its own window beside Castle,
+    /// `castle` a room inside Castle's own window.
+    pub browser_opens: String,
     /// The language the browser translates pages into (browser_translate::LANGUAGES), English first.
     pub browser_language: String,
     /// Sites whose pages are translated by themselves (the browser's Always switch); never added
@@ -580,6 +583,8 @@ pub const MAIN_STARTS: [&str; 3] = ["continue", "rested", "fresh"];
 pub const LINK_OPENS: [&str; 3] = ["castle", "system", "ask"];
 /// What a new tab in the BROWSER window shows.
 pub const BROWSER_NEW_TABS: [&str; 3] = ["shortcuts", "artifacts", "blank"];
+/// Where the browser opens: its own window beside Castle, or a room inside Castle.
+pub const BROWSER_OPENS: [&str; 2] = ["window", "castle"];
 /// How long a talk may be quiet before `rested` starts a fresh session instead.
 pub const REST_HOURS: u64 = 6;
 pub const PROFILE_LOOKS: [&str; 2] = ["cards", "constellation"];
@@ -672,6 +677,7 @@ impl Default for Settings {
             browser_welcome: BTreeMap::new(),
             browser_site_check: false,
             browser_new_tab: "shortcuts".into(),
+            browser_opens: "window".into(),
             browser_language: "en".into(),
             browser_translate_sites: Vec::new(),
             emotion_room_voice: true,
@@ -777,6 +783,9 @@ impl Settings {
         }
         if crate::browser_translate::language_name(&self.browser_language).is_none() {
             self.browser_language = "en".into();
+        }
+        if !BROWSER_OPENS.contains(&self.browser_opens.as_str()) {
+            self.browser_opens = "window".into();
         }
         if !BROWSER_NEW_TABS.contains(&self.browser_new_tab.as_str()) {
             self.browser_new_tab = "shortcuts".into();
@@ -1229,6 +1238,7 @@ mod tests {
             browser_welcome: BTreeMap::from([("history".to_string(), "yes".to_string())]),
             browser_site_check: true,
             browser_new_tab: "blank".into(),
+            browser_opens: "castle".into(),
             browser_language: "ja".into(),
             browser_translate_sites: vec!["ncode.syosetu.com".into()],
             emotion_room_voice: false,
@@ -1434,6 +1444,9 @@ mod tests {
         assert_eq!(Settings { link_open: "ask".into(), ..Settings::default() }.normalized().link_open, "ask");
         assert_eq!(Settings { link_open: "nowhere".into(), browser_new_tab: "x".into(), ..Settings::default() }.normalized().link_open, "castle");
         assert_eq!(Settings { browser_new_tab: "x".into(), ..Settings::default() }.normalized().browser_new_tab, "shortcuts");
+        assert_eq!(Settings::default().browser_opens, "window", "the browser keeps its own window to begin with");
+        assert_eq!(Settings { browser_opens: "castle".into(), ..Settings::default() }.normalized().browser_opens, "castle");
+        assert_eq!(Settings { browser_opens: "sideways".into(), ..Settings::default() }.normalized().browser_opens, "window");
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
         assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");

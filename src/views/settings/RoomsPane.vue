@@ -13,10 +13,11 @@ import { DIARY_LOOKS, lookOf } from '../../components/diaryviews.js'
 import { PROFILE_LOOKS, profileLookOf } from '../profile/profile.js'
 import { roomsApply, linkView, browserClear, browserWelcomeReopen, vaultForget, vaultList } from '../../api/castle.js'
 import { SETTINGS_PAGE } from './settingsPage.js'
+import { panelAfterPin } from '../../components/settings/browserpanel.js'
 
 const { settings, locked, saving, saveRow, rows, companionLabel, words, emit } = inject(SETTINGS_PAGE)
 
-// Settings > Browser > Saved passwords: sites and usernames only, never a password
+// Settings > Rooms > BROWSER > Saved passwords: sites and usernames only, never a password
 const vault = ref([])
 const link = ref(null)
 
@@ -73,7 +74,10 @@ const PIN_ONLY = [
 ]
 const pinnable = computed(() => pinRows(Object.fromEntries([...ROOM_GROUPS.flatMap((g) => g.rooms), ...PIN_ONLY].map((r) => [r.id, r.label]))))
 const pinnedNow = computed(() => settings.value?.pinnedRooms ?? DEFAULT_PINS)
+// BROWSER's fold-out panel: the chevron opens it, and pinning BROWSER opens it by itself
+const browserPanel = ref(false)
 function setPin(id, on) {
+  if (id === 'browser') browserPanel.value = panelAfterPin(pinnedNow.value.includes('browser'), on, browserPanel.value)
   return saveRow('pins', { pinnedRooms: setPinned(pinnedNow.value, id, on, pinnable.value.map((r) => r.id)) })
 }
 const roomsNote = 'Off takes the tab away and stops it. Nothing is removed. HOME always stays.'
@@ -106,45 +110,54 @@ onMounted(async () => {
 
   <SettingGroup id="top-bar" title="Top bar" note="HOME and APPS always show. Pinned rooms sit beside them; every other room opens from APPS.">
     <SettingRow v-for="r in pinnable" :id="`pin-${r.id}`" :key="r.id" :label="r.label">
+      <!-- BROWSER's own settings fold out under its row, pinned or not (the pick rooms-accordion-1) -->
+      <button v-if="r.id === 'browser'" class="chevron" :class="{ open: browserPanel }" :aria-expanded="browserPanel" aria-controls="browser" :title="browserPanel ? 'Hide the browser\'s settings' : 'Show the browser\'s settings'" @click="browserPanel = !browserPanel">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
       <SettingSwitch :model-value="pinnedNow.includes(r.id)" :label="`Pin ${r.label} to the top bar`" :disabled="locked" @update:model-value="(on) => setPin(r.id, on)" />
+      <template v-if="r.id === 'browser' && browserPanel" #below>
+        <div id="browser" class="browser-panel" role="group" aria-label="The browser's settings">
+        <SettingRow id="browser-opens" label="Browser opens" description="Its own window sits beside Castle on the right half of your screen; Inside Castle makes BROWSER a room of Castle's own window.">
+          <SettingChoice :model-value="valueOf(settings, 'browserOpens')" :options="[{ value: 'window', label: 'Its own window' }, { value: 'castle', label: 'Inside Castle' }]" label="Browser opens" :disabled="locked" @update:model-value="(v) => saveRow('browser-opens', { browserOpens: v })" />
+        </SettingRow>
+        <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
+          <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
+        </SettingRow>
+        <SettingRow id="browser-profile-read" label="MY PROFILE reads your browsing" :description="`Each month's profile reading also looks at the sites you visited and what you searched for in Castle's browser, from your own memory database on this PC. ${companionLabel} never quotes an address or a search, it shapes only your reading, and nothing leaves your computer.`">
+          <SettingSwitch :model-value="valueOf(settings, 'browserProfileRead')" label="MY PROFILE reads your browsing" :disabled="locked" @update:model-value="(on) => saveRow('browser-profile-read', { browserProfileRead: on })" />
+        </SettingRow>
+        <SettingRow id="browser-private-remember" :label="`Private browsing: remember for ${companionLabel}`" :description="`Adds private browsing too: when Remember sign-ins is off, the sites you open are kept in your own memory database on this PC for 30 days, never shown in any history. Only ${companionLabel} reads them, for your profile reading, never for its own traits.`">
+          <SettingSwitch :model-value="valueOf(settings, 'browserPrivateRemember')" :label="`Private browsing: remember for ${companionLabel}`" :disabled="locked" @update:model-value="(on) => saveRow('browser-private-remember', { browserPrivateRemember: on })" />
+        </SettingRow>
+        <SettingRow id="link-open" label="Open links from chats" description="HOME chat, DEV chats and the CHAT room. Right-click a link to choose once.">
+          <SettingChoice :model-value="valueOf(settings, 'linkOpen')" :options="[{ value: 'castle', label: 'Castle\'s browser' }, { value: 'system', label: 'Your browser' }, { value: 'ask', label: 'Ask each time' }]" label="Open links from chats" :disabled="locked" @update:model-value="(v) => saveRow('link-open', { linkOpen: v })" />
+        </SettingRow>
+        <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
+          <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
+        </SettingRow>
+        <SettingRow id="browser-vault" label="Saved passwords" :description="vault.length ? `Sealed on this PC; ${companionLabel} never sees them. Fill puts one into its own site's sign-in page.` : 'None yet. Bring them from Chrome in the browser\'s welcome.'">
+          <SettingConfirm v-if="vault.length" label="Remove all…" :disabled="locked" @confirm="rows.run('browser-vault', async () => { await vaultForget(null); vault = await vaultList() }).catch(() => {})" />
+        </SettingRow>
+        <ul v-if="vault.length" class="vault-list">
+          <li v-for="login in vault" :key="login.id">
+            <span>{{ login.host }}</span><span class="user">{{ login.username || '(no username)' }}</span>
+            <button :disabled="locked" @click="rows.run('browser-vault', async () => { await vaultForget(login.id); vault = await vaultList() }).catch(() => {})">Remove</button>
+          </li>
+        </ul>
+        <SettingRow id="browser-welcome" label="Bring things from Chrome" description="Opens the browser's welcome again: your history, bookmarks and saved passwords from Chrome, and the site check - each step your own yes or skip.">
+          <button :disabled="locked" @click="rows.run('browser-welcome', () => browserWelcomeReopen()).catch(() => {})">Open the welcome</button>
+        </SettingRow>
+        <SettingRow id="browser-clear" label="Clear browsing data" description="Signs you out of every site in the browser window and clears its history. Castle's memory is not touched. Works while the browser window has a page open.">
+          <SettingConfirm label="Clear…" :disabled="locked" @confirm="rows.run('browser-clear', () => browserClear()).catch(() => {})" />
+        </SettingRow>
+        </div>
+      </template>
     </SettingRow>
     <SettingRow id="pins-reset" label="First pins" description="CHAT, PROJECTS and DEV.">
       <button :disabled="locked" @click="saveRow('pins-reset', { pinnedRooms: [...DEFAULT_PINS] })">Put back</button>
     </SettingRow>
   </SettingGroup>
 
-  <SettingGroup id="browser" title="Browser" tip="Castle's own browser window opens on the right half of your screen; its full-screen button makes it fill the screen. Web pages there get no Castle permissions: they cannot read your memory, chats or files.">
-    <SettingRow id="link-open" label="Open links from chats" description="HOME chat, DEV chats and the CHAT room. Right-click a link to choose once.">
-      <SettingChoice :model-value="valueOf(settings, 'linkOpen')" :options="[{ value: 'castle', label: 'Castle\'s browser' }, { value: 'system', label: 'Your browser' }, { value: 'ask', label: 'Ask each time' }]" label="Open links from chats" :disabled="locked" @update:model-value="(v) => saveRow('link-open', { linkOpen: v })" />
-    </SettingRow>
-    <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
-      <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
-    </SettingRow>
-    <SettingRow id="browser-profile-read" label="MY PROFILE reads your browsing" :description="`Each month's profile reading also looks at the sites you visited and what you searched for in Castle's browser, from your own memory database on this PC. ${companionLabel} never quotes an address or a search, it shapes only your reading, and nothing leaves your computer.`">
-      <SettingSwitch :model-value="valueOf(settings, 'browserProfileRead')" label="MY PROFILE reads your browsing" :disabled="locked" @update:model-value="(on) => saveRow('browser-profile-read', { browserProfileRead: on })" />
-    </SettingRow>
-    <SettingRow id="browser-private-remember" :label="`Private browsing: remember for ${companionLabel}`" :description="`Adds private browsing too: when Remember sign-ins is off, the sites you open are kept in your own memory database on this PC for 30 days, never shown in any history. Only ${companionLabel} reads them, for your profile reading, never for its own traits.`">
-      <SettingSwitch :model-value="valueOf(settings, 'browserPrivateRemember')" :label="`Private browsing: remember for ${companionLabel}`" :disabled="locked" @update:model-value="(on) => saveRow('browser-private-remember', { browserPrivateRemember: on })" />
-    </SettingRow>
-    <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
-      <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
-    </SettingRow>
-    <SettingRow id="browser-clear" label="Clear browsing data" description="Signs you out of every site in the browser window and clears its history. Castle's memory is not touched. Works while the browser window has a page open.">
-      <SettingConfirm label="Clear…" :disabled="locked" @confirm="rows.run('browser-clear', () => browserClear()).catch(() => {})" />
-    </SettingRow>
-    <SettingRow id="browser-welcome" label="Bring things from Chrome" description="Opens the browser's welcome again: your history, bookmarks and saved passwords from Chrome, and the site check - each step your own yes or skip.">
-      <button :disabled="locked" @click="rows.run('browser-welcome', () => browserWelcomeReopen()).catch(() => {})">Open the welcome</button>
-    </SettingRow>
-    <SettingRow id="browser-vault" label="Saved passwords" :description="vault.length ? `Sealed on this PC; ${companionLabel} never sees them. Fill puts one into its own site's sign-in page.` : 'None yet. Bring them from Chrome in the browser\'s welcome.'">
-      <SettingConfirm v-if="vault.length" label="Remove all…" :disabled="locked" @confirm="rows.run('browser-vault', async () => { await vaultForget(null); vault = await vaultList() }).catch(() => {})" />
-    </SettingRow>
-    <ul v-if="vault.length" class="vault-list">
-      <li v-for="login in vault" :key="login.id">
-        <span>{{ login.host }}</span><span class="user">{{ login.username || '(no username)' }}</span>
-        <button :disabled="locked" @click="rows.run('browser-vault', async () => { await vaultForget(login.id); vault = await vaultList() }).catch(() => {})">Remove</button>
-      </li>
-    </ul>
-  </SettingGroup>
 
   <SettingGroup id="look" title="Look and tabs">
     <SettingRow id="theme" label="Theme" description="The look is chosen in the THEME room.">
@@ -193,3 +206,33 @@ onMounted(async () => {
 </template>
 
 <style scoped src="./settings-page.css"></style>
+<style scoped>
+/* BROWSER's fold-out panel, to the pick rooms-accordion-1: an indented panel with an accent edge */
+.chevron {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.chevron:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.chevron.open {
+  transform: rotate(180deg);
+}
+.browser-panel {
+  margin: 4px 0 6px;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+</style>

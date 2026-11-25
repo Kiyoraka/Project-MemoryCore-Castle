@@ -39,6 +39,7 @@ export const SETTINGS_DEFAULTS = {
   browserPrivateRemember: false,
   browserProfileRead: true,
   browserNewTab: 'shortcuts',
+  browserOpens: 'window',
   emotionRoomVoice: true,
   profileLook: 'cards',
 }
