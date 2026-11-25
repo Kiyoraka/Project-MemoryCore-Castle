@@ -11,7 +11,7 @@ import SettingConfirm from '../../components/settings/SettingConfirm.vue'
 import { valueOf } from '../../components/settings/settingsDefaults.js'
 import { DIARY_LOOKS, lookOf } from '../../components/diaryviews.js'
 import { PROFILE_LOOKS, profileLookOf } from '../profile/profile.js'
-import { roomsApply, linkView, browserClear, browserWelcomeReopen, vaultForget, vaultList } from '../../api/castle.js'
+import { roomsApply, linkView, browserClear, browserWelcomeReopen, chooseFolder, vaultForget, vaultList } from '../../api/castle.js'
 import { SETTINGS_PAGE } from './settingsPage.js'
 import { panelAfterPin } from '../../components/settings/browserpanel.js'
 import { browserCloseAll } from '../../api/castle.js'
@@ -31,6 +31,12 @@ async function readLink() {
 async function switchLink(row, patch) {
   await saveRow(row, patch)
   await readLink()
+}
+
+// Settings > Rooms > BROWSER > Download folder: the member's own pick, kept for every new download
+async function changeDownloadsFolder() {
+  const path = await chooseFolder('Choose the download folder')
+  if (path) await saveRow('downloads-folder', { downloadsFolder: path }).catch(() => {})
 }
 
 // The rooms that can be switched off (HOME always stays), in two groups of at most seven.
@@ -135,6 +141,12 @@ onMounted(async () => {
         </SettingRow>
         <SettingRow id="browser-new-tab" label="New tab shows" description="What a new tab opens on.">
           <SettingChoice :model-value="valueOf(settings, 'browserNewTab')" :options="[{ value: 'shortcuts', label: 'Shortcuts' }, { value: 'artifacts', label: 'Artifacts' }, { value: 'blank', label: 'Blank' }]" label="New tab shows" :disabled="locked" @update:model-value="(v) => saveRow('browser-new-tab', { browserNewTab: v })" />
+        </SettingRow>
+        <SettingRow id="downloads-folder" label="Download folder" :description="settings.downloadsFolder || 'Your Downloads folder'">
+          <button :disabled="locked" @click="changeDownloadsFolder">Change</button>
+        </SettingRow>
+        <SettingRow id="downloads-sort" label="Sort by type" description="Each download goes into a folder for its type: Video, Music, Documents, Programs.">
+          <SettingSwitch :model-value="valueOf(settings, 'downloadsSort')" label="Sort by type" :disabled="locked" @update:model-value="(on) => saveRow('downloads-sort', { downloadsSort: on })" />
         </SettingRow>
         <SettingRow id="browser-vault" label="Saved passwords" :description="vault.length ? `Sealed on this PC; ${companionLabel} never sees them. Fill puts one into its own site's sign-in page.` : 'None yet. Bring them from Chrome in the browser\'s welcome.'">
           <SettingConfirm v-if="vault.length" label="Remove all…" :disabled="locked" @confirm="rows.run('browser-vault', async () => { await vaultForget(null); vault = await vaultList() }).catch(() => {})" />

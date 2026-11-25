@@ -26,7 +26,7 @@ import {
 } from '../api/castle.js'
 import SuggestList from './SuggestList.vue'
 import TranslateRow from './TranslateRow.vue'
-import { fillLabel, moveSelection, showTranslateRow, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
+import { fillLabel, isVideoLink, moveSelection, showTranslateRow, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 const props = defineProps({
   tab: { type: Object, required: true },
@@ -37,7 +37,7 @@ const props = defineProps({
   // the member's companion, by name, for Read this
   companion: { type: String, default: 'Your companion' },
 })
-const emit = defineEmits(['focus', 'close-column', 'overlay', 'page-el', 'problem', 'translating', 'marks'])
+const emit = defineEmits(['focus', 'close-column', 'overlay', 'page-el', 'problem', 'translating', 'marks', 'download-video'])
 
 const field = ref(null)
 const pageBox = ref(null)
@@ -290,6 +290,7 @@ defineExpose({ selectAddress })
       <button v-if="url && logins.length" class="fill" title="Castle fills this page's sign-in from your vault" @click="pressFill">{{ fillLabel(logins) }}</button>
       <button class="nav" :disabled="!url" :class="{ lit: translateShown }" aria-label="Translate this page" title="Translate this page into your language" @click="translateAsked = !translateAsked">文A</button>
       <button class="alice" :disabled="!url" :title="`Ask ${companion} about this page - only when you ask`" @click="asking = !asking; asked = ''">{{ companion }}, read this</button>
+      <button v-if="isVideoLink(url)" class="alice dl-video" title="Download this video" @click="emit('download-video', { url, tab: tab.id })">Download video</button>
       <slot name="tools" :tab="tab" />
       <button class="nav" :disabled="!url" aria-label="Put in chat" title="Put this page's address in HOME's chat" @click="putInChat">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>

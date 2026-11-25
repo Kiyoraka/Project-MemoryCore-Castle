@@ -30,15 +30,18 @@ import {
   bookmarksAll,
   bookmarksBringChrome,
   devServers,
+  downloadsList,
   getSettings,
   onBrowserState,
+  onDownloadsState,
 } from '../api/castle.js'
 import { isMac } from '../platform.js'
 import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
+import DownloadsSheet from './DownloadsSheet.vue'
 import PaneBar from './PaneBar.vue'
 import PasswordsSheet from './PasswordsSheet.vue'
-import { barOf, boundsOf, chipCount, chipTitle, columnsOf, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
+import { barOf, boundsOf, chipCount, chipTitle, columnsOf, dlRing, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 // inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
@@ -99,6 +102,24 @@ const takeOut = (id) => act(() => browserUnpane(id))
 // the Passwords sheet: the pages step aside while it is open
 const passwordsOpen = ref(false)
 watch(passwordsOpen, (open) => overlay('passwords', open))
+// the downloader: its panel (a pasted link, or a video page's button with its tab), the chip's ring
+const dlOpen = ref(false)
+const dlStart = ref(null)
+const dlItems = ref([])
+const dlRingAt = computed(() => dlRing(dlItems.value))
+watch(dlOpen, (open) => overlay('downloads', open))
+let stopDownloads = null
+async function openDownloads(start = null) {
+  // already open with another start: opened afresh, so the sheet reads the new one
+  if (dlOpen.value && start) {
+    dlOpen.value = false
+    await nextTick()
+  }
+  passwordsOpen.value = false
+  dlStart.value = start
+  dlOpen.value = true
+}
+defineExpose({ openDownloads })
 // a column's x: the tab stays open as a chip, the column goes
 const closeColumn = (id) => act(() => browserUnpane(id))
 function focusPane(id) {
@@ -295,6 +316,10 @@ onMounted(async () => {
   window.addEventListener('resize', schedule)
   window.addEventListener('keydown', onKey)
   stop = await onBrowserState((next) => (tabs.value = next))
+  downloadsList()
+    .then((list) => (dlItems.value = list))
+    .catch(() => {})
+  stopDownloads = await onDownloadsState((list) => (dlItems.value = list))
   try {
     const view = await getSettings()
     newTab.value = view.settings?.browserNewTab ?? 'shortcuts'
@@ -318,6 +343,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   if (props.embedded) browserShow([]).catch(() => {})
   stop?.()
+  stopDownloads?.()
 })
 </script>
 
@@ -344,6 +370,11 @@ onBeforeUnmount(() => {
       <button class="chip plus" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">+</button>
       <button class="chip private-new" :title="`New private tab (${isMac ? '⌘⇧' : 'Ctrl+Shift+'}T) - keeps nothing`" @click="addPrivate"><svg class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg> Private</button>
       <button class="chip key" title="Passwords - sealed on this PC" @click="passwordsOpen = !passwordsOpen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M17 6l3 3M15 8l2 2" /></svg> Passwords</button>
+      <button class="chip key dl" :class="{ busy: dlRingAt !== null }" title="Downloads" @click="dlOpen ? (dlOpen = false) : openDownloads()">
+        <span v-if="dlRingAt !== null" class="ring" :style="{ background: `conic-gradient(#7ee0b4 ${dlRingAt * 3.6}deg, rgba(255,255,255,0.15) 0)` }" aria-hidden="true"></span>
+        <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-4-4 4 4 4-4M5 19h14" /></svg>
+        Downloads
+      </button>
       <slot name="chips" />
       <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
         Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
@@ -396,6 +427,7 @@ onBeforeUnmount(() => {
           @problem="problem = $event"
           @translating="translating = $event"
           @marks="readMarks"
+          @download-video="openDownloads"
         >
           <template #tools="{ tab }"><slot name="pane-tools" :tab="tab" /></template>
           <template #below="{ tab }"><slot name="pane-below" :tab="tab" /></template>
@@ -442,6 +474,7 @@ onBeforeUnmount(() => {
       </template>
     </div>
     <PasswordsSheet v-if="passwordsOpen" @close="passwordsOpen = false" />
+    <DownloadsSheet v-if="dlOpen" :start="dlStart" @close="dlOpen = false" />
     <slot />
     <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
   </div>
@@ -1062,6 +1095,17 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   color: #8ff0cb;
   cursor: pointer;
+}
+.chip.dl .ring {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+  mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+}
+.chip.dl.busy {
+  border-color: rgba(126, 224, 180, 0.6);
 }
 .mask {
   flex-shrink: 0;

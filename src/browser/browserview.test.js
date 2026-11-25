@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { barOf, boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
+import { bytesWords, dlCard, dlFilter, dlRing, isVideoLink, timeLeft } from './browserview.js'
 import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
@@ -249,5 +250,39 @@ describe('the bookmarks bar', () => {
     expect(bar.folders.map((f) => f.name)).toEqual(['Work', 'Other bookmarks'])
     expect(bar.folders[0].items.map((i) => i.sub)).toEqual(['', 'Specs'])
     expect(bar.folders[1].items[0].sub).toBe('Food')
+  })
+})
+
+describe('the downloader', () => {
+  it('says sizes and time left in his words', () => {
+    expect(bytesWords(512)).toBe('512 B')
+    expect(bytesWords(12.4 * 1024 * 1024)).toBe('12.4 MB')
+    expect(bytesWords(1.8 * 1024 ** 3)).toBe('1.8 GB')
+    expect(timeLeft(0, 120 * 1024 * 1024, 1024 * 1024)).toBe('2 min left')
+    expect(timeLeft(10, 0, 5)).toBe('')
+  })
+
+  it('draws each state as its card says', () => {
+    const run = dlCard({ state: 'running', size: 1000, done: 620, parts: 8, speed: 13002342, category: 'Video' })
+    expect(run.colour).toBe('mint')
+    expect(run.percent).toBe(62)
+    expect(run.icon).toBe('film')
+    expect(run.line).toMatch(/^8 parts · 12\.4 MB\/s/)
+    expect(dlCard({ state: 'paused', size: 100, done: 35 })).toMatchObject({ colour: 'amber', line: 'Paused at 35%' })
+    expect(dlCard({ state: 'done', size: 2048, category: 'Programs' })).toMatchObject({ colour: 'gold', percent: 100, line: '2.0 KB', icon: 'box' })
+    expect(dlCard({ state: 'failed', line: 'This address is dangerous - it is not downloaded.' })).toMatchObject({ colour: 'coral', line: 'This address is dangerous - it is not downloaded.' })
+    expect(dlCard({ state: 'queued' }).line).toBe('Queued')
+  })
+
+  it('filters by category, knows a video link, and rings the chip', () => {
+    const items = [{ category: 'Video', state: 'running', size: 100, done: 50 }, { category: 'Music', state: 'running', size: 100, done: 100 }, { category: 'Documents', state: 'done' }]
+    expect(dlFilter(items, 'All').length).toBe(3)
+    expect(dlFilter(items, 'Music').length).toBe(1)
+    expect(isVideoLink('https://www.youtube.com/watch?v=abc')).toBe(true)
+    expect(isVideoLink('https://youtu.be/abc')).toBe(true)
+    expect(isVideoLink('https://www.threads.com/@x/post/1')).toBe(true)
+    expect(isVideoLink('https://releases.ubuntu.com/ubuntu.iso')).toBe(false)
+    expect(dlRing(items)).toBe(75)
+    expect(dlRing([{ state: 'done' }])).toBe(null)
   })
 })

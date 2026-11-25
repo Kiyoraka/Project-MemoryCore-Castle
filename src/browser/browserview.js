@@ -272,3 +272,68 @@ export function barOf(marks) {
   }
   return { folders, sites }
 }
+
+// ---------- the downloader (ported from the Keep, browser-downloads-2) ----------
+
+/** Bytes in plain words: 512 B, 1.4 KB, 12.4 MB, 1.8 GB. */
+export function bytesWords(n) {
+  const v = Number(n) || 0
+  if (v < 1024) return `${v} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let x = v / 1024
+  let i = 0
+  while (x >= 1024 && i < units.length - 1) {
+    x /= 1024
+    i++
+  }
+  return `${x >= 100 ? Math.round(x) : x.toFixed(1)} ${units[i]}`
+}
+
+/** Time left in plain words, or '' when it cannot be known. */
+export function timeLeft(done, size, speed) {
+  if (!size || !speed || done >= size) return ''
+  const s = Math.ceil((size - done) / speed)
+  if (s < 60) return `${s} s left`
+  if (s < 3600) return `${Math.ceil(s / 60)} min left`
+  return `${Math.floor(s / 3600)} h ${Math.ceil((s % 3600) / 60)} min left`
+}
+
+const DL_COLOURS = { running: 'mint', queued: 'mint', native: 'mint', paused: 'amber', done: 'gold', failed: 'coral' }
+const DL_ICONS = { Video: 'film', Music: 'note', Documents: 'doc', Programs: 'box', Compressed: 'box', Other: 'file' }
+
+/** One download's card: its icon, bar colour, percent and the small line under the bar. */
+export function dlCard(item) {
+  const size = item?.size ?? 0
+  const done = item?.done ?? 0
+  const percent = item?.state === 'done' ? 100 : size ? Math.min(100, Math.floor((done / size) * 100)) : 0
+  let line
+  if (item?.state === 'running') line = [item.parts > 1 ? `${item.parts} parts` : '', item.speed ? `${bytesWords(item.speed)}/s` : '', timeLeft(done, size, item.speed)].filter(Boolean).join(' · ') || 'Starting…'
+  else if (item?.state === 'queued') line = 'Queued'
+  else if (item?.state === 'paused') line = `Paused at ${percent}%`
+  else if (item?.state === 'done') line = size ? bytesWords(size) : 'Done'
+  else if (item?.state === 'failed') line = item.line || 'It did not finish.'
+  else line = item?.line || ''
+  if (item?.line && ['running', 'paused'].includes(item?.state)) line = `${line} · ${item.line}`
+  return { icon: DL_ICONS[item?.category] ?? 'file', colour: DL_COLOURS[item?.state] ?? 'mint', percent, line }
+}
+
+/** The downloads under one category pill ('All' is everything). */
+export const dlFilter = (items, category) => (items ?? []).filter((i) => category === 'All' || i.category === category)
+
+/** A link the video tool reads (YouTube, Threads and the like), not a plain file. */
+export function isVideoLink(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '').replace(/^m\./, '')
+    return ['youtube.com', 'youtu.be', 'threads.net', 'threads.com', 'instagram.com', 'tiktok.com', 'facebook.com', 'fb.watch', 'x.com', 'twitter.com', 'vimeo.com', 'dailymotion.com'].some((h) => host === h || host.endsWith(`.${h}`))
+  } catch {
+    return false
+  }
+}
+
+/** The chip's ring: how far all running downloads have come together (null when none run). */
+export function dlRing(items) {
+  const running = (items ?? []).filter((i) => i.state === 'running' && i.size)
+  if (!running.length) return (items ?? []).some((i) => ['running', 'native'].includes(i.state)) ? 0 : null
+  const size = running.reduce((n, i) => n + i.size, 0)
+  return Math.floor((running.reduce((n, i) => n + i.done, 0) / size) * 100)
+}

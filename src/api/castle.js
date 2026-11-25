@@ -730,6 +730,22 @@ export const browserTranslatePictures = (id, lang) => invoke('browser_translate_
 export const browserTranslateSettings = () => invoke('browser_translate_settings')
 export const browserTranslateLanguage = (code) => invoke('browser_translate_language', { code })
 export const browserTranslateSite = (id, on) => invoke('browser_translate_site', { id, on })
+// The downloader (downloads.rs): the list, a pasted link, and each card's buttons
+export const downloadsList = () => invoke('downloads_list')
+export const onDownloadsState = (handler) => listen('downloads-state', (event) => handler(event.payload))
+export const downloadAdd = (url) => invoke('download_add', { url })
+export const downloadPause = (id) => invoke('download_pause', { id })
+export const downloadResume = (id) => invoke('download_resume', { id })
+export const downloadCancel = (id) => invoke('download_cancel', { id })
+export const downloadRemove = (id) => invoke('download_remove', { id })
+export const downloadOpen = (id) => invoke('download_open', { id })
+export const downloadShow = (id) => invoke('download_show', { id })
+// Videos (downloads_video.rs): the tool -> { installed, ffmpeg }, a link's qualities -> { title, choices, pick }
+export const videoToolState = () => invoke('video_tool_state')
+export const videoToolGet = () => invoke('video_tool_get')
+export const videoFormats = (url) => invoke('video_formats', { url })
+export const videoAdd = (url, choice, title) => invoke('video_add', { url, choice, title })
+export const videoFromPage = (id) => invoke('video_from_page', { id })
 export const onBrowserState = (handler) => listen('browser-state', (event) => handler(event.payload))
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
 // How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }
