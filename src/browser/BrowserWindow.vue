@@ -51,6 +51,8 @@ const tabs = ref({ list: [], active: null, panes: [], widths: [], phoneView: tru
 const problem = ref('')
 const servers = ref([])
 const newTab = ref('shortcuts')
+// the member's companion, by name, for each pane's Read this
+const companion = ref('Your companion')
 let stop = null
 
 const current = computed(() => tabs.value.list.find((t) => t.id === tabs.value.active) ?? null)
@@ -294,7 +296,9 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
   stop = await onBrowserState((next) => (tabs.value = next))
   try {
-    newTab.value = (await getSettings()).settings?.browserNewTab ?? 'shortcuts'
+    const view = await getSettings()
+    newTab.value = view.settings?.browserNewTab ?? 'shortcuts'
+    companion.value = view.companionLabel || 'Your companion'
   } catch {
     // the default shortcuts
   }
@@ -384,6 +388,7 @@ onBeforeUnmount(() => {
           :focused="t.id === tabs.active"
           :many="many"
           :translating="translating"
+          :companion="companion"
           @focus="focusPane"
           @close-column="closeColumn"
           @overlay="overlay"

@@ -462,6 +462,7 @@ pub fn run() {
             browser_library::browser_fill,
             browser_library::vault_add,
             browser_read::browser_read,
+            browser_read::browser_open_home,
             browser_library::bookmarks_all,
             browser_library::bookmarks_bring_chrome,
             browser_library::vault_copy,

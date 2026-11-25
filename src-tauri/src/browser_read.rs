@@ -99,6 +99,12 @@ pub async fn browser_read(app: AppHandle, id: u32, kind: String) -> Result<(), S
     crate::messages::send_message(message(ask, &page.title, &page.url, &words), None, app.clone()).map(|_| ())
 }
 
+/// Open HOME: Castle comes forward on HOME, where the answer is.
+#[tauri::command]
+pub fn browser_open_home(app: AppHandle) {
+    crate::roomalert::open_room(&app, "home");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

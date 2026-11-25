@@ -699,6 +699,9 @@ export const vaultCopy = (id) => invoke('vault_copy', { id })
 export const vaultImport = () => invoke('vault_import')
 // The bookmarks bar: every bookmark by folder; Chrome's brought at a press -> { added, profiles }
 export const bookmarksAll = () => invoke('bookmarks_all')
+// Read this: the page to the member's companion at HOME (kind: summary | safety | form); Open HOME
+export const browserRead = (id, kind) => invoke('browser_read', { id, kind })
+export const browserOpenHome = () => invoke('browser_open_home')
 export const bookmarksBringChrome = (profile = null) => invoke('bookmarks_bring_chrome', { profile })
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
 export const browserClear = () => invoke('browser_clear')

@@ -12,7 +12,9 @@ import {
   browserGo,
   browserIsBookmarked,
   browserLogins,
+  browserOpenHome,
   browserOutside,
+  browserRead,
   browserPutInChat,
   browserStep,
   browserSuggest,
@@ -32,6 +34,8 @@ const props = defineProps({
   // more than one column on screen: the column's x shows
   many: { type: Boolean, default: false },
   translating: { type: Object, required: true },
+  // the member's companion, by name, for Read this
+  companion: { type: String, default: 'Your companion' },
 })
 const emit = defineEmits(['focus', 'close-column', 'overlay', 'page-el', 'problem', 'translating', 'marks'])
 
@@ -153,6 +157,31 @@ function fill(login) {
 }
 const pressFill = () => (logins.value.length === 1 ? fill(logins.value[0]) : (choosing.value = !choosing.value))
 
+// ---------- read this: the page's words to the companion at HOME, only when asked ----------
+const READ_KINDS = [
+  { kind: 'summary', label: 'Summarize' },
+  { kind: 'safety', label: 'Is it safe?' },
+  { kind: 'form', label: 'Help me fill this' },
+]
+const asking = ref(false)
+const asked = ref('')
+const readFailed = ref('')
+watch(url, () => {
+  asking.value = false
+  asked.value = ''
+  readFailed.value = ''
+})
+async function readFor(kind) {
+  readFailed.value = ''
+  try {
+    await browserRead(props.tab.id, kind)
+    asked.value = kind
+  } catch (reason) {
+    readFailed.value = String(reason)
+  }
+}
+const openHome = () => browserOpenHome().catch(() => {})
+
 // ---------- the site's warning, as a banner in the pane ----------
 const warning = computed(() => (props.tab.warning?.verdict === 'safe' ? '' : siteWarning(props.tab.warning)))
 
@@ -260,6 +289,7 @@ defineExpose({ selectAddress })
       <button class="nav star" :class="{ lit: starred }" :disabled="!url" :aria-label="starred ? 'Remove bookmark' : 'Bookmark this page'" :title="starred ? 'Remove bookmark' : 'Bookmark this page'" @click="toggleStar">{{ starred ? '★' : '☆' }}</button>
       <button v-if="url && logins.length" class="fill" title="Castle fills this page's sign-in from your vault" @click="pressFill">{{ fillLabel(logins) }}</button>
       <button class="nav" :disabled="!url" :class="{ lit: translateShown }" aria-label="Translate this page" title="Translate this page into your language" @click="translateAsked = !translateAsked">文A</button>
+      <button class="alice" :disabled="!url" :title="`Ask ${companion} about this page - only when you ask`" @click="asking = !asking; asked = ''">{{ companion }}, read this</button>
       <slot name="tools" :tab="tab" />
       <button class="nav" :disabled="!url" aria-label="Put in chat" title="Put this page's address in HOME's chat" @click="putInChat">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
@@ -288,6 +318,17 @@ defineExpose({ selectAddress })
       @bubbles="readBubbles"
       @listing="emit('overlay', `listing-${tab.id}`, $event)"
     />
+    <div v-if="asking" class="ask-row">
+      <template v-if="!asked">
+        <button v-for="k in READ_KINDS" :key="k.kind" @click="readFor(k.kind)">{{ k.label }}</button>
+        <small>only when you ask · never a bank or a password page</small>
+      </template>
+      <template v-else>
+        <span>Asked {{ companion }} - the answer is in HOME</span>
+        <button @click="openHome">Open HOME</button>
+      </template>
+      <span v-if="readFailed" class="failed" role="alert">{{ readFailed }}</span>
+    </div>
     <slot name="below" :tab="tab" />
     <div ref="pageBox" class="page">
       <slot name="page" :tab="tab" />
@@ -377,6 +418,48 @@ defineExpose({ selectAddress })
   top: calc(100% + 6px);
   left: 0;
   right: 0;
+}
+.alice {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(168, 140, 255, 0.7);
+  background: rgba(120, 90, 220, 0.3);
+  color: #e6dcff;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alice:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ask-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(168, 140, 255, 0.45);
+  background: rgba(70, 40, 140, 0.3);
+  font-size: 12.5px;
+}
+.ask-row button {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(168, 140, 255, 0.6);
+  background: rgba(120, 90, 220, 0.35);
+  color: var(--text);
+  cursor: pointer;
+}
+.ask-row small {
+  color: var(--text-dim);
+}
+.ask-row .failed {
+  width: 100%;
+  color: #ff9aa8;
 }
 .fill {
   flex-shrink: 0;
