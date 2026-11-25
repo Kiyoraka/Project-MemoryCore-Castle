@@ -158,6 +158,12 @@ pub fn keep_searches(c: &mut Conn, rows: &[(String, u32, String)]) -> Result<u32
     Ok(rows.len() as u32)
 }
 
+/// The month's searches (`YYYY-MM`, by when last made), most used first, at most 30: for MY
+/// PROFILE's reading only.
+pub fn searches_of_month(c: &mut Conn, month: &str) -> Vec<(String, u32)> {
+    c.exec("SELECT term, count FROM browser_searches WHERE DATE_FORMAT(last_at, '%Y-%m') = ? ORDER BY count DESC, last_at DESC LIMIT 30", (month,)).unwrap_or_default()
+}
+
 /// What a LIKE pattern needs escaped from what was typed.
 fn like_escaped(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
@@ -322,6 +328,11 @@ mod tests {
         assert_eq!(read_rows(&mut c, "").0.len(), 2, "an empty field reads the newest");
         c.exec_drop("DELETE FROM browser_searches WHERE term_key = ?", (term_key("GOOGLE MEET"),)).unwrap();
         assert_eq!(read_rows(&mut c, "").0.len(), 1);
+        let this_month: String = c.query_first("SELECT DATE_FORMAT(NOW(), '%Y-%m')").unwrap().unwrap();
+        remember_search(&mut c, "tauri windows").unwrap();
+        let month_rows = searches_of_month(&mut c, &this_month);
+        assert_eq!(month_rows, vec![("tauri windows".to_string(), 1)], "only the searches made this month");
+        assert!(searches_of_month(&mut c, "2001-01").is_empty());
         c.query_drop(format!("DROP DATABASE `{}`", access.name)).unwrap();
     }
 

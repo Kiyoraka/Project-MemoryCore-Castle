@@ -2,9 +2,9 @@
 //! have switch and it their own database, i wont check it"). With the switch on, a page opened while
 //! browsing privately (Remember sign-ins off) is kept in the member's own memory database for 30
 //! days: the site, the page's path (never the part after `?` or `#`) and its title. It is never
-//! shown in any history. Only MY PROFILE's month reading reads it, with the month's normal visits,
-//! as evidence about the member - never the companion's own traits, never anything that leaves the
-//! computer.
+//! shown in any history. Only MY PROFILE's month reading reads it, as evidence about the member -
+//! never the companion's own traits, never anything that leaves the computer. The month's normal
+//! visits join that reading on their own switch (MY PROFILE reads your browsing, on by default).
 
 use mysql::{prelude::Queryable, Conn};
 
@@ -51,15 +51,21 @@ pub fn merge(rows: Vec<(String, u32, String)>) -> Vec<Site> {
     sites
 }
 
-/// The month's browsing (`YYYY-MM`): normal visits last seen in it and private visits made in it.
-pub fn month(c: &mut Conn, month: &str) -> Result<Vec<Site>, String> {
-    let mut rows: Vec<(String, u32, String)> = c
-        .exec("SELECT host, count, title FROM browser_visits WHERE DATE_FORMAT(last_at, '%Y-%m') = ?", (month,))
-        .map_err(sql("reading the month's visits"))?;
-    let private: Vec<(String, u32, String)> = c
-        .exec("SELECT host, 1, title FROM browser_private_visits WHERE DATE_FORMAT(at, '%Y-%m') = ?", (month,))
-        .map_err(sql("reading the month's private visits"))?;
-    rows.extend(private);
+/// The month's browsing (`YYYY-MM`), each part on its own switch: `normal` the visits last seen in
+/// it, `private` the private visits made in it.
+pub fn month(c: &mut Conn, month: &str, normal: bool, private: bool) -> Result<Vec<Site>, String> {
+    let mut rows: Vec<(String, u32, String)> = Vec::new();
+    if normal {
+        rows = c
+            .exec("SELECT host, count, title FROM browser_visits WHERE DATE_FORMAT(last_at, '%Y-%m') = ?", (month,))
+            .map_err(sql("reading the month's visits"))?;
+    }
+    if private {
+        let kept: Vec<(String, u32, String)> = c
+            .exec("SELECT host, 1, title FROM browser_private_visits WHERE DATE_FORMAT(at, '%Y-%m') = ?", (month,))
+            .map_err(sql("reading the month's private visits"))?;
+        rows.extend(kept);
+    }
     Ok(merge(rows))
 }
 
@@ -113,10 +119,13 @@ mod tests {
 
         crate::sites::keep_visit(&mut c, &host, "/", "Home", false).unwrap();
         let this_month: String = c.query_first("SELECT DATE_FORMAT(NOW(), '%Y-%m')").unwrap().unwrap();
-        let sites = month(&mut c, &this_month).unwrap();
+        let sites = month(&mut c, &this_month, true, true).unwrap();
         assert_eq!(sites.len(), 1);
         assert_eq!((sites[0].host.as_str(), sites[0].visits), (host.as_str(), 3), "two private visits and one normal");
-        assert!(month(&mut c, "2001-01").unwrap().is_empty());
+        assert_eq!(month(&mut c, &this_month, true, false).unwrap()[0].visits, 1, "the normal visit alone");
+        assert_eq!(month(&mut c, &this_month, false, true).unwrap()[0].visits, 2, "the private visits alone");
+        assert!(month(&mut c, &this_month, false, false).unwrap().is_empty(), "neither switch, nothing");
+        assert!(month(&mut c, "2001-01", true, true).unwrap().is_empty());
         c.query_drop(format!("DROP DATABASE `{}`", access.name)).unwrap();
     }
 }

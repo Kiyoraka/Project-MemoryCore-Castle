@@ -468,6 +468,10 @@ pub struct Settings {
     /// their own memory database for 30 days, never in any history, read only for their profile.
     /// Off until the member turns it on.
     pub browser_private_remember: bool,
+    /// MY PROFILE's month reading takes in the member's normal browsing and searches (visits are
+    /// kept for it while Remember sign-ins is on). On by default (his word, Nov 25 2026: "they
+    /// should"); private browsing joins only with its own switch above.
+    pub browser_profile_read: bool,
     /// The browser's first-open welcome: each step (history, bookmarks, passwords, sitecheck) answered
     /// `yes` or `skip`; a step with no answer is offered. Settings' Bring things from Chrome clears skips.
     pub browser_welcome: BTreeMap<String, String>,
@@ -664,6 +668,7 @@ impl Default for Settings {
             link_open: "castle".into(),
             browser_remember: true,
             browser_private_remember: false,
+            browser_profile_read: true,
             browser_welcome: BTreeMap::new(),
             browser_site_check: false,
             browser_new_tab: "shortcuts".into(),
@@ -1220,6 +1225,7 @@ mod tests {
             link_open: "system".into(),
             browser_remember: false,
             browser_private_remember: true,
+            browser_profile_read: false,
             browser_welcome: BTreeMap::from([("history".to_string(), "yes".to_string())]),
             browser_site_check: true,
             browser_new_tab: "blank".into(),
@@ -1431,6 +1437,7 @@ mod tests {
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
         assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");
+        assert!(d.browser_profile_read && old.browser_profile_read, "normal browsing feeds MY PROFILE from the start, an older settings file too");
         assert!(old.browser_welcome.is_empty() && !old.browser_site_check, "the welcome is offered and the site check waits for a yes");
     }
 

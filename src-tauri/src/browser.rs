@@ -234,6 +234,12 @@ pub struct Checked {
     pub warning: Option<crate::site_rules::Warning>,
 }
 
+/// Whether a normal visit is kept (pure, tested): while the Sentinel keeps watch, the site check is
+/// on, or MY PROFILE reads the browsing - and never while browsing privately.
+pub fn keeps_visit(sentinel: bool, site_check: bool, profile_read: bool, private: bool) -> bool {
+    !private && (sentinel || site_check || profile_read)
+}
+
 /// The check of one page: the visit kept (only while the Sentinel is on, never while browsing
 /// privately), then the worst of the rules, the Sentinel's mark and her active patterns. Without a
 /// memory database the rules alone speak.
@@ -244,7 +250,7 @@ fn site_check(app: &AppHandle, url: &str, title: &str, has_login: bool, keep: Op
     let mut conn = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m)));
     let (mut mark, mut patterns) = (None, Vec::new());
     if let Some(c) = conn.as_mut() {
-        if (settings.sentinel.on || settings.browser_site_check) && keep == Some(false) {
+        if keep.is_some_and(|private| keeps_visit(settings.sentinel.on, settings.browser_site_check, settings.browser_profile_read, private)) {
             let _ = crate::sites::keep_visit(c, &host, &path, &title, has_login);
         }
         // private browsing remembered for the member's own companion, only on their switch
@@ -1003,6 +1009,15 @@ mod tests {
         let needle = concat!(".additional_", "browser_args(");
         assert!(!source.contains(needle), "the pages are built with no browser arguments of their own");
         assert!(source.contains("crate::browser_native::harden(&view)"), "every page has its warning switched on");
+    }
+
+    #[test]
+    fn a_visit_is_kept_for_the_watch_the_check_or_the_profile_never_privately() {
+        assert!(keeps_visit(false, false, true, false), "MY PROFILE reads the browsing");
+        assert!(keeps_visit(true, false, false, false));
+        assert!(keeps_visit(false, true, false, false));
+        assert!(!keeps_visit(false, false, false, false), "nothing asks for it");
+        assert!(!keeps_visit(true, true, true, true), "never while browsing privately");
     }
 
     #[test]
