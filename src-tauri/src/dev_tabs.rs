@@ -181,7 +181,11 @@ pub fn dev_block(companion: &str, member: &str, project: &str, memory_loaded: bo
          `castle-memory plan status` shows where you are; {member} sees the same plan in Castle's Plan panel.\n\n\
          ## Long files\n\
          When a code file you edit passes 1,000 lines, run `castle-memory skill show --plugin castle --name shard` \
-         and follow it: you propose how to split it, {member} decides, and nothing is split before their yes.\n"
+         and follow it: you propose how to split it, {member} decides, and nothing is split before their yes.\n\n\
+         ## After a push\n\
+         A `PUSHED:` line from Castle means {member} just pushed. Say it once, in one line (how many commits, \
+         where). If this project names its live address (its CLAUDE.md, or the plan), open it once and say whether \
+         it answers. Never push, deploy or change a live database yourself.\n"
     )
 }
 
@@ -270,6 +274,7 @@ mod tests {
         assert!(block.contains("You are Lyra") && block.contains("**shop**") && block.contains("castle-memory plan copy"));
         assert!(dev_block("Lyra", "Rin", "shop", false).contains("castle-memory boot"));
         assert!(block.contains("castle-memory skill show --plugin castle --name shard") && block.contains("Rin decides"), "a long file is Shard's, on the member's yes");
+        assert!(block.contains("`PUSHED:` line from Castle means Rin just pushed") && block.contains("Never push, deploy"), "a push is said once, never made");
         #[cfg(windows)]
         assert_eq!(name_of("D:\\Projects\\shop\\"), "shop");
         #[cfg(not(windows))]

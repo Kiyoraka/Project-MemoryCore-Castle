@@ -259,10 +259,21 @@ pub fn status_line_command(tools: &Path) -> String {
     format!("\"{}\" \"{}\"", crate::env::node().display(), tools.join(STATUS_LINE_SCRIPT).display())
 }
 
-/// The settings file's text: the status line, and the member's own voice setting when they have one.
+/// The hook Claude Code runs on each message: Castle's own program asks whether the member just
+/// pushed (pushed.rs), and its one line, when there is one, reaches the companion.
+pub fn pushed_hook_command() -> Option<String> {
+    let castle = std::env::current_exe().ok()?;
+    Some(format!("\"{}\" {}", castle.display(), crate::pushed::FLAG))
+}
+
+/// The settings file's text: the status line, the push hook, and the member's own voice setting
+/// when they have one.
 pub fn session_settings_text(tools: &Path, voice: &serde_json::Map<String, serde_json::Value>) -> String {
     let mut settings = voice.clone();
     settings.insert("statusLine".to_string(), serde_json::json!({ "type": "command", "command": status_line_command(tools) }));
+    if let Some(command) = pushed_hook_command() {
+        settings.insert("hooks".to_string(), serde_json::json!({ "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": command }] }] }));
+    }
     serde_json::Value::Object(settings).to_string()
 }
 
@@ -797,8 +808,11 @@ mod tests {
         let script = tools.join(STATUS_LINE_SCRIPT).display().to_string();
         assert_eq!(written["statusLine"]["type"], "command");
         assert_eq!(written["statusLine"]["command"], format!("\"{}\" \"{script}\"", crate::env::node().display()));
-        // beside it only the member's own voice setting, if they have one on this computer
-        assert!(written.as_object().unwrap().keys().all(|k| ["statusLine", "voiceEnabled", "voice"].contains(&k.as_str())));
+        // the push is heard: Castle's own program, asked on each message
+        let hook = written["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(hook.ends_with("\" --pushed") && hook.contains(&std::env::current_exe().unwrap().display().to_string()), "{hook}");
+        // beside them only the member's own voice setting, if they have one on this computer
+        assert!(written.as_object().unwrap().keys().all(|k| ["statusLine", "hooks", "voiceEnabled", "voice"].contains(&k.as_str())));
 
         // the plain isolation (and the switch off, or Codex) has no status line of Castle's
         let (plain, _) = isolation(&store, Cli::Claude, true).unwrap();
@@ -822,9 +836,12 @@ mod tests {
         assert_eq!(written["voiceEnabled"], true);
         // Castle's status line, never the member's own
         assert_eq!(written["statusLine"]["command"], status_line_command(tools));
-        assert!(written.get("hooks").is_none());
+        // the member's own hooks never travel: only Castle's push hook is there
+        let hooks = written["hooks"].as_object().unwrap();
+        assert_eq!(hooks.keys().collect::<Vec<_>>(), vec!["UserPromptSubmit"]);
+        assert!(written["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap().ends_with(" --pushed"));
         let plain: serde_json::Value = serde_json::from_str(&session_settings_text(tools, &voice_of(""))).unwrap();
-        assert_eq!(plain.as_object().unwrap().len(), 1);
+        assert_eq!(plain.as_object().unwrap().len(), 2, "the status line and the push hook");
     }
 
     #[test]

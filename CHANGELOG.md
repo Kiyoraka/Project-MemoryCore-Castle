@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Your companion hears your push: push from a DEV tab and at your next message she says once how many commits went where, and checks your project's live site if it names one. Nothing new is written into your project (Claude Code sessions).
+
 - In DEV, a code file past 1,000 lines gets a proposal from your companion to split it into a short main file and a few focused ones, done only on your yes. It is Castle's own skill, Shard, kept in your memory database and listed in Settings > Database > Skills.
 
 - The Sentinel's task cards are steadier and say more: Windows' own tips tasks, renewed every day with a new number, are no longer raised again, and what you kept as normal stays kept. A task's card opens with what it is when Castle knows (Windows' own, OneDrive, Edge, Chrome, NVIDIA, the Sentinel's own), and a task that runs a part of Windows says so. When a patrol's turn fails, it says why.

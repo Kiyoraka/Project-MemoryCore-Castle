@@ -721,6 +721,10 @@ A **Flutter** project (a `pubspec.yaml` with a `flutter:` section) or an **Andro
 
 ---
 
+### When you push
+
+Push from a DEV tab (or from your own terminal while the tab is open) and your companion hears it at your next message: one line saying how many commits went where, said once. If your project names its live address (in its CLAUDE.md, or the plan), she opens it once and tells you whether it answers. She never pushes or deploys herself. Castle keeps the last push it saw inside the project's `.git` folder, so nothing new appears in your project. It works with Claude Code, whose sessions read Castle's own settings; Codex sessions do not hear it.
+
 ### Long files
 
 When a code file your companion is working on passes 1,000 lines, she proposes splitting it: a short main file that keeps every name the rest of the project uses, and a few smaller files grouped by what they do. She shows the split as a plan and waits for your yes; nothing is split before it, and the project's tests run before and after. Generated files, lock files, other people's libraries and data files are never split.
