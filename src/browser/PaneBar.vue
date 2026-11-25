@@ -157,6 +157,8 @@ const translateAsked = ref(false)
 const translateBusy = ref('')
 const translateSaid = ref('')
 const bubbleCount = ref(0)
+// a private tab never keeps a site for Always
+const paneTranslating = computed(() => ({ ...props.translating, canKeepSites: props.translating.canKeepSites && !props.tab.private }))
 const translateShown = computed(() => showTranslateRow(props.tab, props.translating.language, translateAsked.value))
 watch(url, () => {
   translateAsked.value = false
@@ -271,7 +273,7 @@ defineExpose({ selectAddress })
     <TranslateRow
       v-if="translateShown"
       :tab="tab"
-      :settings="translating"
+      :settings="paneTranslating"
       :busy="translateBusy"
       :said="translateSaid"
       :bubbles="bubbleCount"

@@ -667,7 +667,8 @@ export const automationHealth = () => invoke('automation_health')
 // The BROWSER window (CASTLE-12). A chat's link goes where Settings > Rooms > Browser says:
 // -> 'castle' | 'system' | 'ask' (the chat then shows its small menu).
 export const linkOpen = (url) => invoke('link_open', { url })
-export const browserOpen = (url = null) => invoke('browser_open', { url })
+// `priv`: a private tab, which keeps nothing
+export const browserOpen = (url = null, priv = false) => invoke('browser_open', { url, private: priv })
 export const browserState = () => invoke('browser_state')
 export const browserSwitch = (id) => invoke('browser_switch', { id })
 export const browserClose = (id) => invoke('browser_close', { id })

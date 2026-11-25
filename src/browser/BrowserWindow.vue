@@ -80,6 +80,8 @@ const pick = (id) => act(() => browserSwitch(id))
 const pickGroup = () => pick(group.value.ids.includes(groupFocus.value) ? groupFocus.value : group.value.ids[0])
 const close = (id) => act(() => browserClose(id))
 const add = () => act(() => browserOpen(null))
+// a private tab: keeps nothing (Ctrl+Shift+T)
+const addPrivate = () => act(() => browserOpen(null, true))
 const beside = (id) => act(() => browserBeside(id))
 const phoneView = () => act(() => browserPhoneView(!tabs.value.phoneView))
 // the group chip's list: its pages, each with Take out
@@ -250,7 +252,7 @@ function onKey(event) {
   const mod = isMac ? event.metaKey : event.ctrlKey
   if (!mod || (props.embedded && !props.visible)) return
   const key = event.key.toLowerCase()
-  if (key === 't') add()
+  if (key === 't') event.shiftKey ? addPrivate() : add()
   else if (key === 'w' && current.value) close(current.value.id)
   else if (key === 'l') paneRefs.get(current.value?.id)?.selectAddress()
   else return
@@ -299,7 +301,8 @@ onBeforeUnmount(() => {
         <button class="mini" :aria-expanded="groupMenu" aria-label="The pages in this tab" title="The pages in this tab" @click="groupMenu = !groupMenu">▾</button>
       </span>
       <span v-for="t in singles" :key="t.id" class="chip" :class="{ on: shownIds.includes(t.id), danger: t.danger, news: t.unread > 0, private: t.private }">
-        <button class="name" role="tab" :aria-selected="t.id === tabs.active" :title="t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+        <button class="name" role="tab" :aria-selected="t.id === tabs.active" :title="t.private ? `Private - ${t.url || t.title}` : t.url || t.title" @click="pick(t.id)" @auxclick.middle="close(t.id)">
+          <svg v-if="t.private" class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg>
           {{ chipTitle(t.title) }}
           <span v-if="chipCount(t.unread)" class="unread" :aria-label="`${t.unread} new`">{{ chipCount(t.unread) }}</span>
         </button>
@@ -307,6 +310,7 @@ onBeforeUnmount(() => {
         <button class="mini" :aria-label="`Close ${t.title}`" title="Close" @click="close(t.id)">×</button>
       </span>
       <button class="chip plus" aria-label="New tab" :title="`New tab (${isMac ? '⌘' : 'Ctrl+'}T)`" @click="add">+</button>
+      <button class="chip private-new" :title="`New private tab (${isMac ? '⌘⇧' : 'Ctrl+Shift+'}T) - keeps nothing`" @click="addPrivate"><svg class="mask" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 9c0-1.1.9-2 2-2h16a2 2 0 0 1 2 2v1.5c0 3-2.4 5.5-5.4 5.5-1.8 0-3-1-3.6-2.4-.6 1.4-1.8 2.4-3.6 2.4C4.4 16 2 13.5 2 10.5zm5 1.2a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zm10 0a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z" /></svg> Private</button>
       <slot name="chips" />
       <button v-if="shownIds.length >= 3" class="phone-view" role="switch" :aria-checked="tabs.phoneView" title="Three or four pages side by side get their phone layout" @click="phoneView">
         Phone view <span class="switch" :class="{ on: tabs.phoneView }" aria-hidden="true"><i></i></span>
@@ -947,6 +951,17 @@ onBeforeUnmount(() => {
 }
 .chip.private {
   border-color: rgba(168, 120, 255, 0.7);
+}
+.chip.private-new {
+  gap: 6px;
+  padding: 6px 12px;
+  border-color: rgba(168, 120, 255, 0.7);
+  background: rgba(120, 80, 220, 0.3);
+  cursor: pointer;
+}
+.mask {
+  flex-shrink: 0;
+  color: #c9b4ff;
 }
 .chip.group .name {
   gap: 8px;
