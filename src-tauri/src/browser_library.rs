@@ -77,7 +77,8 @@ pub async fn browser_bookmark_toggle(app: AppHandle, url: String, title: String)
             vault::remove_bookmark(&mut c, &url)?;
             Ok(false)
         } else {
-            vault::add_bookmark(&mut c, &title, &url, "")?;
+            // the star files on the bookmarks bar, as Chrome's and the Keep's do
+            vault::add_bookmark(&mut c, &title, &url, STAR_FOLDER)?;
             Ok(true)
         }
     })
@@ -138,6 +139,53 @@ pub fn vault_forget(store: State<'_, SettingsStore>, id: Option<u64>) -> Result<
         Some(id) => vault::forget(&mut c, id),
         None => vault::forget_all(&mut c),
     }
+}
+
+/// Where the star files a new bookmark: the bookmarks bar.
+pub const STAR_FOLDER: &str = "Bookmarks bar";
+
+/// The bookmarks bar: every bookmark, folder by folder.
+#[tauri::command]
+pub async fn bookmarks_all(app: AppHandle) -> Result<Vec<Bookmark>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(mut c) = conn(&app.state::<SettingsStore>()) else { return Ok(Vec::new()) };
+        vault::all_bookmarks(&mut c)
+    })
+    .await
+    .map_err(|_| "The bookmarks could not be read.".to_string())?
+}
+
+/// What Bring my Chrome bookmarks did: how many came, or the profiles to choose from first.
+#[derive(Debug, Clone, Serialize)]
+pub struct Brought {
+    pub added: u32,
+    pub profiles: Vec<crate::chrome_import::Profile>,
+}
+
+/// The profile to bring from (pure): the one named, else the only one; None means ask.
+pub fn profile_to_bring(asked: Option<&str>, profiles: &[crate::chrome_import::Profile]) -> Option<String> {
+    match asked {
+        Some(p) => Some(p.to_string()),
+        None if profiles.len() == 1 => Some(profiles[0].folder.clone()),
+        None if profiles.is_empty() => Some("Default".into()),
+        None => None,
+    }
+}
+
+/// Bring my Chrome bookmarks, from the bookmarks bar: Chrome's own file read from a copy, the
+/// welcome's answers left alone. With several Chrome profiles and none named, the profiles come back
+/// to choose from.
+#[tauri::command]
+pub async fn bookmarks_bring_chrome(app: AppHandle, profile: Option<String>) -> Result<Brought, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = crate::chrome_import::chrome_root().ok_or("Chrome is not on this PC.")?;
+        let profiles = crate::chrome_import::profiles(&root);
+        let Some(chosen) = profile_to_bring(profile.as_deref(), &profiles) else { return Ok(Brought { added: 0, profiles }) };
+        let mut c = conn(&app.state::<SettingsStore>())?;
+        Ok(Brought { added: crate::chrome_import::import_bookmarks(&mut c, &chosen)?, profiles: Vec::new() })
+    })
+    .await
+    .map_err(|_| "The bookmarks could not be brought over.".to_string())?
 }
 
 /// How long a copied password stays on the clipboard.
@@ -204,6 +252,17 @@ pub async fn vault_import(app: AppHandle) -> Result<Option<crate::chrome_import:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chromes_bookmarks_come_from_the_profile_named_or_the_only_one() {
+        let one = vec![crate::chrome_import::Profile { folder: "Default".into(), name: "Kiyo".into() }];
+        let two = vec![one[0].clone(), crate::chrome_import::Profile { folder: "Profile 1".into(), name: "Work".into() }];
+        assert_eq!(profile_to_bring(None, &one).as_deref(), Some("Default"));
+        assert_eq!(profile_to_bring(None, &two), None, "several: the member chooses");
+        assert_eq!(profile_to_bring(Some("Profile 1"), &two).as_deref(), Some("Profile 1"));
+        assert_eq!(profile_to_bring(None, &[]).as_deref(), Some("Default"));
+        assert_eq!(STAR_FOLDER, "Bookmarks bar");
+    }
 
     #[test]
     fn a_copied_password_is_cleared_only_while_it_is_still_there() {

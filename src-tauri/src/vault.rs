@@ -170,6 +170,12 @@ pub fn is_bookmarked(c: &mut Conn, url: &str) -> Result<bool, String> {
 }
 
 /// The newest bookmarks first.
+/// Every bookmark for the bookmarks bar, folder by folder.
+pub fn all_bookmarks(c: &mut Conn) -> Result<Vec<Bookmark>, String> {
+    let rows: Vec<(u64, String, String, String)> = c.query("SELECT id, title, url, folder FROM browser_bookmarks ORDER BY folder, id LIMIT 2000").map_err(sql("reading the bookmarks"))?;
+    Ok(rows.into_iter().map(|(id, title, url, folder)| Bookmark { id, title, url, folder }).collect())
+}
+
 pub fn bookmarks(c: &mut Conn, limit: u32) -> Result<Vec<Bookmark>, String> {
     let rows: Vec<(u64, String, String, String)> = c.exec("SELECT id, title, url, folder FROM browser_bookmarks ORDER BY id DESC LIMIT ?", (limit,)).map_err(sql("reading the bookmarks"))?;
     Ok(rows.into_iter().map(|(id, title, url, folder)| Bookmark { id, title, url, folder }).collect())

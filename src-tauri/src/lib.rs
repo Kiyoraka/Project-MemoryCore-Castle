@@ -460,6 +460,8 @@ pub fn run() {
             browser_library::browser_logins,
             browser_library::browser_fill,
             browser_library::vault_add,
+            browser_library::bookmarks_all,
+            browser_library::bookmarks_bring_chrome,
             browser_library::vault_copy,
             browser_library::vault_import,
             browser_library::vault_list,
