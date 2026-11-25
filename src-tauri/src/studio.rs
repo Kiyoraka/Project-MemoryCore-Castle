@@ -43,6 +43,8 @@ pub const SHELVES: [&str; 4] = ["media-generation", "music", "adventures", "appe
 /// What STUDIO's own gallery shows: what was made there. Outfit and hair sheets stay in APPEARANCE,
 /// adventure scenes in their world.
 pub const MADE_HERE: [&str; 2] = ["media-generation", "music"];
+/// Where a picture the companion makes is kept, inside the memory folder, so STUDIO's gallery shows it.
+pub const PICTURE_SHELF: &str = "media-generation/image-generation";
 
 /// A copy Castle kept before replacing a picture.
 pub fn is_backup(name: &str) -> bool {

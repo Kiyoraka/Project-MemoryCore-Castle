@@ -566,8 +566,9 @@ pub fn boot(conn: &mut impl Queryable) -> Result<String, String> {
 
 /// The memory as Castle hands it to the companion when it wakes her: the same body in the same
 /// order as `boot`, with a header written for a system prompt. None when nothing has moved in.
-pub fn boot_prompt(conn: &mut impl Queryable) -> Result<Option<String>, String> {
+pub fn boot_prompt(conn: &mut impl Queryable, memory: &Path) -> Result<Option<String>, String> {
     let Some(body) = memory_body(conn)? else { return Ok(None) };
+    let pictures = memory.join(crate::studio::PICTURE_SHELF).display().to_string();
     Ok(Some(format!(
         "# Your memory
 
@@ -576,6 +577,7 @@ pub fn boot_prompt(conn: &mut impl Queryable) -> Result<Option<String>, String> 
          It is a picture of the moment you woke. What you save during this session is kept at once and is here again the next time you wake.
          To read a file again: `castle-memory memory show --path <name>`. To change one: `castle-memory memory save --path <name> --file <text file>`.
          The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.
+         A picture you make, with any tool, is saved in `{pictures}` (with its prompt beside it as `<name>.prompt.md`), so STUDIO shows it.
 {body}"
     )))
 }

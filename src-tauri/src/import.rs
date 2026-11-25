@@ -762,7 +762,11 @@ mod tests {
         assert!(at("===== master-memory.md =====") < at("===== main/identity-core.md =====") && at("===== main/identity-core.md =====") < at("===== main/relationship-memory.md ====="));
         assert!(at("===== main/relationship-memory.md =====") < at("===== main/current-session.md (session memory) ====="));
         // the same memory as Castle hands it over at wake
-        let prompt = crate::mirror::boot_prompt(&mut conn).unwrap().unwrap();
+        let prompt = crate::mirror::boot_prompt(&mut conn, &root).unwrap().unwrap();
+        // a picture made at any time lands on STUDIO's own shelf in this memory folder
+        let shelf = root.join(crate::studio::PICTURE_SHELF);
+        assert!(prompt.contains(&shelf.display().to_string()), "the wake names STUDIO's picture shelf");
+        assert!(crate::studio::MADE_HERE.iter().any(|dir| crate::studio::PICTURE_SHELF.starts_with(&format!("{dir}/"))), "a shelf STUDIO's gallery reads");
         assert!(prompt.starts_with("# Your memory
 ") && prompt.contains("do not run `castle-memory boot`"));
         let pat = |needle: &str| prompt.find(needle).unwrap_or_else(|| panic!("missing {needle}"));
