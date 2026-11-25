@@ -633,6 +633,7 @@ pub fn run() {
             browser::browser_danger_back,
             browser::browser_danger_open,
             browser::browser_chrome,
+            browser::browser_close_all,
             browser::browser_beside,
             browser::browser_unpane,
             browser::browser_widths,

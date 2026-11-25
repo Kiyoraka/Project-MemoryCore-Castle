@@ -33,10 +33,48 @@ const BAR: f64 = 94.0;
 
 /// What Castle's own page asks of the layout: how tall its bar is now, and whether something of its
 /// own (the suggestions under the address bar) is open over the pages, which then step aside.
-static CHROME: Mutex<(f64, bool)> = Mutex::new((BAR, false));
+static CHROME: Mutex<Chrome> = Mutex::new(Chrome { bar: BAR, overlay: false, area: None, shown: true });
+
+/// What Castle's own page says about the layout.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Chrome {
+    /// the bar's height above the pages (its own window)
+    bar: f64,
+    /// something of Castle's own is open over the pages, which step aside
+    overlay: bool,
+    /// inside Castle: the room's page area in the main window (x, y, width, height, logical)
+    area: Option<(f64, f64, f64, f64)>,
+    /// inside Castle: the room is in front and no sheet covers it
+    shown: bool,
+}
 
 fn bar_height() -> f64 {
-    CHROME.lock().unwrap().0
+    CHROME.lock().unwrap().bar
+}
+
+/// Whether the browser lives inside Castle (Settings > Rooms > BROWSER > Browser opens).
+fn in_castle(app: &AppHandle) -> bool {
+    app.state::<SettingsStore>().get().browser_opens == "castle"
+}
+
+/// The window the pages live in: the browser's own window, or Castle's main window when the browser
+/// is a room inside Castle.
+fn host(app: &AppHandle) -> Option<Window> {
+    if in_castle(app) {
+        app.get_webview_window("main").map(|main| main.as_ref().window())
+    } else {
+        app.get_window(WINDOW)
+    }
+}
+
+/// Where the pages go (pure, tested): under the bar in the browser's own window; inside Castle, the
+/// room's page area, and nowhere while the room is not in front.
+pub fn page_area(castle: bool, size: (f64, f64), bar: f64, area: Option<(f64, f64, f64, f64)>, shown: bool) -> Option<(f64, f64, f64, f64)> {
+    if castle {
+        area.filter(|a| shown && a.2 > 0.0 && a.3 > 0.0)
+    } else {
+        Some((0.0, bar, size.0, (size.1 - bar).max(0.0)))
+    }
 }
 /// Where the Artifacts tile and the new-tab shortcut go (CASTLE-13).
 pub const ARTIFACTS: &str = "https://claude.ai/code/artifacts";
@@ -289,6 +327,8 @@ static UNREAD_SAID: Mutex<(u32, String)> = Mutex::new((0, String::new()));
 fn tell(app: &AppHandle) {
     let now = tabs(app);
     tell_unread(app, browser_tabs::unread_summary(&now));
+    // the browser's own window, and Castle's main window for the room inside it
+    let _ = app.emit_to("main", "browser-state", now.clone());
     let _ = app.emit_to(UI, "browser-state", now);
 }
 
@@ -296,7 +336,8 @@ fn tell_unread(app: &AppHandle, summary: (u32, String)) {
     let mut said = UNREAD_SAID.lock().unwrap();
     if *said != summary {
         // away: the browser window is not in front, so a rise is news the main window lights up for
-        let away = app.get_window(WINDOW).and_then(|w| w.is_focused().ok()) != Some(true);
+        // (inside Castle the main window knows which room is in front, and decides itself)
+        let away = in_castle(app) || app.get_window(WINDOW).and_then(|w| w.is_focused().ok()) != Some(true);
         let _ = app.emit_to("main", "browser-unread", serde_json::json!({ "count": summary.0, "title": summary.1, "away": away }));
         *said = summary;
     }
@@ -306,6 +347,17 @@ fn tell_unread(app: &AppHandle, summary: (u32, String)) {
 /// window comes to the front where the member left it, unless it reaches past the screen (then it is
 /// fitted again).
 fn window(app: &AppHandle) -> Result<Window, String> {
+    start_once(app);
+    if in_castle(app) {
+        // the room inside Castle: Castle comes forward and turns to BROWSER
+        let main = app.get_webview_window("main").ok_or("Castle's window is not open.")?;
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+        let _ = app.emit_to("main", "browser-show-room", ());
+        layout(app);
+        return Ok(main.as_ref().window());
+    }
     if let Some(window) = app.get_window(WINDOW) {
         let _ = window.unminimize();
         if let Some(monitor) = window.current_monitor().ok().flatten() {
@@ -350,33 +402,11 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         }
         WindowEvent::Destroyed => {
             *events.state::<Browser>().0.lock().unwrap() = Tabs::default();
-            *CHROME.lock().unwrap() = (BAR, false);
+            *CHROME.lock().unwrap() = Chrome { bar: BAR, overlay: false, area: None, shown: true };
             // the pages are gone, and so is their news
             tell_unread(&events, (0, String::new()));
         }
         _ => {}
-    });
-    // while the window is open, save the sign-ins now and then (a quit skips CloseRequested)
-    let keeper = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(KEEP_EVERY_SECS));
-        if keeper.get_window(WINDOW).is_none() {
-            break;
-        }
-        keep_sign_ins(&keeper);
-    });
-    // the guard's memory of marks and patterns, and Google's lists kept fresh (with a key)
-    let guard = app.clone();
-    std::thread::spawn(move || {
-        let settings = guard.state::<SettingsStore>().get();
-        if let Some(mut c) = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m))) {
-            if let Ok((dangerous, member_safe)) = crate::sites::guard_marks(&mut c) {
-                crate::browser_guard::remember(dangerous, member_safe, crate::sites::active_patterns(&mut c).unwrap_or_default());
-            }
-        }
-        if let Ok(folder) = guard.path().app_local_data_dir() {
-            crate::browser_safe::start(folder.join("safe-browsing"));
-        }
     });
     let monitor = app
         .get_webview_window("main")
@@ -395,6 +425,35 @@ fn window(app: &AppHandle) -> Result<Window, String> {
     // the size macOS settled on after showing, not the one asked for
     layout(app);
     Ok(window)
+}
+
+/// What starts with the browser's first open, once a run: the sign-in keeper (every half minute while
+/// pages are open; a quit skips the close), the guard's memory of marks and patterns, and Google's
+/// lists kept fresh (with a key).
+fn start_once(app: &AppHandle) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let keeper = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(KEEP_EVERY_SECS));
+        if !tabs(&keeper).list.is_empty() {
+            keep_sign_ins(&keeper);
+        }
+    });
+    let guard = app.clone();
+    std::thread::spawn(move || {
+        let settings = guard.state::<SettingsStore>().get();
+        if let Some(mut c) = settings.memory_folder.as_deref().and_then(|m| crate::store::source(std::path::Path::new(m))) {
+            if let Ok((dangerous, member_safe)) = crate::sites::guard_marks(&mut c) {
+                crate::browser_guard::remember(dangerous, member_safe, crate::sites::active_patterns(&mut c).unwrap_or_default());
+            }
+        }
+        if let Ok(folder) = guard.path().app_local_data_dir() {
+            crate::browser_safe::start(folder.join("safe-browsing"));
+        }
+    });
 }
 
 const MIN_W: f64 = 560.0;
@@ -431,24 +490,29 @@ fn logical_size(window: &Window) -> (f64, f64) {
 /// page to show (a new tab, a DANGER screen: drawn there, in that column) or when it has something
 /// open over the pages, which then step aside.
 fn layout(app: &AppHandle) {
-    let Some(window) = app.get_window(WINDOW) else { return };
+    let Some(window) = host(app) else { return };
+    let castle = in_castle(app);
     let (w, h) = logical_size(&window);
     let tabs = tabs(app);
-    let (bar, overlay) = *CHROME.lock().unwrap();
+    let chrome = *CHROME.lock().unwrap();
+    let overlay = chrome.overlay;
+    let region = page_area(castle, (w, h), chrome.bar, chrome.area, chrome.shown);
     let shown = tabs.on_screen();
     let showable = |id: u32| tabs.list.iter().any(|t| t.id == id && t.url.is_some() && t.danger.is_none());
     let every_page = !shown.is_empty() && shown.iter().all(|id| showable(*id));
-    if let Some(ui) = app.get_webview(UI) {
-        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if every_page && !overlay { bar } else { h }).into() });
+    // the browser's own window: its toolbar page lies under the pages (inside Castle the room is the toolbar)
+    if let Some(ui) = app.get_webview(UI).filter(|_| !castle) {
+        let _ = ui.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, if every_page && !overlay { chrome.bar } else { h }).into() });
     }
+    let (rx, ry, rw, rh) = region.unwrap_or((0.0, 0.0, 0.0, 0.0));
     let widths = if shown.len() > 1 { tabs.widths.clone() } else { Vec::new() };
-    let columns = browser_tabs::columns(w, &widths);
+    let columns = browser_tabs::columns(rw, &widths);
     for tab in &tabs.list {
         let Some(view) = app.get_webview(&tab_label(tab.id)) else { continue };
-        match shown.iter().position(|id| *id == tab.id).filter(|_| showable(tab.id) && !overlay) {
+        match shown.iter().position(|id| *id == tab.id).filter(|_| showable(tab.id) && !overlay && region.is_some()) {
             Some(at) => {
-                let (x, cw) = columns.get(at).copied().unwrap_or((0.0, w));
-                let _ = view.set_bounds(Rect { position: LogicalPosition::new(x, bar).into(), size: LogicalSize::new(cw, (h - bar).max(0.0)).into() });
+                let (x, cw) = columns.get(at).copied().unwrap_or((0.0, rw));
+                let _ = view.set_bounds(Rect { position: LogicalPosition::new(rx + x, ry).into(), size: LogicalSize::new(cw, rh).into() });
                 let _ = view.show();
             }
             None => {
@@ -547,8 +611,10 @@ fn add_page(app: &AppHandle, window: &Window, id: u32, url: &str) -> Result<(), 
     #[cfg(not(target_os = "macos"))]
     let _ = PAGE_STORE;
     let (w, h) = logical_size(window);
+    // inside Castle a page starts off to the side until the layout puts it in the room
+    let (at, size) = if in_castle(app) { (LogicalPosition::new(-20000.0, -20000.0), LogicalSize::new(10.0, 10.0)) } else { (LogicalPosition::new(0.0, bar_height()), LogicalSize::new(w, (h - bar_height()).max(0.0))) };
     let view = window
-        .add_child(builder, LogicalPosition::new(0.0, bar_height()), LogicalSize::new(w, (h - bar_height()).max(0.0)))
+        .add_child(builder, at, size)
         .map_err(|_| "The page could not be opened.".to_string())?;
     // the platform's own phishing warning, switched on and proven
     crate::browser_native::harden(&view);
@@ -629,7 +695,7 @@ fn popup(app: &AppHandle, to: &Url, features: NewWindowFeatures, remember: bool)
             builder = builder.data_directory(folder.join("browser-pages"));
         }
     }
-    if let Some(window) = app.get_window(WINDOW) {
+    if let Some(window) = host(app) {
         #[cfg(windows)]
         if let Ok(owner) = window.hwnd() {
             builder = builder.owner_raw(owner);
@@ -724,6 +790,10 @@ pub async fn browser_close(app: AppHandle, id: u32) -> Result<(), String> {
         tabs.list.is_empty()
     };
     if empty {
+        // inside Castle the room stays, with a fresh new tab; the browser's own window closes
+        if in_castle(&app) {
+            return open_in_tab(&app, None);
+        }
         if let Some(window) = app.get_window(WINDOW) {
             let _ = window.close();
         }
@@ -815,17 +885,43 @@ pub async fn browser_phone_view(app: AppHandle, on: bool) -> Result<(), String> 
 
 /// Castle's own page tells the layout how tall its bar is and whether it has something open over the
 /// pages (the suggestions); the pages step aside while it does.
+/// Inside Castle it also gives the room's page area (`area`: x, y, width, height in the main window)
+/// and whether the room is in front with no sheet over it (`shown`); the pages hide when it is not.
 #[tauri::command]
-pub async fn browser_chrome(app: AppHandle, bar: f64, overlay: bool) -> Result<(), String> {
+pub async fn browser_chrome(app: AppHandle, bar: f64, overlay: bool, area: Option<[f64; 4]>, shown: Option<bool>) -> Result<(), String> {
     {
         let mut chrome = CHROME.lock().unwrap();
-        let bar = bar.clamp(BAR, 400.0);
-        if *chrome == (bar, overlay) {
+        let next = Chrome { bar: bar.clamp(BAR, 400.0), overlay, area: area.map(|a| (a[0], a[1], a[2].max(0.0), a[3].max(0.0))), shown: shown.unwrap_or(true) };
+        if *chrome == next {
             return Ok(());
         }
-        *chrome = (bar, overlay);
+        *chrome = next;
     }
     layout(&app);
+    Ok(())
+}
+
+/// Closes every page and the browser's own window, the sign-ins kept first: Browser opens changed,
+/// and the pages move to their new home at the next open.
+#[tauri::command]
+pub async fn browser_close_all(app: AppHandle) -> Result<(), String> {
+    let done = app.clone();
+    tauri::async_runtime::spawn_blocking(move || keep_sign_ins(&done)).await.ok();
+    let ids: Vec<u32> = tabs(&app).list.iter().map(|t| t.id).collect();
+    for id in ids {
+        if let Some(view) = app.get_webview(&tab_label(id)) {
+            let _ = view.close();
+        }
+        crate::browser_native::forget(&tab_label(id));
+        crate::browser_guard::forget_tab(id);
+    }
+    *app.state::<Browser>().0.lock().unwrap() = Tabs::default();
+    *CHROME.lock().unwrap() = Chrome { bar: BAR, overlay: false, area: None, shown: true };
+    if let Some(window) = app.get_window(WINDOW) {
+        let _ = window.destroy();
+    }
+    tell_unread(&app, (0, String::new()));
+    tell(&app);
     Ok(())
 }
 
@@ -1018,6 +1114,16 @@ mod tests {
         assert!(keeps_visit(false, true, false, false));
         assert!(!keeps_visit(false, false, false, false), "nothing asks for it");
         assert!(!keeps_visit(true, true, true, true), "never while browsing privately");
+    }
+
+    #[test]
+    fn the_pages_sit_under_the_bar_or_in_castles_room() {
+        assert_eq!(page_area(false, (1000.0, 800.0), 94.0, None, false), Some((0.0, 94.0, 1000.0, 706.0)), "its own window: under the bar, always");
+        let room = Some((20.0, 140.0, 1200.0, 600.0));
+        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, room, true), room, "inside Castle: the room's page area");
+        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, room, false), None, "the room not in front, or a sheet over it: hidden");
+        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, None, true), None, "no area told yet");
+        assert_eq!(page_area(true, (1400.0, 900.0), 94.0, Some((0.0, 0.0, 0.0, 300.0)), true), None, "an empty area");
     }
 
     #[test]
