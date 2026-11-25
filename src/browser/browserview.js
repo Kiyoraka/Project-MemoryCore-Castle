@@ -247,3 +247,28 @@ export function boundsOf(rect) {
   const box = { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) }
   return box.w >= 2 && box.h >= 2 ? box : null
 }
+
+/** The bookmarks bar from every bookmark (folders like "Bookmarks bar/Work"): bookmarks right on the
+ * bar are site pills; the rest gather under their first folder (the bar's own sub-folders by their own
+ * name), each keeping the rest of its folder path as `sub`. */
+export function barOf(marks) {
+  const BAR = 'bookmarks bar'
+  const sites = []
+  const folders = []
+  for (const m of marks ?? []) {
+    const parts = String(m.folder ?? '').split('/').map((p) => p.trim()).filter(Boolean)
+    const onBar = parts.length === 0 || (parts.length === 1 && parts[0].toLowerCase() === BAR)
+    const item = { title: m.title || m.url, url: m.url }
+    if (onBar) {
+      sites.push(item)
+      continue
+    }
+    const underBar = parts[0].toLowerCase() === BAR
+    const name = underBar ? parts[1] : parts[0]
+    const sub = parts.slice(underBar ? 2 : 1).join(' / ')
+    let folder = folders.find((f) => f.name === name)
+    if (!folder) folders.push((folder = { name, items: [] }))
+    folder.items.push({ ...item, sub })
+  }
+  return { folders, sites }
+}

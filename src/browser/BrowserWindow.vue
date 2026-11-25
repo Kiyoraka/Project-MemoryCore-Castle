@@ -27,6 +27,8 @@ import {
   browserWelcome,
   browserWelcomeAnswer,
   browserWidths,
+  bookmarksAll,
+  bookmarksBringChrome,
   devServers,
   getSettings,
   onBrowserState,
@@ -36,7 +38,7 @@ import GlassSelect from '../components/GlassSelect.vue'
 import DangerScreen from './DangerScreen.vue'
 import PaneBar from './PaneBar.vue'
 import PasswordsSheet from './PasswordsSheet.vue'
-import { boundsOf, chipCount, chipTitle, columnsOf, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
+import { barOf, boundsOf, chipCount, chipTitle, columnsOf, dragWidths, groupOf, libraryTiles, newTabShortcuts, onScreen, signInHint, singleTabs } from './browserview.js'
 import { STEPS, doneLine, offeredStep, stepNumber, stepWords } from './browser_welcome.js'
 
 // inside Castle: a room of the main window; `visible` is false while another room or a sheet is in front
@@ -165,6 +167,27 @@ function pageEl(id, el) {
 }
 watch([tabs, () => overlays.size, () => props.visible, shares], schedule, { deep: true })
 
+// ---------- the bookmarks bar ----------
+const marks = ref([])
+const bar = computed(() => barOf(marks.value))
+const openFolder = ref('')
+const folderShown = computed(() => bar.value.folders.find((f) => f.name === openFolder.value) ?? null)
+watch(folderShown, (f) => overlay('folder', Boolean(f)))
+const chromeProfiles = ref([])
+async function readMarks() {
+  marks.value = await bookmarksAll().catch(() => [])
+}
+function openMark(url) {
+  openFolder.value = ''
+  act(() => browserGo(url, tabs.value.active))
+}
+const bringChrome = (profile = null) =>
+  act(async () => {
+    const done = await bookmarksBringChrome(profile)
+    chromeProfiles.value = done.profiles ?? []
+    if (!chromeProfiles.value.length) await readMarks()
+  })
+
 // ---------- translation settings, shared by the panes ----------
 const translating = ref({ languages: [], language: 'en', sites: [], canTranslate: false, canKeepSites: false, bubbleWay: '' })
 async function readTranslating() {
@@ -279,6 +302,7 @@ onMounted(async () => {
   // inside Castle the room opens on a new tab when nothing is open yet
   if (props.embedded && !tabs.value.list.length) await browserOpen(null).catch(() => {})
   await readTranslating()
+  await readMarks()
   await readWelcome()
   if (current.value && !current.value.url) refreshNewTab()
   schedule()
@@ -326,6 +350,24 @@ onBeforeUnmount(() => {
         Pages here can't reach Castle or your memory
       </span>
     </div>
+    <nav class="marks" aria-label="Bookmarks">
+      <template v-if="marks.length">
+        <button v-for="f in bar.folders" :key="f.name" class="mark folder" :class="{ open: openFolder === f.name }" @click="openFolder = openFolder === f.name ? '' : f.name"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f5c864" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg> {{ f.name }}</button>
+        <span v-if="bar.folders.length && bar.sites.length" class="rule" aria-hidden="true"></span>
+        <button v-for="s in bar.sites" :key="s.url" class="mark" :title="s.url" @click="openMark(s.url)">{{ s.title }}</button>
+      </template>
+      <template v-else>
+        <button v-if="!chromeProfiles.length" class="mark" @click="bringChrome()">★ Bring my Chrome bookmarks</button>
+        <template v-else>
+          <span class="mark-say">Which Chrome profile?</span>
+          <button v-for="p in chromeProfiles" :key="p.folder" class="mark" @click="bringChrome(p.folder)">{{ p.name }}</button>
+        </template>
+      </template>
+    </nav>
+    <div v-if="folderShown" class="folder-list" role="menu" :aria-label="folderShown.name">
+      <button v-for="i in folderShown.items" :key="i.url" class="mark" role="menuitem" :title="i.url" @click="openMark(i.url)">{{ i.title }}<small v-if="i.sub"> {{ i.sub }}</small></button>
+      <button class="mark close" @click="openFolder = ''">Close</button>
+    </div>
     <div v-if="groupMenu && group" class="group-list" role="menu" aria-label="The pages in this tab">
       <span class="group-row" v-for="t in group.members" :key="t.id">
         <span class="title">{{ chipTitle(t.title) }}</span>
@@ -348,6 +390,7 @@ onBeforeUnmount(() => {
           @page-el="pageEl"
           @problem="problem = $event"
           @translating="translating = $event"
+          @marks="readMarks"
         >
           <template #tools="{ tab }"><slot name="pane-tools" :tab="tab" /></template>
           <template #below="{ tab }"><slot name="pane-below" :tab="tab" /></template>
@@ -964,6 +1007,50 @@ onBeforeUnmount(() => {
   border-color: rgba(168, 120, 255, 0.7);
   background: rgba(120, 80, 220, 0.3);
   cursor: pointer;
+}
+.marks,
+.folder-list {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+.folder-list {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(20, 16, 50, 0.45);
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.mark small {
+  color: var(--text-dim);
+}
+.mark.open {
+  border-color: #f5c864;
+}
+.mark-say {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.rule {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
 }
 .chip.key {
   gap: 6px;

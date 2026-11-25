@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
+import { barOf, boundsOf, chipTitle, columnsOf, filterLogins } from './browserview.js'
 import { ARTIFACTS, chipCount, dangerWords, dragWidths, fillLabel, groupOf, languageLabel, libraryTiles, moveSelection, newTabShortcuts, onScreen, sameLanguage, showTranslateRow, shownAddress, signInHint, singleTabs, siteOf, siteWarning, suggestionGroups, suggestionInput } from './browserview.js'
 
 describe('the new-tab page', () => {
@@ -233,5 +233,21 @@ describe('the Passwords sheet', () => {
     expect(filterLogins(logins, 'git').map((l) => l.id)).toEqual([1])
     expect(filterLogins(logins, 'kiyo').map((l) => l.id)).toEqual([2])
     expect(filterLogins(logins, '  ').length).toBe(2)
+  })
+})
+
+describe('the bookmarks bar', () => {
+  it('puts bar bookmarks as pills and the rest in their folders', () => {
+    const bar = barOf([
+      { title: 'GitHub', url: 'https://github.com/', folder: 'Bookmarks bar' },
+      { title: 'Star', url: 'https://star.example/', folder: '' },
+      { title: 'Docs', url: 'https://docs.example/', folder: 'Bookmarks bar/Work' },
+      { title: 'Deep', url: 'https://deep.example/', folder: 'Bookmarks bar/Work/Specs' },
+      { title: 'Recipe', url: 'https://food.example/', folder: 'Other bookmarks/Food' },
+    ])
+    expect(bar.sites.map((s) => s.title)).toEqual(['GitHub', 'Star'])
+    expect(bar.folders.map((f) => f.name)).toEqual(['Work', 'Other bookmarks'])
+    expect(bar.folders[0].items.map((i) => i.sub)).toEqual(['', 'Specs'])
+    expect(bar.folders[1].items[0].sub).toBe('Food')
   })
 })

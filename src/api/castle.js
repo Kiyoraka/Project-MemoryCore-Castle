@@ -697,6 +697,9 @@ export const vaultForget = (id = null) => invoke('vault_forget', { id })
 export const vaultAdd = (url, username, password) => invoke('vault_add', { url, username, password })
 export const vaultCopy = (id) => invoke('vault_copy', { id })
 export const vaultImport = () => invoke('vault_import')
+// The bookmarks bar: every bookmark by folder; Chrome's brought at a press -> { added, profiles }
+export const bookmarksAll = () => invoke('bookmarks_all')
+export const bookmarksBringChrome = (profile = null) => invoke('bookmarks_bring_chrome', { profile })
 export const browserPutInChat = (url) => invoke('browser_put_in_chat', { url })
 export const browserClear = () => invoke('browser_clear')
 // The DANGER screen's two buttons (browser_guard.rs): back to safety, or one page of the site anyway

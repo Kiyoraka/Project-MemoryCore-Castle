@@ -33,7 +33,7 @@ const props = defineProps({
   many: { type: Boolean, default: false },
   translating: { type: Object, required: true },
 })
-const emit = defineEmits(['focus', 'close-column', 'overlay', 'page-el', 'problem', 'translating'])
+const emit = defineEmits(['focus', 'close-column', 'overlay', 'page-el', 'problem', 'translating', 'marks'])
 
 const field = ref(null)
 const pageBox = ref(null)
@@ -142,7 +142,11 @@ watch(
   () => props.tab.title,
   () => url.value && browserLogins(props.tab.id).then((l) => (logins.value = l)).catch(() => {}),
 )
-const toggleStar = () => act(async () => (starred.value = await browserBookmarkToggle(url.value, props.tab.title ?? '')))
+const toggleStar = () =>
+  act(async () => {
+    starred.value = await browserBookmarkToggle(url.value, props.tab.title ?? '')
+    emit('marks')
+  })
 function fill(login) {
   choosing.value = false
   act(() => browserFill(login.id, props.tab.id))
