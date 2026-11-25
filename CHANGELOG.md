@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- A downloader in Castle's browser: every page download caught, up to 8 parts at once, pause and resume (even after a restart), folders by type, YouTube and Threads videos at the quality you pick, and every file past the guards first.
+
 - Ask your companion about a page: each toolbar's "read this" sends the page's words to HOME with Summarize, Is it safe? or Help me fill this, and the answer comes in HOME's chat. Never a bank or a password page.
 
 - A bookmarks bar in Castle's browser: your folders and bar bookmarks under the tabs, the star filing new ones on the bar, and Bring my Chrome bookmarks when it is empty.

@@ -1070,6 +1070,28 @@ page on the bar (press it again to remove it). With no bookmarks yet, **★ Brin
 bookmarks** reads a copy of Chrome's own bookmarks (Chrome is never touched); with several Chrome
 profiles you choose which first.
 
+### Downloads
+
+Every download a page starts lands in Castle's own downloader, and the **Downloads** chip (with a
+ring while something is running) opens its panel beside the pages:
+
+- **Paste a link** (a file, or a YouTube or Threads video) and press **Download**.
+- **All / Video / Music / Documents / Programs** filter the cards. Each card shows its progress
+  (mint running, amber paused, gold done, coral failed) with **Pause**, **Resume**, **Open**, **Show
+  in folder**, **Cancel** and **Remove**.
+- Large files come in up to 8 parts at once, and a paused or broken download picks up where it
+  stopped, even after Castle restarts. Three run at a time; the rest wait their turn.
+- Files go to your Downloads folder, sorted into folders by type. Change both in **Settings > Rooms
+  > BROWSER > Download folder** and **Sort by type**. A name already there is never overwritten.
+- Every download goes past the guards first: a dangerous address is never downloaded. On Windows a
+  finished file is marked as coming from the internet, so Windows still asks before running it.
+- **Videos**: press **Get the video tool** once (yt-dlp, fetched from its own release and checked
+  before it is kept). A video link then offers the qualities it really has, remembering your last
+  pick. A page with a video shows **Download video** in its toolbar. ffmpeg (if installed) joins the
+  picture and the sound. For your own videos, ones you have the right to keep, and offline viewing.
+  DRM-protected video is never taken.
+- A private tab's downloads are never written to the list.
+
 ### Passwords
 
 The **Passwords** chip (a key) opens the passwords sealed on this PC: search them by site or
