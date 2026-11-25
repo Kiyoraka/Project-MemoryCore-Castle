@@ -435,6 +435,15 @@ mod tests {
         let reminder: Option<String> = conn.query_first("SELECT state FROM reminders WHERE title = 'Check Windows'").unwrap();
         assert_eq!(reminder.as_deref(), Some("done"));
         go(&mut conn, &["task", "undo", "--id", &ids[1].to_string()]).unwrap();
+        // ticked on HOME's TODAY card, the reminder ticks its task; Undo takes both back (F9)
+        let rid: u64 = conn.query_first("SELECT id FROM reminders WHERE title = 'Check Windows'").unwrap().unwrap();
+        assert_eq!(crate::store::reminder_set_done(&mut conn, rid, true).unwrap(), "Check Windows");
+        assert!(tasks(&mut conn, chip).unwrap()[1].done);
+        assert!(crate::store::reminder_set_done(&mut conn, rid, true).unwrap_err().contains("No open reminder"));
+        crate::store::reminder_set_done(&mut conn, rid, false).unwrap();
+        assert!(!tasks(&mut conn, chip).unwrap()[1].done);
+        let state: Option<String> = conn.query_first("SELECT state FROM reminders WHERE title = 'Check Windows'").unwrap();
+        assert_eq!(state.as_deref(), Some("open"));
         go(&mut conn, &["task", "done", "--id", &format!("#{}", ids[0])]).unwrap();
         task_order(&mut conn, chip, &[ids[1]]).unwrap();
         assert_eq!(go(&mut conn, &["task", "list", "--project", "Update chip"]).unwrap(), format!("#{} [ ] Check Windows (by 2026-11-25)\n#{} [x] Move the chip", ids[1], ids[0]));

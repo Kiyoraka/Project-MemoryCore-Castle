@@ -58,6 +58,9 @@ pub fn features(folder: &Path) -> Features {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Reminder {
+    /// The row's id when the memory lives in the database: HOME's TODAY card can tick it then.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
     pub title: String,
     pub due: Option<String>,
     pub detail: String,
@@ -85,7 +88,7 @@ pub fn reminders(folder: &Path) -> Vec<Reminder> {
         let due = head.split_once("(by ").and_then(|(_, rest)| rest.split(')').next()).map(|d| d.trim().to_string());
         let title = head.split(" (by ").next().unwrap_or(head).trim().trim_matches('*').trim().to_string();
         if !title.is_empty() {
-            found.push(Reminder { title, due, detail: detail.to_string() });
+            found.push(Reminder { id: None, title, due, detail: detail.to_string() });
         }
     }
     found
