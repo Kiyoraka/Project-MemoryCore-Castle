@@ -399,16 +399,25 @@ onBeforeUnmount(() => {
   gap: 6px;
   margin-bottom: 4px;
 }
+/* PROJECTS / FILES: tabs in the theme's colours, the chosen one in the accent */
 .side-switch button {
   flex: 1;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text-dim);
   font-size: 12px;
   letter-spacing: 0.12em;
-  padding: 6px 8px;
-  opacity: 0.7;
+}
+.side-switch button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
 }
 .side-switch button.on {
-  opacity: 1;
-  border-color: var(--accent, currentColor);
+  border-color: var(--accent);
+  background: var(--hover);
+  color: var(--accent);
 }
 .projects {
   display: flex;

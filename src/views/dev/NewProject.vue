@@ -322,14 +322,38 @@ code {
   color: var(--text-dim);
 }
 
-.field input,
+/* text boxes in the theme's own colours (the dropdowns beside them are GlassSelect) */
+.field input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--widget-background);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
 
+.field input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.field > *:not(span) {
+  flex: 1;
+  min-width: 0;
+}
 
 .field input[aria-invalid='true'] {
   border-color: var(--warn);
 }
 
-.field input:focus-visible,
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
 
 .check {
   display: flex;
@@ -358,8 +382,20 @@ code {
 }
 .stack-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+/* in the stack grid the label sits above its dropdown, so narrow columns stay tidy */
+.stack-grid .field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.stack-grid .field > span {
+  width: auto;
+  font-size: 12px;
 }
 .hint {
   margin: -4px 0 0 70px;
