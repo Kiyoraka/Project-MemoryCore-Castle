@@ -19,7 +19,7 @@ pub const HOST: &str = "127.0.0.1";
 pub const ENV_KEYS: [&str; 5] = ["MEMORY_DB_HOST", "MEMORY_DB_PORT", "MEMORY_DB_NAME", "MEMORY_DB_USER", "MEMORY_DB_PASSWORD"];
 
 /// The migrations, in order. A released file is never edited; a change is a new entry.
-pub const MIGRATIONS: [(&str, &str); 33] = [
+pub const MIGRATIONS: [(&str, &str); 34] = [
     ("001_core", include_str!("../resources/schema/001_core.sql")),
     ("002_imported_files", include_str!("../resources/schema/002_imported_files.sql")),
     ("003_memory_skills", include_str!("../resources/schema/003_memory_skills.sql")),
@@ -53,6 +53,7 @@ pub const MIGRATIONS: [(&str, &str); 33] = [
     ("031_browser_private", include_str!("../resources/schema/031_browser_private.sql")),
     ("032_browser_import", include_str!("../resources/schema/032_browser_import.sql")),
     ("033_browser_searches", include_str!("../resources/schema/033_browser_searches.sql")),
+    ("034_worldsmith", include_str!("../resources/schema/034_worldsmith.sql")),
 ];
 
 /// How to reach one database.
@@ -327,6 +328,9 @@ mod tests {
         assert!(MIGRATIONS[30].0 == "031_browser_private" && MIGRATIONS[30].1.trim_start().starts_with("CREATE TABLE browser_private_visits"));
         assert!(MIGRATIONS[32].0 == "033_browser_searches" && MIGRATIONS[32].1.starts_with("CREATE TABLE browser_searches"), "no comment before the first statement");
         assert!(MIGRATIONS[32].1.contains("UNIQUE KEY ux_browser_searches (term_key)"), "one search is kept once, whatever its case");
+        assert!(MIGRATIONS[33].0 == "034_worldsmith" && MIGRATIONS[33].1.starts_with("CREATE TABLE worldsmith_games"), "no comment before the first statement");
+        assert_eq!(statements(MIGRATIONS[33].1).len(), 4, "games, values, recipes, sessions");
+        assert!(MIGRATIONS[33].1.contains("UNIQUE KEY ux_worldsmith_values_game_label (game_id, label)"), "one value per label per game");
     }
 
     #[test]

@@ -161,6 +161,9 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
     }
     if words.first()==Some(&"automation") { return crate::automations::companion::door(conn,ask,memory); }
     if words.first()==Some(&"calendar") { return crate::calendar::companion::door(conn,ask); }
+    if words.first() == Some(&"worldsmith") {
+        return crate::worldsmith::companion::door(conn, ask);
+    }
     if words.first() == Some(&"finance") {
         return crate::finance::companion::door(conn, ask, memory);
     }
@@ -250,7 +253,7 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
         ["export"] => export(conn, Path::new(ask.need("to")?)),
         ["dump"] => dump(conn, Path::new(ask.need("to")?)),
         ["restore"] => restore(conn, Path::new(ask.need("from")?)),
-        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, export, dump, restore.", words.join(" "))),
+        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, worldsmith, export, dump, restore.", words.join(" "))),
     }
 }
 
