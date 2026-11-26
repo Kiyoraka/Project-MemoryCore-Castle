@@ -11,10 +11,15 @@
 //! - [`blank`]: the parts of a new deck.
 
 pub mod blank;
+pub mod cmds;
 pub mod edit;
+pub mod editing;
 pub mod model;
+pub mod ops;
 pub mod render;
+pub mod snap;
 pub mod style;
+pub mod text;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +30,7 @@ use std::sync::{Arc, OnceLock};
 use crate::ground::bus::json::Json;
 use crate::ground::bus::{BusError, Change, Command, CommandSpec, Document};
 use crate::ground::display::{DisplayList, Item, Matrix, Rect, Resources};
+use crate::ground::edit::{Editing, Selection};
 use crate::ground::draw::{Fill, Geometry, Line};
 use crate::ground::font::FontIndex;
 use crate::ground::opc::Package;
@@ -32,7 +38,7 @@ use crate::ground::text::FontCache;
 
 use edit::{ShapeKey, Target};
 use model::{all_shapes, shape_id, shape_kind, shape_name, shape_text, sp_tree, Deck, Ph};
-use render::{resolve_paras, resolve_shape, Owner, Painter, RPara, Scene};
+use render::{resolve_paras, resolve_shape, Owner, Painter, RPara, Scene, ShapeGeom};
 use style::BodyProps;
 
 /// Why a deck could not be opened.
@@ -77,6 +83,12 @@ pub struct StageDoc {
     resources: Resources,
     images: HashMap<String, Option<u32>>,
     pages: Vec<DisplayList>,
+    /// Each slide's shapes as last drawn (the caret, hit tests and handles read them).
+    geo: Vec<Vec<ShapeGeom>>,
+    /// Where the last command left the selection.
+    landed: Option<(Command, Selection)>,
+    /// Groups taken apart here: (slide, group id, name, member ids), for a regroup.
+    ungrouped: Vec<(usize, u32, String, Vec<u32>)>,
 }
 
 impl fmt::Debug for StageDoc {
@@ -95,7 +107,7 @@ impl StageDoc {
     pub fn open_with_fonts(bytes: &[u8], fonts: FontCache) -> Result<StageDoc, StageError> {
         let pkg = Package::open(bytes).map_err(|e| StageError(e.to_string()))?;
         let deck = Deck::load(pkg)?;
-        let mut doc = StageDoc { deck, fonts, resources: Resources::new(), images: HashMap::new(), pages: Vec::new() };
+        let mut doc = StageDoc { deck, fonts, resources: Resources::new(), images: HashMap::new(), pages: Vec::new(), geo: Vec::new(), landed: None, ungrouped: Vec::new() };
         doc.render_all();
         Ok(doc)
     }
@@ -137,17 +149,38 @@ impl StageDoc {
     }
 
     fn render_all(&mut self) {
-        let StageDoc { deck, fonts, resources, images, pages } = self;
-        let mut painter = Painter { fonts, res: resources, images };
-        *pages = (0..deck.slides.len()).map(|i| painter.render_slide(deck, i)).collect();
+        let StageDoc { deck, fonts, resources, images, pages, geo, .. } = self;
+        let mut painter = Painter::new(fonts, resources, images);
+        pages.clear();
+        geo.clear();
+        for i in 0..deck.slides.len() {
+            pages.push(painter.render_slide(deck, i));
+            geo.push(std::mem::take(&mut painter.geo));
+        }
     }
 
     fn render_page(&mut self, i: usize) {
-        let StageDoc { deck, fonts, resources, images, pages } = self;
+        let StageDoc { deck, fonts, resources, images, pages, geo, .. } = self;
         if i < pages.len() {
-            let mut painter = Painter { fonts, res: resources, images };
+            let mut painter = Painter::new(fonts, resources, images);
             pages[i] = painter.render_slide(deck, i);
+            if i < geo.len() {
+                geo[i] = std::mem::take(&mut painter.geo);
+            }
         }
+    }
+
+    /// A slide as the show draws it (no prompt text in empty placeholders).
+    pub fn show_display(&mut self, i: usize) -> DisplayList {
+        let StageDoc { deck, fonts, resources, images, .. } = self;
+        let mut painter = Painter::new(fonts, resources, images);
+        painter.prompts = false;
+        painter.render_slide(deck, i)
+    }
+
+    /// Every layout's name, in the order `stage.new_slide` and `stage.set_layout` count them.
+    pub fn layout_names(&self) -> Vec<String> {
+        ops::layouts(&self.deck).into_iter().map(|l| l.1).collect()
     }
 
     /// A slide scaled to `width_pt` wide, for the slide strip.
@@ -189,7 +222,7 @@ impl StageDoc {
         })
     }
 
-    fn slide_json(&self, i: usize, full: bool) -> Json {
+    pub(crate) fn slide_json(&self, i: usize, full: bool) -> Json {
         let excerpt = |s: String| -> Json {
             if full || s.chars().count() <= 120 {
                 Json::from(s)
@@ -208,6 +241,10 @@ impl StageDoc {
                     let mut j = Json::obj().with("name", shape_name(s)).with("kind", shape_kind(s));
                     if let Some(id) = shape_id(s) {
                         j.set("id", id);
+                        if let Some(b) = self.shape_box(i, id) {
+                            let r = |v: f64| Json::from((v * 10.0).round() / 10.0);
+                            j.set("box", Json::Arr(vec![r(b.x), r(b.y), r(b.w), r(b.h)]));
+                        }
                     }
                     match Ph::of(s) {
                         Some(ph) => {
@@ -240,7 +277,8 @@ impl StageDoc {
             j.set("placeholders", Json::Arr(phs));
             j.set("shapes", Json::Arr(others));
         }
-        j.set("notes", self.deck.notes_text(i).map(excerpt).unwrap_or(Json::Null));
+        // Notes in full: the notes pane edits them as they are.
+        j.set("notes", self.deck.notes_text(i).map(Json::from).unwrap_or(Json::Null));
         j
     }
 
@@ -261,6 +299,10 @@ impl Document for StageDoc {
     fn apply(&mut self, cmd: &Command) -> Result<Change, BusError> {
         let name = cmd.name.as_str();
         let args = &cmd.args;
+        self.landed = None;
+        if let Some(r) = self.apply_hand(cmd) {
+            return r;
+        }
         match name {
             "stage.set_shape_text" => {
                 let slide = self.slide_arg(name, args)?;
@@ -310,6 +352,14 @@ impl Document for StageDoc {
             .with("slide_width_pt", w)
             .with("slide_height_pt", h)
             .with("slide_count", self.deck.slides.len())
+            .with("layouts", Json::Arr(self.layout_names().into_iter().map(Json::from).collect()))
+            .with(
+                "places",
+                Json::obj()
+                    .with("text", "{\"slide\",\"shape\":id,\"para\",\"char\"} (+ \"cell\":[row,col] in a table); a selection is {\"anchor\":place,\"focus\":place}")
+                    .with("shapes", "{\"slide\",\"shape\":id,\"shapes\":[ids]}, or name \"slide\" and \"shape\"/\"shapes\" in a command's args instead of \"sel\"")
+                    .with("slide", "{\"slide\",\"whole\":true}"),
+            )
             .with("slides", Json::Arr((0..self.deck.slides.len()).map(|i| self.slide_json(i, false)).collect()))
     }
 
@@ -343,9 +393,27 @@ impl Document for StageDoc {
             ),
             CommandSpec::new("stage.set_notes", "Replace the speaker notes of a slide (lines become paragraphs).", r#"{ "slide": number (from 0), "text": string }"#),
         ]
+        .into_iter()
+        .chain(cmds::specs())
+        .chain(std::iter::once(CommandSpec::new("stage.restore_parts", "Put parts back exactly as they were (the undo of a hand edit).", r#"{ "parts": [{ "name", "ct"?, "xml"? | "b64"? | "remove": true }] }"#)))
+        .collect()
     }
 
     fn resources(&self) -> Option<&Resources> {
         Some(&self.resources)
+    }
+
+    fn editing(&self) -> Option<&dyn Editing> {
+        Some(self)
+    }
+
+    fn pdf_resources(&self) -> Option<crate::ground::pdfw::PageResources> {
+        let mut res = crate::ground::pdfw::PageResources::new();
+        for id in 1..=self.fonts.font_count() as u32 {
+            if let Some(f) = self.fonts.font(id) {
+                res.add_font(id, f.clone());
+            }
+        }
+        Some(res)
     }
 }

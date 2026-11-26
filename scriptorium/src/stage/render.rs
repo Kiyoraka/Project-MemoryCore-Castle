@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::ground::display::{Color, DisplayList, ImageRes, Item, Paint, PathOp, Rect, Resources, Stroke};
+use crate::ground::display::{Color, DisplayList, ImageRes, Item, Matrix, Paint, PathOp, Rect, Resources, Stroke};
 use crate::ground::draw::{
     find_fill, parse_fill, parse_line, shape_geometry, shape_items, ColorMap, ColorMod, ColorSpec, Fill, Geometry, Line, PictureFill,
     PictureMode, Theme, Xfrm,
@@ -14,7 +14,7 @@ use crate::ground::picture::{jpeg, png};
 use crate::ground::text::{layout_paragraph, Align, FontCache, LineSpacing, ParaOptions, ParagraphLayout, StyledRun, TabKind, TabStop, TextStyle};
 use crate::ground::xml::Element;
 
-use super::model::{find_layout_ph, find_master_ph, shape_children, sp_tree, table_of, Deck, MasterStyles, Ph, TextCat};
+use super::model::{find_layout_ph, find_master_ph, shape_children, shape_id, sp_tree, table_of, Deck, MasterStyles, Ph, TextCat};
 use super::style::{autonum_text, emu_attr_pt, is_invisible, on, BodyProps, BulletKind, BulletSize, ListStyle, ParaProps, RunProps, Spacing};
 
 const EMU: f64 = 12700.0;
@@ -247,6 +247,21 @@ pub struct RPara {
     pub end_style: TextStyle,
     pub def_tab: f64,
     pub tabs: Vec<(f64, String)>,
+    /// Where each run's text comes from: one per entry of `runs`.
+    pub segs: Vec<Seg>,
+    /// The paragraph's length in characters (a line break and a field count one).
+    pub model_len: usize,
+}
+
+/// One drawn run's place in its paragraph: the first character (counting as [`super::text`] does),
+/// how many it covers there, and the text drawn for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seg {
+    pub model: usize,
+    pub mlen: usize,
+    pub text: String,
+    /// A field: one character drawn as many.
+    pub atomic: bool,
 }
 
 fn align_of(a: Option<&str>) -> Align {
@@ -319,7 +334,16 @@ pub fn resolve_paras(scene: &Scene, tx: &Element, chain: &TextChain, font_scale:
             (text_style(&rp, theme, cmap, font_scale), rp)
         };
         let mut runs: Vec<StyledRun> = Vec::new();
+        let mut segs: Vec<Seg> = Vec::new();
+        let mut model = 0usize;
         for r in p.elements() {
+            let mlen = match r.local() {
+                "r" => r.child("t").map(|t| t.text().chars().count()).unwrap_or(0),
+                "br" | "fld" => 1,
+                _ => 0,
+            };
+            let at = model;
+            model += mlen;
             let text = match r.local() {
                 "r" => r.child("t").map(|t| t.text()).unwrap_or_default(),
                 "br" => "\n".to_string(),
@@ -338,6 +362,7 @@ pub fn resolve_paras(scene: &Scene, tx: &Element, chain: &TextChain, font_scale:
             if text.is_empty() || is_invisible(style.color) && text.trim().is_empty() {
                 continue;
             }
+            segs.push(Seg { model: at, mlen, text: text.clone(), atomic: r.local() == "fld" });
             runs.push(StyledRun { text, style });
         }
         let (end_style, _) = style_of(p.child("endParaRPr"));
@@ -419,6 +444,8 @@ pub fn resolve_paras(scene: &Scene, tx: &Element, chain: &TextChain, font_scale:
             end_style,
             def_tab: props.def_tab.unwrap_or(72.0),
             tabs: props.tabs.clone().unwrap_or_default(),
+            segs,
+            model_len: model,
         });
     }
     out
@@ -499,6 +526,152 @@ pub fn place_block(block: &TextBlock, inner: Rect, anchor: &str) -> Vec<Item> {
     items
 }
 
+/// Where each laid-out paragraph sits (the same places [`place_block`] draws them at).
+pub fn place_geom(block: &TextBlock, paras: &[RPara], inner: Rect, anchor: &str) -> Vec<ParaGeom> {
+    let mut y = match anchor {
+        "ctr" => inner.y + (inner.h - block.height) / 2.0,
+        "b" => inner.bottom() - block.height,
+        _ => inner.y,
+    };
+    let mut out = Vec::new();
+    for ((lay, (align, natural)), rp) in block.paras.iter().zip(&block.aligns).zip(paras) {
+        let dx = if block.wrap {
+            0.0
+        } else {
+            match align {
+                Align::Center => (inner.w - natural) / 2.0,
+                Align::Right => inner.w - natural,
+                _ => 0.0,
+            }
+        };
+        out.push(ParaGeom {
+            lay: lay.clone(),
+            x: inner.x + dx,
+            y,
+            bullet: rp.bullet.as_ref().map(|b| b.text.len()).unwrap_or(0),
+            segs: rp.segs.clone(),
+            model_len: rp.model_len,
+        });
+        y += lay.height;
+    }
+    out
+}
+
+/// One paragraph as laid out on a slide, with the way back from its drawn text to its characters.
+#[derive(Debug, Clone)]
+pub struct ParaGeom {
+    pub lay: ParagraphLayout,
+    /// Top-left of the paragraph in the text's own space (points).
+    pub x: f64,
+    pub y: f64,
+    /// Bytes of the bullet (or number) at the start of the drawn text.
+    pub bullet: usize,
+    pub segs: Vec<Seg>,
+    pub model_len: usize,
+}
+
+impl ParaGeom {
+    /// A character place to a byte offset in the drawn text.
+    pub fn to_layout(&self, ch: usize) -> usize {
+        let mut l = self.bullet;
+        for s in &self.segs {
+            if ch < s.model {
+                return l;
+            }
+            if ch <= s.model + s.mlen {
+                let k = ch - s.model;
+                if s.atomic {
+                    return if k == 0 { l } else { l + s.text.len() };
+                }
+                return l + s.text.char_indices().nth(k).map(|(b, _)| b).unwrap_or(s.text.len());
+            }
+            l += s.text.len();
+        }
+        l
+    }
+
+    /// A byte offset in the drawn text to a character place.
+    pub fn to_model(&self, off: usize) -> usize {
+        if off <= self.bullet {
+            return self.segs.first().map(|s| s.model).unwrap_or(0).min(self.model_len);
+        }
+        let mut l = self.bullet;
+        for s in &self.segs {
+            if off <= l + s.text.len() {
+                let part = &s.text[..(off - l).min(s.text.len())];
+                let k = part.chars().count();
+                if s.atomic {
+                    return s.model + usize::from(k > 0);
+                }
+                return s.model + k.min(s.mlen);
+            }
+            l += s.text.len();
+        }
+        self.model_len
+    }
+}
+
+/// A text area of a shape: its paragraphs and the transform from its own space to the slide.
+#[derive(Debug, Clone)]
+pub struct TextGeom {
+    pub m: Matrix,
+    pub inner: Rect,
+    pub paras: Vec<ParaGeom>,
+}
+
+/// A slide's shape as drawn, for the caret, the hit test and the selection handles.
+#[derive(Debug, Clone)]
+pub struct ShapeGeom {
+    pub id: u32,
+    /// The top-level shape on the slide (itself, or the outermost group around it).
+    pub top: u32,
+    /// The group directly around it.
+    pub group: Option<u32>,
+    pub kind: &'static str,
+    /// The shape's own box (0,0)-(w,h) to slide points.
+    pub m: Matrix,
+    pub w: f64,
+    pub h: f64,
+    pub text: Option<TextGeom>,
+    /// Table cells: (row, column, the cell's box in the table's space, its text).
+    pub cells: Vec<(usize, usize, Rect, TextGeom)>,
+    pub placeholder: bool,
+    /// A text box (typing is what it is for, even when empty).
+    pub text_box: bool,
+}
+
+/// What an empty placeholder shows until it is typed in (never in the show or the file).
+pub fn prompt_text(ph: &Ph, layout_el: Option<&Element>) -> Option<String> {
+    if let Some(l) = layout_el {
+        let custom = l
+            .elements()
+            .find(|e| e.local().starts_with("nv"))
+            .and_then(|n| n.child("nvPr"))
+            .and_then(|n| n.child("ph"))
+            .and_then(|p| p.attr("hasCustomPrompt"))
+            .map(on)
+            .unwrap_or(false);
+        if custom {
+            if let Some(t) = l.child("txBody").map(|t| super::model::text_of(t, None)).filter(|t| !t.trim().is_empty()) {
+                return Some(t);
+            }
+        }
+    }
+    Some(
+        match ph.ty.as_str() {
+            "title" | "ctrTitle" => "Click to add title",
+            "subTitle" => "Click to add subtitle",
+            "pic" => "Click icon to add picture",
+            "dt" | "ftr" | "sldNum" | "hdr" | "sldImg" => return None,
+            _ => "Click to add text",
+        }
+        .to_string(),
+    )
+}
+
+/// The alpha prompt text is drawn with: the slide show leaves out glyph runs of this alpha.
+pub const PROMPT_ALPHA: u8 = 0xFE;
+
 /// Does a text body have anything to draw?
 fn has_text(tx: &Element) -> bool {
     tx.children_named("p").any(|p| p.elements().any(|r| matches!(r.local(), "r" | "fld") && r.child("t").is_some_and(|t| !t.text().is_empty())))
@@ -528,10 +701,32 @@ pub struct Painter<'a> {
     pub res: &'a mut Resources,
     /// Image part key -> resource id (None: could not be decoded).
     pub images: &'a mut HashMap<String, Option<u32>>,
+    /// The slide's shapes as drawn (filled by `render_slide`).
+    pub geo: Vec<ShapeGeom>,
+    /// Draw the prompt text of empty placeholders.
+    pub prompts: bool,
+    cur: Matrix,
+    top: Option<u32>,
+    group: Option<u32>,
 }
 
 impl<'a> Painter<'a> {
+    pub fn new(fonts: &'a mut FontCache, res: &'a mut Resources, images: &'a mut HashMap<String, Option<u32>>) -> Painter<'a> {
+        Painter { fonts, res, images, geo: Vec::new(), prompts: true, cur: Matrix::IDENTITY, top: None, group: None }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record(&mut self, el: &Element, kind: &'static str, m: Matrix, w: f64, h: f64, text: Option<TextGeom>, cells: Vec<(usize, usize, Rect, TextGeom)>) {
+        let Some(id) = shape_id(el) else { return };
+        let text_box = super::model::shape_kind(el) == "text box";
+        self.geo.push(ShapeGeom { id, top: self.top.unwrap_or(id), group: self.group, kind, m, w, h, text, cells, placeholder: Ph::of(el).is_some(), text_box });
+    }
+
     pub fn render_slide(&mut self, deck: &Deck, index: usize) -> DisplayList {
+        self.geo.clear();
+        self.cur = Matrix::IDENTITY;
+        self.top = None;
+        self.group = None;
         let (w, h) = (deck.size.0 as f64 / EMU, deck.size.1 as f64 / EMU);
         let mut dl = DisplayList::new(w, h);
         let Some(scene) = Scene::new(deck, index) else { return dl };
@@ -628,29 +823,68 @@ impl<'a> Painter<'a> {
         } else {
             out.extend(shape_items(&sg.paths, fill.as_ref(), line.as_ref(), Some(&xfrm)));
         }
-        if let Some(tx) = el.child("txBody") {
-            if has_text(tx) {
-                let items = self.text_items(scene, &r, tx, sg.text_rect);
-                if !items.is_empty() {
-                    let upright = Xfrm { flip_h: false, flip_v: false, ..xfrm };
-                    out.push(Item::PushTransform(upright.matrix()));
-                    out.extend(items);
-                    out.push(Item::PopTransform);
-                }
+        let slide = owner == Owner::Slide;
+        let upright = Xfrm { flip_h: false, flip_v: false, ..xfrm };
+        let tx = el.child("txBody");
+        let mut tgeom = None;
+        if el.local() == "sp" && (tx.is_some() || slide) {
+            let (items, g) = self.text_items(scene, &r, tx, sg.text_rect, slide);
+            if !items.is_empty() {
+                out.push(Item::PushTransform(upright.matrix()));
+                out.extend(items);
+                out.push(Item::PopTransform);
             }
+            tgeom = g.map(|mut g| {
+                g.m = self.cur.multiply(&upright.matrix());
+                g
+            });
+        }
+        if slide {
+            let kind = if el.local() == "cxnSp" { "connector" } else { "shape" };
+            let m = self.cur.multiply(&xfrm.matrix());
+            self.record(el, kind, m, xfrm.ext.0 as f64 / EMU, xfrm.ext.1 as f64 / EMU, tgeom, Vec::new());
         }
     }
 
-    fn text_items(&mut self, scene: &Scene, r: &ShapeRes, tx: &Element, rect: Rect) -> Vec<Item> {
+    fn text_items(&mut self, scene: &Scene, r: &ShapeRes, tx: Option<&Element>, rect: Rect, want_geo: bool) -> (Vec<Item>, Option<TextGeom>) {
         let body = r.body();
         let chain = r.text_chain(scene);
         let (fs, lr) = body.shrink();
+        let empty;
+        let tx = match tx {
+            Some(t) => t,
+            None => {
+                empty = empty_tx();
+                &empty
+            }
+        };
+        let shows = has_text(tx);
+        if !shows && !want_geo {
+            return (Vec::new(), None);
+        }
         let paras = resolve_paras(scene, tx, &chain, fs, lr);
         let (l, t, rr, b) = body.insets();
         let inner = Rect::new(rect.x + l, rect.y + t, (rect.w - l - rr).max(0.0), (rect.h - t - b).max(0.0));
         let wrap = body.wrap.unwrap_or(true);
+        let anchor = body.anchor.as_deref().unwrap_or("t");
         let block = layout_block(self.fonts, &paras, inner.w, wrap);
-        place_block(&block, inner, body.anchor.as_deref().unwrap_or("t"))
+        let mut items = if shows { place_block(&block, inner, anchor) } else { Vec::new() };
+        if !shows && self.prompts && r.owner == Owner::Slide {
+            if let Some(prompt) = r.ph.as_ref().and_then(|p| prompt_text(p, r.layout_el)) {
+                let mut pp: Vec<RPara> = paras.iter().take(1).cloned().collect();
+                if let Some(first) = pp.first_mut() {
+                    let mut st = first.end_style.clone();
+                    let c = st.color;
+                    let mix = |v: u8| ((v as f64) * 0.55 + 128.0 * 0.45).round() as u8;
+                    st.color = Color::rgba(mix(c.r), mix(c.g), mix(c.b), PROMPT_ALPHA);
+                    first.runs = vec![StyledRun { text: prompt, style: st }];
+                    let pblock = layout_block(self.fonts, &pp, inner.w, wrap);
+                    items = place_block(&pblock, inner, anchor);
+                }
+            }
+        }
+        let geo = want_geo.then(|| TextGeom { m: Matrix::IDENTITY, inner, paras: place_geom(&block, &paras, inner, anchor) });
+        (items, geo)
     }
 
     fn pic(&mut self, scene: &Scene, el: &Element, owner: Owner, out: &mut Vec<Item>) {
@@ -667,6 +901,10 @@ impl<'a> Painter<'a> {
             out.extend(shape_items(&sg.paths, None, Some(&line), None));
         }
         out.push(Item::PopTransform);
+        if owner == Owner::Slide {
+            let m = self.cur.multiply(&xfrm.matrix());
+            self.record(el, "picture", m, xfrm.ext.0 as f64 / EMU, xfrm.ext.1 as f64 / EMU, None, Vec::new());
+        }
     }
 
     /// A picture fill over `bx` (local points), cropped by its source rectangle, clipped to `clip`.
@@ -734,28 +972,56 @@ impl<'a> Painter<'a> {
         if let Some(x) = &xfrm {
             out.push(Item::PushTransform(x.child_matrix()));
         }
+        let saved = (self.cur, self.top, self.group);
+        if owner == Owner::Slide {
+            if let Some(x) = &xfrm {
+                let m = self.cur.multiply(&x.matrix());
+                self.record(el, "group", m, x.ext.0 as f64 / EMU, x.ext.1 as f64 / EMU, None, Vec::new());
+                self.cur = self.cur.multiply(&x.child_matrix());
+            }
+            self.top = self.top.or(shape_id(el));
+            self.group = shape_id(el);
+        }
         self.tree(scene, el, owner, out, gfill.as_ref(), false);
+        (self.cur, self.top, self.group) = saved;
         if xfrm.is_some() {
             out.push(Item::PopTransform);
         }
     }
 
     fn frame(&mut self, scene: &Scene, el: &Element, owner: Owner, out: &mut Vec<Item>) {
-        if let Some(tbl) = table_of(el) {
-            let r = resolve_shape(scene, el, owner);
-            if let Some(x) = r.xfrm() {
-                self.table(scene, tbl, &x, out);
+        let r = resolve_shape(scene, el, owner);
+        let Some(x) = r.xfrm() else { return };
+        let mut cells = Vec::new();
+        let mut h = x.ext.1 as f64 / EMU;
+        let mut w = x.ext.0 as f64 / EMU;
+        let kind = if let Some(tbl) = table_of(el) {
+            let (tw, th) = self.table(scene, tbl, &x, out, &mut cells);
+            if tw > 0.0 {
+                w = tw;
             }
+            h = h.max(th);
+            "table"
+        } else {
+            super::model::shape_kind(el)
+        };
+        if owner == Owner::Slide {
+            let m = self.cur.multiply(&x.matrix());
+            for c in &mut cells {
+                c.3.m = m;
+            }
+            self.record(el, kind, m, w, h, None, cells);
         }
     }
 
-    fn table(&mut self, scene: &Scene, tbl: &Element, xfrm: &Xfrm, out: &mut Vec<Item>) {
+    /// Draws a table; returns its drawn width and height, and fills `cells` with each cell's text.
+    fn table(&mut self, scene: &Scene, tbl: &Element, xfrm: &Xfrm, out: &mut Vec<Item>, cells: &mut Vec<(usize, usize, Rect, TextGeom)>) -> (f64, f64) {
         let cols: Vec<f64> = tbl
             .child("tblGrid")
             .map(|g| g.children_named("gridCol").map(|c| emu_attr_pt(c, "w").unwrap_or(0.0)).collect())
             .unwrap_or_default();
         if cols.is_empty() {
-            return;
+            return (0.0, 0.0);
         }
         let rows: Vec<&Element> = tbl.children_named("tr").collect();
         let pr = tbl.child("tblPr");
@@ -794,7 +1060,8 @@ impl<'a> Painter<'a> {
         let width_of = |c: usize, n: usize| cols.iter().skip(c).take(n).sum::<f64>();
 
         // Rows grow to fit their text.
-        let mut blocks: Vec<Vec<Option<TextBlock>>> = Vec::new();
+        let mut blocks: Vec<Vec<Option<(TextBlock, Vec<RPara>)>>> = Vec::new();
+        let empty = empty_tx();
         for (ri, tr) in rows.iter().enumerate() {
             let mut row_blocks = Vec::new();
             for (ci, tc) in tr.children_named("tc").enumerate() {
@@ -804,16 +1071,13 @@ impl<'a> Painter<'a> {
                 }
                 let (ml, mt, mr, mb) = margins(tc);
                 let w = (width_of(ci, span(tc, "gridSpan")) - ml - mr).max(1.0);
-                let block = tc.child("txBody").map(|tx| {
-                    let paras = resolve_paras(scene, tx, &chain_for(tc, ri), 1.0, 0.0);
-                    layout_block(self.fonts, &paras, w, true)
-                });
-                if let Some(b) = &block {
-                    if span(tc, "rowSpan") == 1 {
-                        heights[ri] = heights[ri].max(b.height + mt + mb);
-                    }
+                let tx = tc.child("txBody").unwrap_or(&empty);
+                let paras = resolve_paras(scene, tx, &chain_for(tc, ri), 1.0, 0.0);
+                let b = layout_block(self.fonts, &paras, w, true);
+                if span(tc, "rowSpan") == 1 {
+                    heights[ri] = heights[ri].max(b.height + mt + mb);
                 }
-                row_blocks.push(block);
+                row_blocks.push(Some((b, paras)));
             }
             blocks.push(row_blocks);
         }
@@ -857,11 +1121,14 @@ impl<'a> Painter<'a> {
                 if let Some(f) = &fill {
                     self.fill_rect(scene.deck, scene.slide_part, f, cell, out);
                 }
-                if let Some(Some(block)) = blocks.get(ri).and_then(|b| b.get(ci)) {
+                if let Some(Some((block, paras))) = blocks.get(ri).and_then(|b| b.get(ci)) {
                     let (ml, mt, mr, mb) = margins(tc);
                     let inner = Rect::new(cell.x + ml, cell.y + mt, (cell.w - ml - mr).max(0.0), (cell.h - mt - mb).max(0.0));
                     let anchor = tcpr.and_then(|p| p.attr("anchor")).unwrap_or("t");
-                    out.extend(place_block(block, inner, anchor));
+                    if tc.child("txBody").is_some_and(has_text) {
+                        out.extend(place_block(block, inner, anchor));
+                    }
+                    cells.push((ri, ci, cell, TextGeom { m: Matrix::IDENTITY, inner, paras: place_geom(block, paras, inner, anchor) }));
                 }
                 let edges = [
                     ("lnL", (cell.x, cell.y), (cell.x, cell.bottom())),
@@ -884,5 +1151,14 @@ impl<'a> Painter<'a> {
             y += heights[ri];
         }
         out.push(Item::PopTransform);
+        (cols.iter().sum(), y)
     }
+}
+
+/// An empty text body (one empty paragraph), for shapes that have none yet.
+pub fn empty_tx() -> Element {
+    let mut tx = Element::new("p:txBody");
+    tx.children.push(crate::ground::xml::Node::Element(Element::new("a:bodyPr")));
+    tx.children.push(crate::ground::xml::Node::Element(Element::new("a:p")));
+    tx
 }

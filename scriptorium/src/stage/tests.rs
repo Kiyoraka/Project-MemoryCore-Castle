@@ -1,6 +1,9 @@
 //! Stage tests, on invented decks only: every part below is written here, by hand.
 
 use super::*;
+
+#[path = "tests_hand.rs"]
+mod hand;
 use crate::ground::bus::{Bus, Origin};
 use crate::ground::display::{Color, Paint};
 use crate::ground::picture::png;
