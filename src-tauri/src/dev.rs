@@ -126,7 +126,7 @@ fn prepare_boot(store: &SettingsStore, settings: &Settings, slot: usize, project
     }
     let memory_folder = settings.memory_folder.as_deref().map(PathBuf::from);
     let memory = match (&memory_folder, settings.db_boot_at_wake) {
-        (Some(folder), true) => crate::store::source(folder).and_then(|mut conn| crate::mirror::boot_prompt(&mut conn).ok().flatten()),
+        (Some(folder), true) => crate::store::source(folder).and_then(|mut conn| crate::mirror::boot_prompt(&mut conn, folder).ok().flatten()),
         _ => None,
     };
     let block = dev_tabs::dev_block(

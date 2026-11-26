@@ -493,7 +493,7 @@ fn prepare_boot(store: &SettingsStore, settings: &Settings, room: Room, folder: 
         return None;
     }
     let memory = if settings.db_boot_at_wake {
-        crate::store::source(folder).and_then(|mut conn| crate::mirror::boot_prompt(&mut conn).ok().flatten())
+        crate::store::source(folder).and_then(|mut conn| crate::mirror::boot_prompt(&mut conn, folder).ok().flatten())
     } else {
         None
     };
