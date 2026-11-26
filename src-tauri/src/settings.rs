@@ -536,6 +536,13 @@ pub struct Settings {
     /// Where the member put HOME's widgets, per theme id: the widget's top-left corner as
     /// percentages of HOME. A widget not listed keeps the theme's own place.
     pub widget_places: std::collections::BTreeMap<String, std::collections::BTreeMap<String, WidgetPlace>>,
+    /// HOME's widgets on the grid (widgetgrid.js): each widget's cells {x, y, w, h} on a six-column
+    /// HOME, one arrangement for every theme. Built once from `widget_places` and `widget_sizes`,
+    /// which stay as they were so an older Castle still finds its layout.
+    pub widget_grid: std::collections::BTreeMap<String, WidgetCell>,
+    /// Snap to grid: widgets move and resize by whole cells and never overlap (on by default).
+    /// Off, they move and resize freely.
+    pub widget_snap: bool,
     /// The gauges' gear: watch CPU and RAM, and the value each trips at. Changed only by its own
     /// command (meter_watch_save), never by the Settings page.
     pub meter_watch: crate::meter_watch::MeterWatch,
@@ -581,6 +588,34 @@ pub const WIDGET_OPT_IN: [&str; 1] = ["weather"];
 pub const WIDGET_SIZES: [&str; 3] = ["s", "m", "l"];
 /// The most themes whose widget places are kept.
 const WIDGET_THEMES_MAX: usize = 64;
+
+/// A widget's cells on HOME's grid: column and row of its top-left cell, and its width and height in
+/// cells. Whole numbers with Snap to grid on, fractions with it off.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WidgetCell {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// HOME's grid: its columns, the tallest a widget may be, and the lowest row kept.
+pub const WIDGET_GRID_COLS: f64 = 6.0;
+pub const WIDGET_GRID_MAX_H: f64 = 8.0;
+const WIDGET_GRID_MAX_Y: f64 = 400.0;
+
+impl WidgetCell {
+    /// The cell kept on the grid, or None when it is not a number.
+    fn kept(self) -> Option<WidgetCell> {
+        if ![self.x, self.y, self.w, self.h].iter().all(|n| n.is_finite()) {
+            return None;
+        }
+        let w = self.w.clamp(0.5, WIDGET_GRID_COLS);
+        let h = self.h.clamp(0.5, WIDGET_GRID_MAX_H);
+        Some(WidgetCell { x: self.x.clamp(0.0, WIDGET_GRID_COLS - w), y: self.y.clamp(0.0, WIDGET_GRID_MAX_Y), w, h })
+    }
+}
 
 /// A widget's top-left corner on HOME, in percent of HOME's width and height.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -730,6 +765,8 @@ impl Default for Settings {
             widgets_on: Vec::new(),
             widget_sizes: std::collections::BTreeMap::new(),
             widget_places: std::collections::BTreeMap::new(),
+            widget_grid: std::collections::BTreeMap::new(),
+            widget_snap: true,
             meter_watch: crate::meter_watch::MeterWatch::default(),
             gpu_gauges: crate::gpu::GpuGauges::default(),
             weather: crate::weather::WeatherSettings::default(),
@@ -859,6 +896,11 @@ impl Settings {
                 (theme, kept)
             })
             .filter(|(_, places)| !places.is_empty())
+            .collect();
+        self.widget_grid = std::mem::take(&mut self.widget_grid)
+            .into_iter()
+            .filter(|(w, _)| WIDGETS.contains(&w.as_str()))
+            .filter_map(|(w, c)| c.kept().map(|c| (w, c)))
             .collect();
         // every known room is listed (a missing one is on, but a room that waits for the member stays
         // off); unknown names go
@@ -1168,6 +1210,25 @@ mod tests {
     }
 
     #[test]
+    fn the_widget_grid_snaps_by_default_and_keeps_only_cells_on_home() {
+        let old: Settings = serde_json::from_str(r#"{"widgetPlaces":{"all":{"today":{"left":50,"top":20}}}}"#).unwrap();
+        assert!(old.widget_snap, "a settings file from before the grid snaps to it");
+        assert!(old.widget_grid.is_empty(), "the grid is built from the old places on HOME, which stay");
+        let s: Settings = serde_json::from_str(
+            r#"{"widgetSnap":false,"widgetGrid":{"today":{"x":5,"y":-2,"w":2,"h":20},"clock":{"x":1.35,"y":0.5,"w":1.5,"h":1},"ghost":{"x":0,"y":0,"w":1,"h":1}}}"#,
+        )
+        .unwrap();
+        let s = s.normalized();
+        assert!(!s.widget_snap);
+        assert_eq!(s.widget_grid["today"], WidgetCell { x: 4.0, y: 0.0, w: 2.0, h: 8.0 }, "kept on HOME");
+        assert_eq!(s.widget_grid["clock"], WidgetCell { x: 1.35, y: 0.5, w: 1.5, h: 1.0 }, "free places keep their fractions");
+        assert!(!s.widget_grid.contains_key("ghost"));
+        let wide = WidgetCell { x: 0.0, y: 0.0, w: 99.0, h: 1.0 }.kept().unwrap();
+        assert_eq!(wide.w, 6.0);
+        assert!(WidgetCell { x: f64::NAN, y: 0.0, w: 1.0, h: 1.0 }.kept().is_none());
+    }
+
+    #[test]
     fn clock_defaults_and_invalid_formats_are_safe() {
         let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
         assert!(!old.display_clock);
@@ -1372,6 +1433,8 @@ mod tests {
             widgets_on: vec!["weather".into()],
             widget_sizes: [("clock".to_string(), "l".to_string())].into_iter().collect(),
             widget_places: [("seed".to_string(), [("today".to_string(), WidgetPlace { left: 12.5, top: 40.0 })].into_iter().collect())].into_iter().collect(),
+            widget_grid: [("today".to_string(), WidgetCell { x: 4.0, y: 1.0, w: 2.0, h: 2.0 })].into_iter().collect(),
+            widget_snap: false,
             meter_watch: crate::meter_watch::MeterWatch { on: false, cpu: 75, memory: 85 },
             gpu_gauges: crate::gpu::GpuGauges { on: false },
             weather: crate::weather::WeatherSettings { place: Some(crate::weather::Place { name: "Ipoh".into(), region: "Perak, Malaysia".into(), lat: 4.6, lon: 101.08 }), units: "imperial".into() },

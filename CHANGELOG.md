@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- HOME's widgets sit on a grid and never overlap: Snap to grid (on by default) moves and sizes them by whole cells (1×1, 2×1, 2×2, 3×3 or any size), lists scroll inside their card, a half-screen window shows the same layout in fewer columns, and your old layout moves over with every widget kept. Snap off brings back free places with S, M, L and a corner to resize.
+
 ## 0.8.3 - 2026-11-26
 
 - WORLDSMITH's helper is published: Get it downloads the small helper (checked against its pinned fingerprint before it is ever run), so your companion can now find and change the numbers in your own offline games.

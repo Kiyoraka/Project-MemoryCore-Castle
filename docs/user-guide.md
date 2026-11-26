@@ -690,16 +690,17 @@ Your companion does not need to be awake on HOME to answer here, and keeps answe
 **WIDGETS** sits in the top bar between HOME and THEME. Every card HOME can show is listed there:
 
 - **On / Off** - a card you switch off leaves HOME. Switching off **Usage** also stops Castle asking Claude Code and Codex for their limits.
-- **S / M / L** - how big the card is on HOME (M is the theme's own size).
+- **Snap to grid** (at the top, on by default) - HOME's cards sit on a grid of cells beside the chat panel, move and resize by whole cells, and never cover each other. Switched off, they move and resize freely and may overlap; switching it back on puts every card on its nearest cells and moves any that collide down.
+- **Size** - with Snap to grid on: **1×1**, **2×1**, **2×2** or **3×3** cells, or any size with **Wide** and **Tall** (a size too small for a card is greyed). With it off: **S**, **M** or **L**. A bigger card shows more, not bigger text; a long list scrolls inside its card.
 - A card the theme in use has no place for says so. It comes back in a theme that places it.
 
 ### Arranging HOME
 
-On HOME you can simply drag a card by any part that is not a button or a link, and let it go where you want it. A press that does not move stays a click, so the cards' buttons work as before. It always stays wholly on the screen, and Castle remembers where you put it.
+On HOME you can simply drag a card by any part that is not a button or a link, and let it go where you want it. A press that does not move stays a click, so the cards' buttons work as before. With Snap to grid on, the card goes by whole cells and the cards it meets move down out of its way. Castle remembers where you put it.
 
-**Arrange on HOME** (in WIDGETS) shows a dashed edge around every card, so you can see them all while you move them.
+**Arrange on HOME** (in WIDGETS) shows the cells and a dashed edge around every card. Each card gets its size chips and a corner you can drag to resize it. **Tidy up** moves every card up into the gaps above it, **Snap to grid** switches the grid on or off, and **Reset the layout** puts the cards back where the theme in use places them.
 
-Each theme keeps its own places: change theme and the cards sit where that theme (or your arrangement for it) puts them; come back and your places return. **Back to the theme's places** (in the bar at the bottom of HOME, or in WIDGETS) puts the cards back where the theme in use had them, without touching your other themes. Press **Done** or **Esc**, or open another room, to finish arranging.
+One arrangement serves every theme and survives a restart: the theme only decides where a card first appears. A layout from an older Castle moves onto the grid by itself, with every card kept. When Castle's window is narrower (half the screen, say), HOME shows your layout in 4 or 2 columns, worked out from the full one; it is not saved, so a wider window brings your own layout back. Widen the window to arrange. Press **Done** or **Esc**, or open another room, to finish arranging.
 
 ---
 
