@@ -24,14 +24,14 @@ const blocks = computed(() => parseBlocks(props.text))
           <thead>
             <tr>
               <th v-for="(cell, c) in block.head" :key="c">
-                <template v-for="(span, s) in parseSpans(cell)" :key="s"><strong v-if="span.bold">{{ span.text }}</strong><code v-else-if="span.code">{{ span.text }}</code><em v-else-if="span.em">{{ span.text }}</em><a v-else-if="linkWay(span.link)" class="link" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><span v-else :title="span.link">{{ span.text }}</span></template>
+                <template v-for="(span, s) in parseSpans(cell)" :key="s"><code v-if="span.code">{{ span.text }}</code><a v-else-if="linkWay(span.link)" class="link" :class="{ bold: span.bold, em: span.em }" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><strong v-else-if="span.bold">{{ span.text }}</strong><em v-else-if="span.em">{{ span.text }}</em><span v-else :title="span.link">{{ span.text }}</span></template>
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, r) in block.rows" :key="r">
               <td v-for="(cell, c) in row" :key="c">
-                <template v-for="(span, s) in parseSpans(cell)" :key="s"><strong v-if="span.bold">{{ span.text }}</strong><code v-else-if="span.code">{{ span.text }}</code><em v-else-if="span.em">{{ span.text }}</em><a v-else-if="linkWay(span.link)" class="link" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><span v-else :title="span.link">{{ span.text }}</span></template>
+                <template v-for="(span, s) in parseSpans(cell)" :key="s"><code v-if="span.code">{{ span.text }}</code><a v-else-if="linkWay(span.link)" class="link" :class="{ bold: span.bold, em: span.em }" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><strong v-else-if="span.bold">{{ span.text }}</strong><em v-else-if="span.em">{{ span.text }}</em><span v-else :title="span.link">{{ span.text }}</span></template>
               </td>
             </tr>
           </tbody>
@@ -44,7 +44,7 @@ const blocks = computed(() => parseBlocks(props.text))
         :style="block.kind === 'item' ? { paddingLeft: 16 + block.depth * 16 + 'px' } : null"
       >
         <span v-if="block.kind === 'item'" class="marker" aria-hidden="true">{{ block.box ? (block.checked ? '☑' : '☐') : block.number || '•' }}</span>
-        <template v-for="(span, s) in parseSpans(block.text)" :key="s"><strong v-if="span.bold">{{ span.text }}</strong><code v-else-if="span.code">{{ span.text }}</code><em v-else-if="span.em">{{ span.text }}</em><a v-else-if="linkWay(span.link)" class="link" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><span v-else :class="{ link: span.link }" :title="span.link">{{ span.text }}</span></template>
+        <template v-for="(span, s) in parseSpans(block.text)" :key="s"><code v-if="span.code">{{ span.text }}</code><a v-else-if="linkWay(span.link)" class="link" :class="{ bold: span.bold, em: span.em }" :href="span.link" :title="span.link" v-bind="linkEvents(span.link)">{{ span.text }}</a><strong v-else-if="span.bold">{{ span.text }}</strong><em v-else-if="span.em">{{ span.text }}</em><span v-else :class="{ link: span.link }" :title="span.link">{{ span.text }}</span></template>
       </component>
     </template>
   </div>
@@ -156,6 +156,12 @@ th {
 .link {
   text-decoration: underline;
   text-decoration-color: var(--accent, #b48cff);
+}
+a.link.bold {
+  font-weight: 600;
+}
+a.link.em {
+  font-style: italic;
 }
 a.link {
   color: var(--accent, #8fb8ff);

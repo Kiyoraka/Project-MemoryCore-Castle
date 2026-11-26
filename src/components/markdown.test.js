@@ -40,6 +40,20 @@ describe('parseBlocks', () => {
 })
 
 describe('parseSpans', () => {
+  it('a link in bold or italic is still a link (the address or [text](url) whole)', () => {
+    expect(parseSpans('ready: **https://claude.ai/artifact/K8mj** (private)')).toEqual([
+      { text: 'ready: ' },
+      { bold: true, text: 'https://claude.ai/artifact/K8mj', link: 'https://claude.ai/artifact/K8mj' },
+      { text: ' (private)' },
+    ])
+    expect(parseSpans('**[the page](https://x.y/p)** and *http://localhost:5173*')).toEqual([
+      { bold: true, text: 'the page', link: 'https://x.y/p' },
+      { text: ' and ' },
+      { em: true, text: 'http://localhost:5173', link: 'http://localhost:5173' },
+    ])
+    expect(parseSpans('**not a link** *nor this*')).toEqual([{ bold: true, text: 'not a link' }, { text: ' ' }, { em: true, text: 'nor this' }])
+  })
+
   it('finds bold, italic, code and links as plain text', () => {
     expect(parseSpans('**Diary Saved** - `save diary` is *quiet*, see [the page](https://x.y)')).toEqual([
       { bold: true, text: 'Diary Saved' },

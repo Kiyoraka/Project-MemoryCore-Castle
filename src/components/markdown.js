@@ -116,6 +116,14 @@ export function linkSpans(text) {
 }
 
 /** Spans inside a line: { text, bold?, em?, code?, link? }. */
+// A whole bare address or [text](url) is a link, also inside **bold** or *italic*
+// ("**https://claude.ai/artifact/…**" was drawn bold and could not be opened).
+function linkOf(text) {
+  if (isBareUrl(text)) return { text, link: text }
+  const md = text.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)
+  return md ? { text: md[1], link: md[2] } : { text }
+}
+
 export function parseSpans(text) {
   return String(text ?? '')
     .split(new RegExp(`(\`[^\`\\n]+\`|\\*\\*[^*\\n]+\\*\\*|\\[[^\\]\\n]+\\]\\([^)\\s]+\\)|${BARE_URL.source}|\\*[^*\\n]+\\*)`))
@@ -123,10 +131,10 @@ export function parseSpans(text) {
     .map((piece) => {
       if (isBareUrl(piece)) return { text: piece, link: piece }
       if (piece.length > 2 && piece.startsWith('`') && piece.endsWith('`')) return { code: true, text: piece.slice(1, -1) }
-      if (piece.length > 4 && piece.startsWith('**') && piece.endsWith('**')) return { bold: true, text: piece.slice(2, -2) }
-      const link = piece.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)
-      if (link) return { text: link[1], link: link[2] }
-      if (piece.length > 2 && piece.startsWith('*') && piece.endsWith('*')) return { em: true, text: piece.slice(1, -1) }
+      if (piece.length > 4 && piece.startsWith('**') && piece.endsWith('**')) return { bold: true, ...linkOf(piece.slice(2, -2)) }
+      const link = linkOf(piece)
+      if (link.link) return link
+      if (piece.length > 2 && piece.startsWith('*') && piece.endsWith('*')) return { em: true, ...linkOf(piece.slice(1, -1)) }
       return { text: piece }
     })
 }
