@@ -69,6 +69,7 @@ const ROOM_GROUPS = [
       { id: 'calendar', label: 'CALENDAR', line: 'Off at first: everything with a date on one page.', tip: 'Off to begin with: CALENDAR shows your reminders, project tasks, diary pages and automation runs by date. It only shows them; each is changed where it lives.' },
       { id: 'finance', label: 'FINANCE', line: 'Off at first: receipts your companion reads, kept on this computer only.', tip: 'Off to begin with: drop receipt pictures on FINANCE or send them to your companion from your phone. Your companion reads each one and proposes it; nothing is kept until you press Keep. Your receipts never leave this computer.' },
       { id: 'messaging', label: 'MESSAGING', line: 'Off at first: text your companion from Telegram, Discord or WhatsApp.', tip: 'Off to begin with: MESSAGING lets you text your companion from Telegram, Discord or WhatsApp. Each platform is set up on its own card in the room.' },
+      { id: 'worldsmith', label: 'WORLDSMITH', line: 'Off at first: your companion finds the numbers in your own offline single-player games.', tip: 'Off to begin with: WORLDSMITH reads a screenshot of your own offline single-player game and helps you change its numbers. Its small helper is downloaded only when you press Get it; online and anti-cheat games are always refused. Off ends its session and lets the game go.' },
     ],
   },
 ]

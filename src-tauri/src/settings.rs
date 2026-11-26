@@ -132,12 +132,12 @@ pub fn used_by_newer(settings: &Settings) -> Option<String> {
 
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
-pub const ROOMS: [&str; 18] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance"];
+pub const ROOMS: [&str; 19] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance", "worldsmith"];
 /// Tiles that open the BROWSER window rather than a room (launcher.js windowRoom): pinnable too.
 const WINDOW_TILES: [&str; 2] = ["browser", "artifacts"];
 /// Rooms that wait for the member's own switch in Settings > Rooms, for a new Castle and for one
 /// that never stored a choice for them.
-const ROOMS_OFF_AT_FIRST: [&str; 6] = ["library", "market", "messaging", "automations", "calendar", "finance"];
+const ROOMS_OFF_AT_FIRST: [&str; 7] = ["library", "market", "messaging", "automations", "calendar", "finance", "worldsmith"];
 
 pub const DEFAULT_WORLD: &str = "3d/floating-isles";
 pub const CAMERAS: [&str; 4] = ["director", "follow", "wide", "orbit"];
@@ -1430,6 +1430,7 @@ mod tests {
         assert!(ROOMS.iter().filter(|r| !ROOMS_OFF_AT_FIRST.contains(r)).all(|r| fresh.room_on(r)));
         assert!(!fresh.room_on("library"), "the Library waits for the member's switch");
         assert!(!fresh.room_on("market"), "the Market waits for the member's switch");
+        assert!(!fresh.room_on("worldsmith"), "WORLDSMITH waits for the member's switch");
         let mut rooms = std::collections::BTreeMap::new();
         rooms.insert("story".to_string(), false);
         rooms.insert("home".to_string(), false);

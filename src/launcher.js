@@ -24,7 +24,7 @@ export const LAUNCHER_TAB = { id: 'launcher', label: 'APPS', fixed: true, title:
 export const GROUPS = [
   { id: 'companion', label: 'Companion', rooms: ['home', 'chat', 'myprofile', 'diary', 'appearance', 'finance'] },
   { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'automations', 'calendar', 'browser', 'artifacts'] },
-  { id: 'create', label: 'Create', rooms: ['studio', 'story', 'world', 'library'] },
+  { id: 'create', label: 'Create', rooms: ['studio', 'story', 'world', 'library', 'worldsmith'] },
   { id: 'connect', label: 'Connect', rooms: ['messaging', 'market'] },
   { id: 'system', label: 'System', rooms: ['theme', 'apps'] },
 ]
@@ -46,6 +46,7 @@ export const HINTS = {
   story: 'A story told with your companion',
   world: 'Worlds and screens',
   library: 'Books for you and your companion',
+  worldsmith: 'Your own offline single-player games',
   messaging: 'Your companion on Telegram, Discord and WhatsApp',
   market: 'Prices and a pretend shop',
   theme: 'How Castle looks',

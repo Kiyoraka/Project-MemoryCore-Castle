@@ -91,6 +91,7 @@ const allTabs = [
   { id: 'messaging', label: 'MESSAGING' },
   { id: 'automations', label: 'AUTOMATIONS' },
   { id: 'calendar', label: 'CALENDAR' },
+  { id: 'worldsmith', label: 'WORLDSMITH' },
   { id: 'finance', label: 'FINANCE' },
   // tiles that open the BROWSER window instead of a room (launcher.js windowRoom)
   { id: 'browser', label: 'BROWSER' },
