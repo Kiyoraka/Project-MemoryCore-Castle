@@ -8,6 +8,7 @@ import TerminalPanel from '../components/TerminalPanel.vue'
 import ScriptoriumRoom from '../scriptorium/ScriptoriumRoom.vue'
 import {
   onScriptoriumChanged,
+  openUrl,
   scriptoriumClose,
   scriptoriumCaret,
   scriptoriumCloseDoc,
@@ -73,6 +74,9 @@ const api = {
   move: scriptoriumMove,
   exportPdf: scriptoriumExportPdf,
   print: scriptoriumPrint,
+  // the door's read (Folio's bookmarks), and a web link opened in the system's browser after the member said yes
+  read: (doc, what) => scriptoriumDoor(doc, 'read', what),
+  openUrl,
   // the system clipboard for a copy (the page's paste arrives as a paste event)
   writeClipboard: (text) => navigator.clipboard?.writeText(text),
 }

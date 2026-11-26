@@ -4,7 +4,8 @@
 //! the room's companion the AI's door.
 //!
 //! - The open documents live in [`ScriptoriumState`], each behind its own [`Bus`] as an [`AnyDoc`]:
-//!   Scroll (.docx/.docm), Ledger (.xlsx/.xlsm), Stage (.pptx/.pptm) and Folio (.pdf), plus M0's
+//!   Scroll (.docx/.docm), Ledger (.xlsx/.xlsm, and .csv/.txt as one sheet), Stage (.pptx/.pptm) and
+//!   Folio (.pdf, a locked one with its password), plus M0's
 //!   [`BlankDocument`] (one A4 page of `blank.note`s) kept for the bus's own checks. Files open off
 //!   the window's thread (reading a big file or indexing the fonts never freezes the room) and save
 //!   whole: a `.part` renamed into place, the version before kept as `<name>.bak`.
@@ -27,7 +28,7 @@
 use crate::settings::SettingsStore;
 use scriptorium::ground::bus::json::{self, Json};
 use scriptorium::ground::bus::{Bus, BusError, Change, Command, CommandSpec, Document, Origin, DOOR_VERBS};
-use scriptorium::folio::FolioDoc;
+use scriptorium::folio::{FolioDoc, FolioError};
 use scriptorium::ground::display::{Color, DisplayList, Item, Paint, PathOp, Resources, Stroke};
 use scriptorium::ground::edit::Editing;
 use scriptorium::ground::export::{export_pdf_with, ExportOptions};
@@ -250,7 +251,7 @@ impl Document for AnyDoc {
 
 /// The largest file SCRIPTORIUM opens.
 pub const MAX_OPEN_BYTES: u64 = 300 * 1024 * 1024;
-pub const OPENS: &str = "SCRIPTORIUM opens .docx, .xlsx, .pptx and .pdf files.";
+pub const OPENS: &str = "SCRIPTORIUM opens .docx, .xlsx, .pptx, .pdf and .csv files.";
 pub const OLD_FORMATS: &str = "The older Office 97\u{2013}2003 formats arrive in a later milestone - save it as .docx/.xlsx/.pptx in Office first.";
 pub const PROTECTED: &str = "This file is locked with a password (or is an older Office file renamed). SCRIPTORIUM cannot open protected files yet - remove the password in Office first.";
 
@@ -268,7 +269,7 @@ pub enum Route {
 pub fn route(path: &str) -> Route {
     match ext_of(Path::new(path)).as_str() {
         "docx" | "docm" => Route::Editor("scroll"),
-        "xlsx" | "xlsm" => Route::Editor("ledger"),
+        "xlsx" | "xlsm" | "csv" | "txt" => Route::Editor("ledger"),
         "pptx" | "pptm" => Route::Editor("stage"),
         "pdf" => Route::Editor("folio"),
         "doc" | "xls" | "ppt" => Route::Old,
@@ -325,6 +326,30 @@ fn label(editor: &str) -> &'static str {
 
 /// A document of `editor` from a file's bytes.
 pub fn open_bytes(editor: &str, bytes: Vec<u8>, fonts: Fonts) -> Result<AnyDoc, String> {
+    open_bytes_with(editor, bytes, fonts, None)
+}
+
+/// True for a file opened as text into Ledger (.csv, .txt).
+pub fn is_csv(ext: &str) -> bool {
+    matches!(ext, "csv" | "txt")
+}
+
+/// A CSV (or tab-separated text) file as a one-sheet Ledger named after the file, and whether its
+/// text came with a byte order mark (a save writes it back the same way).
+pub fn open_csv_bytes(bytes: &[u8], sheet_name: &str, fonts: Fonts) -> Result<(AnyDoc, bool), String> {
+    let cache = match fonts {
+        Fonts::System => scriptorium::ledger::system_fonts(),
+        Fonts::Empty => FontCache::empty(),
+    };
+    let bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]) || bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    let doc = LedgerDoc::open_csv(bytes, sheet_name, cache).map_err(|e| format!("Ledger could not open it: {e}"))?;
+    Ok((AnyDoc::Ledger(doc), bom))
+}
+
+/// [`open_bytes`] with a locked PDF's password. A locked PDF's own words (it needs a password, or
+/// that one does not open it) come back as they are, so the page knows to ask; the password is
+/// never kept or written anywhere.
+pub fn open_bytes_with(editor: &str, bytes: Vec<u8>, fonts: Fonts, password: Option<&str>) -> Result<AnyDoc, String> {
     if editor != "folio" {
         if bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
             return Err(PROTECTED.into());
@@ -356,8 +381,23 @@ pub fn open_bytes(editor: &str, bytes: Vec<u8>, fonts: Fonts) -> Result<AnyDoc, 
             };
             StageDoc::open_with_fonts(&bytes, cache).map(AnyDoc::Stage).map_err(|e| failed(e.to_string()))
         }
-        "folio" => FolioDoc::open(bytes).map(AnyDoc::Folio).map_err(|e| failed(e.to_string())),
+        "folio" => {
+            let opened = match password {
+                Some(p) => scriptorium::folio::open_with_password(bytes, p),
+                None => FolioDoc::open(bytes),
+            };
+            opened.map(AnyDoc::Folio).map_err(folio_error)
+        }
         other => Err(format!("SCRIPTORIUM has no editor called {other}.")),
+    }
+}
+
+/// A PDF that did not open, in words: a locked one's own words as they are (the page asks for the
+/// password when it reads them), anything else after "Folio could not open it".
+pub fn folio_error(e: FolioError) -> String {
+    match e {
+        FolioError::NeedsPassword | FolioError::WrongPassword => e.to_string(),
+        other => format!("{} could not open it: {other}", label("folio")),
     }
 }
 
@@ -397,6 +437,19 @@ pub fn make_blank(kind: &str, fonts: Fonts) -> Result<(&'static str, AnyDoc), St
 
 /// Reads and opens a file the member chose: (its editor, the document). Runs off the window's thread.
 pub fn load_file(path: &Path, fonts: Fonts) -> Result<(&'static str, AnyDoc), String> {
+    load_file_with(path, fonts, None).map(|l| (l.editor, l.doc))
+}
+
+/// A file read and opened.
+pub struct Loaded {
+    pub editor: &'static str,
+    pub doc: AnyDoc,
+    /// Some(byte order mark) for a CSV or text file opened into Ledger.
+    pub csv_bom: Option<bool>,
+}
+
+/// [`load_file`] with a locked PDF's password, telling a CSV file apart.
+pub fn load_file_with(path: &Path, fonts: Fonts, password: Option<&str>) -> Result<Loaded, String> {
     let editor = editor_or_why(&path.to_string_lossy())?;
     let meta = std::fs::metadata(path).map_err(|_| "That file is not there any more.".to_string())?;
     if !meta.is_file() {
@@ -407,10 +460,15 @@ pub fn load_file(path: &Path, fonts: Fonts) -> Result<(&'static str, AnyDoc), St
         return Err(format!("{} is {} MB; SCRIPTORIUM opens files up to {} MB.", file_name(path), mb(meta.len()), mb(MAX_OPEN_BYTES)));
     }
     let bytes = std::fs::read(path).map_err(|_| format!("{} could not be read (is it open in another program?).", file_name(path)))?;
+    if is_csv(&ext_of(path)) {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Sheet1");
+        let (doc, bom) = open_csv_bytes(&bytes, stem, fonts)?;
+        return Ok(Loaded { editor, doc, csv_bom: Some(bom) });
+    }
     if bytes.is_empty() {
         return Err(format!("{} is empty.", file_name(path)));
     }
-    Ok((editor, open_bytes(editor, bytes, fonts)?))
+    Ok(Loaded { editor, doc: open_bytes_with(editor, bytes, fonts, password)?, csv_bom: None })
 }
 
 /// Why `path` is not a place to save a document of type `.ext`: a document keeps its own type (a
@@ -455,15 +513,44 @@ pub struct OpenDoc {
     pub path: Option<PathBuf>,
     /// The file's name, or "Untitled" for a new one.
     pub title: String,
-    /// The type it saves as, in small letters (docx, docm, xlsx, .., pdf).
+    /// The type it saves as, in small letters (docx, docm, xlsx, .., pdf, csv).
     pub ext: String,
+    /// Some(byte order mark) while a Ledger opened from a CSV or text file saves as one.
+    pub csv_bom: Option<bool>,
 }
 
 impl OpenDoc {
     pub fn new(editor: &str, doc: AnyDoc, path: Option<PathBuf>) -> OpenDoc {
         let title = path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
         let ext = path.as_deref().map(ext_of).filter(|e| !e.is_empty()).unwrap_or_else(|| blank_ext(editor).into());
-        OpenDoc { editor: editor.into(), bus: Bus::new(doc), path, title, ext }
+        OpenDoc { editor: editor.into(), bus: Bus::new(doc), path, title, ext, csv_bom: None }
+    }
+
+    /// The bytes to write to `target`: the document's own type, or for a sheet opened from CSV its
+    /// sheet on show as CSV (the byte order mark it had) or the whole workbook as .xlsx.
+    pub fn bytes_for(&self, target: &Path) -> Result<Vec<u8>, String> {
+        if let (Some(bom), AnyDoc::Ledger(d)) = (self.csv_bom, self.bus.doc()) {
+            return match ext_of(target).as_str() {
+                "csv" | "txt" => Ok(d.save_csv(d.active_sheet(), bom)),
+                "xlsx" => Ok(d.save()),
+                _ => Err(format!("Save it as a .{} or .xlsx file.", self.ext)),
+            };
+        }
+        save_place(&self.ext, target)?;
+        self.bus.doc().save().ok_or_else(|| "This page is not a file; there is nothing to save.".to_string())
+    }
+
+    /// After a save to `target`: a CSV sheet saved as .xlsx is a workbook from then on.
+    pub fn saved_to(&mut self, target: &Path) {
+        self.title = file_name(target);
+        self.path = Some(target.to_path_buf());
+        if self.csv_bom.is_some() {
+            let ext = ext_of(target);
+            if !is_csv(&ext) {
+                self.csv_bom = None;
+            }
+            self.ext = ext;
+        }
     }
 }
 
@@ -1102,7 +1189,8 @@ pub async fn scriptorium_open_dialog(app: AppHandle) -> Option<String> {
         app.dialog()
             .file()
             .set_title("Open a document")
-            .add_filter("Documents, sheets, slides and PDFs", &["docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "pdf"])
+            .add_filter("Documents, sheets, slides and PDFs", &["docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "pdf", "csv"])
+            .add_filter("Sheets as text (CSV)", &["csv", "txt"])
             .add_filter("Older Office files (later)", &["doc", "xls", "ppt"])
             .blocking_pick_file()
             .and_then(|file| file.into_path().ok())
@@ -1119,12 +1207,11 @@ pub async fn scriptorium_save_dialog(app: AppHandle, name: Option<String>) -> Op
     use tauri_plugin_dialog::DialogExt;
     tauri::async_runtime::spawn_blocking(move || {
         let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Untitled.docx".into());
-        let (what, ext) = save_filter(&name);
-        app.dialog()
-            .file()
-            .set_title("Save the document")
-            .set_file_name(&name)
-            .add_filter(what, &[ext.as_str()])
+        let mut dialog = app.dialog().file().set_title("Save the document").set_file_name(&name);
+        for (what, ext) in save_filters(&name) {
+            dialog = dialog.add_filter(what, &[ext.as_str()]);
+        }
+        dialog
             .blocking_save_file()
             .and_then(|file| file.into_path().ok())
             .map(|path| path.display().to_string())
@@ -1134,9 +1221,26 @@ pub async fn scriptorium_save_dialog(app: AppHandle, name: Option<String>) -> Op
     .flatten()
 }
 
+/// The save picker's filters for a file name: its own first, and a sheet opened from CSV can be
+/// saved as a whole workbook too.
+pub fn save_filters(name: &str) -> Vec<(&'static str, String)> {
+    let first = save_filter(name);
+    if is_csv(&first.1) {
+        vec![first, ("Sheet", "xlsx".into())]
+    } else {
+        vec![first]
+    }
+}
+
 /// The save picker's filter for a file name: its kind in words and its extension.
 pub fn save_filter(name: &str) -> (&'static str, String) {
     let ext = ext_of(Path::new(name));
+    if ext == "csv" {
+        return ("Comma-separated values", ext);
+    }
+    if ext == "txt" {
+        return ("Text", ext);
+    }
     let what = match route(name) {
         Route::Editor("ledger") => "Sheet",
         Route::Editor("stage") => "Slides",
@@ -1158,16 +1262,19 @@ pub struct Opened {
 }
 
 /// Opens a file the member chose (off the window's thread); it becomes the current document and joins
-/// the recent files. `{doc, editor, pages, title, path}`.
+/// the recent files. `{doc, editor, pages, title, path}`. `password` opens a locked PDF (the page asks
+/// for it when the first try says the PDF is locked); it is used once and never kept or logged.
 #[tauri::command]
-pub async fn scriptorium_open(path: String, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<Opened, String> {
+pub async fn scriptorium_open(path: String, password: Option<String>, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<Opened, String> {
     crate::rooms::need(&store, ROOM)?;
     let file = PathBuf::from(path.trim());
-    let (editor, doc) = {
+    let loaded = {
         let file = file.clone();
-        tauri::async_runtime::spawn_blocking(move || load_file(&file, Fonts::System)).await.map_err(|_| "The file could not be opened.".to_string())??
+        tauri::async_runtime::spawn_blocking(move || load_file_with(&file, Fonts::System, password.as_deref())).await.map_err(|_| "The file could not be opened.".to_string())??
     };
-    let open = OpenDoc::new(editor, doc, Some(file.clone()));
+    let editor = loaded.editor;
+    let mut open = OpenDoc::new(editor, loaded.doc, Some(file.clone()));
+    open.csv_bom = loaded.csv_bom;
     let (pages, title) = (open.bus.doc().page_count(), open.title.clone());
     let doc = state.docs.lock().unwrap().add(open);
     let shown = file.display().to_string();
@@ -1187,8 +1294,7 @@ pub async fn scriptorium_save(doc: u64, path: Option<String>, store: State<'_, S
             Some(p) => PathBuf::from(p),
             None => open.path.clone().ok_or("Choose where to save it first (Save as).")?,
         };
-        save_place(&open.ext, &target)?;
-        let bytes = open.bus.doc().save().ok_or("This page is not a file; there is nothing to save.")?;
+        let bytes = open.bytes_for(&target)?;
         (target, bytes, open.editor.clone())
     };
     {
@@ -1196,8 +1302,7 @@ pub async fn scriptorium_save(doc: u64, path: Option<String>, store: State<'_, S
         tauri::async_runtime::spawn_blocking(move || write_document(&target, &bytes)).await.map_err(|_| "The file could not be saved.".to_string())??;
     }
     if let Ok(open) = state.docs.lock().unwrap().get(doc) {
-        open.title = file_name(&target);
-        open.path = Some(target.clone());
+        open.saved_to(&target);
     }
     let shown = target.display().to_string();
     note_recent(&store, &shown, &editor);
@@ -1427,7 +1532,9 @@ mod tests {
         assert_eq!(route("b.xlsx"), Route::Editor("ledger"));
         assert_eq!(route("c.pptx"), Route::Editor("stage"));
         assert_eq!(route("d.pdf"), Route::Editor("folio"));
-        assert_eq!(route("e.txt"), Route::Unknown);
+        assert_eq!(route("e.txt"), Route::Editor("ledger"));
+        assert_eq!(route("f.CSV"), Route::Editor("ledger"));
+        assert_eq!(route("g.odt"), Route::Unknown);
         let text = serde_json::to_string(&list[0]).unwrap();
         assert!(text.contains("\"openedAt\":99"));
     }
@@ -1501,11 +1608,14 @@ mod tests {
             assert_eq!(editor_or_why(old).unwrap_err(), OLD_FORMATS);
         }
         assert!(OLD_FORMATS.contains("97\u{2013}2003") && OLD_FORMATS.contains("save it as .docx/.xlsx/.pptx in Office first"));
-        assert_eq!(editor_or_why("notes.txt").unwrap_err(), OPENS);
+        assert_eq!(editor_or_why("notes.odt").unwrap_err(), OPENS);
         assert_eq!(editor_or_why("no-extension").unwrap_err(), OPENS);
         assert_eq!(save_filter("Budget.xlsx"), ("Sheet", "xlsx".to_string()));
         assert_eq!(save_filter("Talk.pptm"), ("Slides", "pptm".to_string()));
-        assert_eq!(save_filter("odd.txt"), ("Document", "docx".to_string()));
+        assert_eq!(save_filter("odd.odt"), ("Document", "docx".to_string()));
+        assert_eq!(save_filters("Budget.xlsx"), vec![("Sheet", "xlsx".to_string())]);
+        assert_eq!(save_filters("People.csv"), vec![("Comma-separated values", "csv".to_string()), ("Sheet", "xlsx".to_string())]);
+        assert_eq!(save_filters("List.txt")[0], ("Text", "txt".to_string()));
     }
 
     #[test]
@@ -1552,6 +1662,48 @@ mod tests {
         let (editor, doc) = load_file(&dir.join("letter.docx"), Fonts::Empty).unwrap();
         assert_eq!((editor, doc.kind()), ("scroll", "scroll"));
         assert_eq!(MAX_OPEN_BYTES, 300 * 1024 * 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_locked_pdf_says_so_in_its_own_words_for_the_page_to_ask() {
+        let needs = folio_error(FolioError::NeedsPassword);
+        assert!(needs.contains("locked with a password") && !needs.starts_with("Folio could not"), "{needs}");
+        let wrong = folio_error(FolioError::WrongPassword);
+        assert!(wrong.contains("password does not open"), "{wrong}");
+        // an unlocked PDF opens with or without a password given
+        let folio = open_bytes_with("folio", invented_pdf(), Fonts::Empty, Some("anything")).unwrap();
+        assert_eq!(folio.page_count(), 2);
+    }
+
+    #[test]
+    fn a_csv_opens_as_one_sheet_and_saves_back_as_csv_or_as_a_workbook() {
+        let dir = temp("csv");
+        let file = dir.join("People.csv");
+        std::fs::write(&file, b"\xEF\xBB\xBFName,Age\nRin,7\n").unwrap();
+        let loaded = load_file_with(&file, Fonts::Empty, None).unwrap();
+        assert_eq!((loaded.editor, loaded.doc.kind(), loaded.csv_bom), ("ledger", "ledger", Some(true)));
+        assert!(loaded.doc.read(&Json::obj().with("cell", "A2")).unwrap().to_string().contains("Rin"));
+        assert!(loaded.doc.describe().to_string().contains("\"name\":\"People\""), "the sheet is named after the file");
+        let mut open = OpenDoc::new(loaded.editor, loaded.doc, Some(file.clone()));
+        open.csv_bom = loaded.csv_bom;
+        assert_eq!(open.ext, "csv");
+        let csv = open.bytes_for(&file).unwrap();
+        assert!(csv.starts_with(b"\xEF\xBB\xBFName,Age"), "{:?}", String::from_utf8_lossy(&csv));
+        assert!(open.bytes_for(&dir.join("People.xlsx")).unwrap().starts_with(b"PK"));
+        assert!(open.bytes_for(&dir.join("People.docx")).unwrap_err().contains(".xlsx"));
+        open.saved_to(&dir.join("People.xlsx"));
+        assert_eq!((open.ext.as_str(), open.csv_bom, open.title.as_str()), ("xlsx", None, "People.xlsx"));
+        assert_eq!(open.bytes_for(&dir.join("People.csv")).unwrap_err(), "Save it as a .xlsx file.");
+
+        let plain = dir.join("list.txt");
+        std::fs::write(&plain, b"a\tb\n1\t2\n").unwrap();
+        let loaded = load_file_with(&plain, Fonts::Empty, None).unwrap();
+        assert_eq!(loaded.csv_bom, Some(false));
+        let mut open = OpenDoc::new(loaded.editor, loaded.doc, Some(plain.clone()));
+        open.csv_bom = loaded.csv_bom;
+        let text = open.bytes_for(&plain).unwrap();
+        assert!(!text.starts_with(b"\xEF\xBB\xBF"), "no mark before, none after");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

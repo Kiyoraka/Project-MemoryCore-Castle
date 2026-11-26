@@ -2,7 +2,8 @@
 // Studio: an icon rail of the editors, the recent files, the page, an inspector on the right and the chat
 // docked along the bottom (the pick scriptorium-scroll-3). The toolbar over the page shows one tab of the
 // editor's registry (ribbon.js) at a time, and the inspector its panels; the rail, the files, Undo, Redo,
-// Save, Export PDF and Print are the room's.
+// Save, Export PDF and Print are the room's. An editor's own panels come in two slots: #below (under the
+// page) and #side (a card at the top of the inspector).
 import { computed, ref, watch } from 'vue'
 import { EDITORS, editorOf } from '../room.js'
 import { pressed, tabGroups } from '../ribbon.js'
@@ -102,14 +103,18 @@ const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${current.val
             ></button>
           </template>
         </div>
-        <div class="page-slot"><slot name="page" /></div>
-        <div class="strip-slot"><slot name="strip" /></div>
+        <div class="page-slot">
+          <slot name="page" />
+          <div class="strip-slot"><slot name="strip" /></div>
+        </div>
+        <div v-if="$slots.below" class="below"><slot name="below" /></div>
       </main>
 
       <aside class="inspector" aria-label="Inspector">
         <nav v-if="panels.length > 1" class="inspector-tabs" role="tablist">
           <button v-for="p in panels" :key="p.id" role="tab" :aria-selected="panel?.id === p.id" :class="{ on: panel?.id === p.id }" :title="p.label" @click="inspector = p.id" v-html="iconOf(p.icon || 'sliders', 20)"></button>
         </nav>
+        <section v-if="$slots.side" class="card side"><slot name="side" /></section>
         <template v-if="panel">
           <section v-for="(g, i) in panel.groups" :key="`${panel.id}-${i}`" class="card">
             <div class="card-body">
@@ -130,7 +135,7 @@ const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${current.val
             </div>
           </section>
         </template>
-        <p v-else class="hint">Nothing to set here yet for {{ current.label }}.</p>
+        <p v-else-if="!$slots.side" class="hint">Nothing to set here yet for {{ current.label }}.</p>
       </aside>
     </div>
 
@@ -337,10 +342,21 @@ const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${current.val
 .desk {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--scr-desk);
+}
+.below {
+  max-height: 40%;
+  padding: 8px 12px;
+  border-top: 1px solid var(--scr-line);
+  overflow: auto;
+}
+.card.side {
+  padding: 6px;
+  max-height: 50%;
+  overflow: auto;
 }
 .toolbar {
   display: flex;

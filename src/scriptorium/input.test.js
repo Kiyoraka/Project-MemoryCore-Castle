@@ -15,6 +15,10 @@ describe('the key map', () => {
     expect(keyIntent(key('End', { metaKey: true, shiftKey: true }))).toEqual({ command: 'caret.doc_end', args: { extend: true } })
     expect(keyIntent(key('ArrowLeft', { ctrlKey: true })).command).toBe('caret.word_left')
     expect(keyIntent(key('ArrowRight', { ctrlKey: true, shiftKey: true }))).toEqual({ command: 'caret.word_right', args: { extend: true } })
+    // Ctrl+Up / Ctrl+Down: up and down with ctrl (Ledger jumps to the data edge)
+    expect(keyIntent(key('ArrowUp', { ctrlKey: true }))).toEqual({ command: 'caret.up', args: { ctrl: true, extend: false } })
+    expect(keyIntent(key('ArrowDown', { ctrlKey: true, shiftKey: true }))).toEqual({ command: 'caret.down', args: { ctrl: true, extend: true } })
+    expect(keyIntent(key('ArrowDown', { metaKey: true })).args.ctrl).toBe(true)
   })
   it('edits', () => {
     expect(keyIntent(key('Backspace'))).toEqual({ command: 'edit.backspace', args: { word: false } })

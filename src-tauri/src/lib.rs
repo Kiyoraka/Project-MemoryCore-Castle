@@ -1023,6 +1023,20 @@ pub fn run() {
             sentinel::network::listen(app.handle());
             automations::start(app.handle());
             db::start_with_castle(app.handle());
+            // a first launch carrying --photo-edit is PHOTO's door too, not only a second instance: the
+            // ask is answered and waits for PHOTO's page; the page is not listening yet, so the room is
+            // asked for again once the window has had time to come up
+            let launch: Vec<String> = std::env::args().collect();
+            if photo_door::door_word(&launch).is_some() {
+                photo_door::from_args(app.handle(), &launch);
+                if rooms::need(&app.state::<SettingsStore>(), photo::ROOM).is_ok() {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(4));
+                        roomalert::open_room(&handle, photo::ROOM);
+                    });
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

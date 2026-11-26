@@ -12,6 +12,7 @@ import scroll from './editors/scroll/index.js'
 import ledger from './editors/ledger/index.js'
 import stage from './editors/stage/index.js'
 import folio from './editors/folio/index.js'
+import { INSERT_INTENTS, linkCommand, pictureCommand } from './editors/scroll/insert.js'
 
 export const REGISTRY = { scroll, ledger, stage, folio }
 
@@ -115,4 +116,92 @@ export function notYet(editor, intent) {
   if (what.startsWith('format.')) return `Formatting comes to ${label} soon.`
   if (what === 'clip.paste' || what === 'clip.cut') return `Paste and cut come to ${label} soon.`
   return `That comes to ${label} soon.`
+}
+
+// --- page-side work and components an editor brings ---
+
+/** The editor's own page-side action for a button's intent or command (editors/<editor>/index.js
+ * `actions`): ({ api, doc, page, count, sel, args }) => Promise, or null when it has none. */
+export function actionFor(editor, name) {
+  if (typeof name !== 'string' || !name) return null
+  const fn = obj(obj(REGISTRY[editorOf(editor).id]).actions)[name]
+  return typeof fn === 'function' ? fn : null
+}
+
+// where the room places an editor's view, by its name: over everything, under the page, or beside it
+// (the Studio inspector; a side panel in Classic). A name not listed goes beside the page.
+export const VIEW_PLACES = { slideShow: 'overlay', notes: 'below', bookmarks: 'side' }
+
+// views an editor ships in its folder without naming them in `views` yet (Folio's bookmarks list)
+const SHIPPED_VIEWS = {
+  folio: { bookmarks: () => import('./editors/folio/BookmarksPanel.vue') },
+}
+
+/** An editor's views: [{ name, place, load }] (`load` a lazy import of the component). */
+export function editorViews(editor) {
+  const id = editorOf(editor).id
+  const all = { ...obj(SHIPPED_VIEWS[id]), ...obj(obj(REGISTRY[id]).views) }
+  return Object.entries(all)
+    .filter(([, load]) => typeof load === 'function')
+    .map(([name, load]) => ({ name, place: VIEW_PLACES[name] ?? 'side', load }))
+}
+
+/** The panel view (under or beside the page) a button's intent shows and hides: '<editor>.<view>'
+ * ('stage.notes' -> 'notes'), or null. */
+export function viewToggle(editor, intent) {
+  const id = editorOf(editor).id
+  const name = typeof intent === 'string' && intent.startsWith(`${id}.`) ? intent.slice(id.length + 1) : ''
+  const v = editorViews(id).find((x) => x.name === name)
+  return v && v.place !== 'overlay' ? v.name : null
+}
+
+/** The props a view takes, from the room's own: { api, doc, page, count, outline, start }. Unknown
+ * views get the document and the page. */
+export function viewProps(name, ctx = {}) {
+  const c = obj(ctx)
+  switch (name) {
+    case 'slideShow':
+      return { api: c.api, doc: c.doc, start: Number(c.start ?? c.page) || 0, count: Math.max(1, Number(c.count) || 1) }
+    case 'notes':
+      return { api: c.api, doc: c.doc, slide: Number(c.page) || 0 }
+    case 'bookmarks':
+      return { outline: c.outline ?? [], page: Number.isInteger(c.page) ? c.page : -1 }
+    default:
+      return { api: c.api, doc: c.doc, page: Number(c.page) || 0 }
+  }
+}
+
+// the full-screen views a button's intent opens in the room's overlay
+export const OVERLAY_INTENTS = { 'stage.show': 'slideShow' }
+
+/** The overlay an intent opens: { name, load, start } (the slide to start at: 0 'from' the start, else
+ * the page on show), or null when the editor has no such view. */
+export function overlayFor(editor, intent, args = {}, page = 0, count = 1) {
+  const name = OVERLAY_INTENTS[intent]
+  if (!name || !String(intent).startsWith(`${editorOf(editor).id}.`)) return null
+  const v = editorViews(editor).find((x) => x.name === name && x.place === 'overlay')
+  if (!v) return null
+  const n = Math.max(1, Math.floor(Number(count) || 1))
+  const from = obj(args).from
+  const start = from === 'start' || from === 'beginning' ? 0 : Math.min(Math.max(0, Math.floor(Number(page) || 0)), n - 1)
+  return { name, load: v.load, start }
+}
+
+// intents that ask the member something before their command runs, by editor: what they ask ('file'
+// with the types it takes, or 'url') and how the answer becomes the command (Scroll's insert.js)
+const ASKING = {
+  scroll: {
+    'insert.picture': { build: (file) => pictureCommand(file) },
+    'insert.link': { build: (url) => linkCommand(url) },
+  },
+}
+
+/** What an intent asks first: { command, asks: 'file' | 'url', accept, build(answer) -> { command, args }
+ * | null }, or null when it asks nothing. */
+export function askingFor(editor, intent) {
+  const id = editorOf(editor).id
+  const how = obj(ASKING[id])[intent]
+  const what = id === 'scroll' ? obj(INSERT_INTENTS)[intent] : null
+  if (!how || !what) return null
+  return { command: what.command, asks: what.asks, accept: String(what.accept ?? ''), build: how.build }
 }

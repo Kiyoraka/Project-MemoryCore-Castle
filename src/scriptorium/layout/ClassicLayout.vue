@@ -3,6 +3,7 @@
 // the middle and the chat on the right (the pick scriptorium-scroll-1). New, Open (with the recent files
 // beside it), Save, Save as, Undo, Redo, Export PDF and Print are the room's; each tab's groups come from
 // the editor's own registry (ribbon.js), a button pressed when the editor's state says its stateKey.
+// An editor's own panels come in two slots: #below (under the page) and #side (a column beside it).
 import { computed, ref, watch } from 'vue'
 import { EDITORS } from '../room.js'
 import { pressed, tabGroups } from '../ribbon.js'
@@ -112,9 +113,13 @@ const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${label.value
       <nav class="rail" aria-label="Editors">
         <button v-for="e in EDITORS" :key="e.id" :class="{ on: e.id === editor }" :title="`${e.label} - ${e.what}`" :aria-label="e.label" @click="emit('editor', e.id)" v-html="icon(e.id, 20)"></button>
       </nav>
-      <main class="desk">
-        <slot name="page" />
-        <div class="strip-slot"><slot name="strip" /></div>
+      <main class="desk" :class="{ 'has-side': !!$slots.side }">
+        <div class="page-slot">
+          <slot name="page" />
+          <div class="strip-slot"><slot name="strip" /></div>
+        </div>
+        <div v-if="$slots.below" class="below"><slot name="below" /></div>
+        <aside v-if="$slots.side" class="side" aria-label="Panel"><slot name="side" /></aside>
       </main>
       <aside class="chat" aria-label="Chat">
         <slot name="chat" />
@@ -329,9 +334,35 @@ const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${label.value
 }
 .desk {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--scr-desk);
+}
+.desk.has-side {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+}
+.page-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.below {
+  grid-column: 1;
+  max-height: 40%;
+  padding: 8px 12px;
+  border-top: 1px solid var(--scr-line);
+  overflow: auto;
+}
+.side {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  min-height: 0;
+  padding: 8px;
+  border-left: 1px solid var(--scr-line);
+  overflow: auto;
 }
 .strip-slot {
   position: absolute;

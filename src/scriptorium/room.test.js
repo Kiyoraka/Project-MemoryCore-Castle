@@ -8,14 +8,19 @@ import {
   editorForPath,
   editorOf,
   fileNameOf,
+  fitZoomFor,
   isDirty,
   isTypingTarget,
   layoutOf,
+  linkTarget,
   newestDone,
   pageKeyOf,
   pageLabel,
   pageNav,
+  pageSizeOf,
   parseJson,
+  passwordPrompt,
+  pdfLock,
   plainError,
   readDone,
   readHistory,
@@ -27,6 +32,7 @@ import {
   stepPage,
   titleFor,
   undoState,
+  webLink,
 } from './room.js'
 import { ribbonTabs } from './ribbon.js'
 
@@ -53,7 +59,7 @@ describe('the editors and the layouts', () => {
     expect(layoutOf('Studio')).toBe('classic')
     expect(layoutOf(undefined)).toBe('classic')
   })
-  it('offers a save name with the editor\'s own type', () => {
+  it("offers a save name with the editor\'s own type", () => {
     expect(saveName('scroll')).toBe('Untitled.docx')
     expect(saveName('stage', 'Talk: v2/final')).toBe('Talk  v2 final.pptx')
     expect(saveName('folio', '   ')).toBe('Untitled.pdf')
@@ -66,6 +72,8 @@ describe('the editors and the layouts', () => {
     expect(saveAsName('stage', 'notes.txt')).toBe('notes.txt.pptx')
     expect(saveAsName('folio', '')).toBe('Untitled.pdf')
     expect(saveAsName('folio', 'scan.pdf')).toBe('scan.pdf')
+    expect(saveAsName('ledger', 'People.csv')).toBe('People.csv')
+    expect(saveAsName('ledger', 'list.TXT')).toBe('list.txt')
   })
 })
 
@@ -102,14 +110,14 @@ describe('reading the host\'s answers', () => {
 
 describe('the AI\'s changes', () => {
   const step = (id, origin, label, undone = false) => ({ id, origin, label, undone })
-  it('shows the AI\'s steps newest first; only the newest step of all can be undone', () => {
+  it("shows the AI\'s steps newest first; only the newest step of all can be undone", () => {
     const pills = aiPills([step(1, 'ai', 'Tidy'), step(2, 'user', 'mine'), step(3, 'ai', 'Bluer heading'), step(4, 'ai', 'undone one', true)])
     expect(pills).toEqual([
       { id: 3, label: 'Bluer heading', undoable: true },
       { id: 1, label: 'Tidy', undoable: false },
     ])
   })
-  it('an AI step under the member\'s newer step waits', () => {
+  it("an AI step under the member\'s newer step waits", () => {
     expect(aiPills([step(1, 'ai', 'x'), step(2, 'user', 'y')])).toEqual([{ id: 1, label: 'x', undoable: false }])
   })
   it('keeps the strip short and names a step without a label', () => {
@@ -167,6 +175,8 @@ describe('recent files', () => {
     expect(editorForPath('talk.pptx')).toBe('stage')
     expect(editorForPath('scan.pdf')).toBe('folio')
     expect(editorForPath('old.doc')).toBe(null)
+    expect(editorForPath('People.CSV')).toBe('ledger')
+    expect(editorForPath('list.txt')).toBe('ledger')
     expect(editorForPath('pdf')).toBe(null)
     expect(editorForPath(null)).toBe(null)
     expect(fileNameOf('C:\\docs\\Report.docx')).toBe('Report.docx')
@@ -238,5 +248,65 @@ describe('the two folders rule', () => {
       }
       expect(text, file).not.toMatch(/@tauri-apps|invoke\(|castle-memory|TerminalPanel|Castle/)
     }
+  })
+})
+
+describe('a locked PDF', () => {
+  it("reads the crate's words for a missing or a wrong password", () => {
+    const host = (words) => `Folio could not open it: ${words}`
+    expect(pdfLock('This PDF is locked with a password. Enter its password to open it.')).toBe('needs')
+    expect(pdfLock(new Error('This PDF is locked with a password. Enter its password to open it.'))).toBe('needs')
+    expect(pdfLock(host('That password does not open this PDF.'))).toBe('wrong')
+    expect(pdfLock('That file is not there any more.')).toBe(null)
+    expect(pdfLock(null)).toBe(null)
+  })
+  it('asks, and asks again after a wrong one', () => {
+    expect(passwordPrompt('needs', 'Taxes.pdf')).toEqual({
+      title: 'This PDF is locked',
+      message: 'Taxes.pdf is locked with a password. Enter its password to open it.',
+      wrong: false,
+    })
+    const again = passwordPrompt('wrong', 'Taxes.pdf')
+    expect(again.wrong).toBe(true)
+    expect(again.message).toBe('That password does not open Taxes.pdf. Try again.')
+    expect(passwordPrompt('needs', '').message.startsWith('This PDF is locked')).toBe(true)
+  })
+})
+
+describe('links on the page', () => {
+  it('opens only web and mail addresses, by their host', () => {
+    expect(webLink('https://example.com/a?b=1')).toEqual({ uri: 'https://example.com/a?b=1', host: 'example.com' })
+    expect(webLink('http://old.example.org')).toEqual({ uri: 'http://old.example.org', host: 'old.example.org' })
+    expect(webLink('mailto:rin@example.com')).toEqual({ uri: 'mailto:rin@example.com', host: 'rin@example.com' })
+    expect(webLink('javascript:alert(1)')).toBe(null)
+    expect(webLink('file:///C:/secret.txt')).toBe(null)
+    expect(webLink('https://a b')).toBe(null)
+    expect(webLink('not a link')).toBe(null)
+    expect(webLink('')).toBe(null)
+  })
+  it('tells a page of the document from a web address', () => {
+    expect(linkTarget('#page=3')).toEqual({ kind: 'page', page: 2 })
+    expect(linkTarget('#page=0')).toBe(null)
+    expect(linkTarget('https://example.com')).toEqual({ kind: 'web', uri: 'https://example.com', host: 'example.com' })
+    expect(linkTarget('ftp://x')).toBe(null)
+    expect(linkTarget(null)).toBe(null)
+  })
+})
+
+describe('fit page and fit width', () => {
+  it("takes the page size from the editor's state, else the display list", () => {
+    expect(pageSizeOf({ width: 612, height: 792 }, { w: 1, h: 1 })).toEqual({ w: 612, h: 792 })
+    expect(pageSizeOf({}, { w: 595, h: 842 })).toEqual({ w: 595, h: 842 })
+    expect(pageSizeOf(null, null)).toBe(null)
+  })
+  it('fits the whole page or its width in the view', () => {
+    const size = { w: 500, h: 1000 }
+    // the page: the height binds (1000 - 48) / 1000
+    expect(fitZoomFor('page', size, { w: 1048, h: 1000 })).toBeCloseTo(0.952, 3)
+    // the width: (1048 - 14 - 48) / 500
+    expect(fitZoomFor('width', size, { w: 1048, h: 1000 })).toBeCloseTo(1.972, 3)
+    expect(fitZoomFor('page', null, { w: 1, h: 1 })).toBe(null)
+    expect(fitZoomFor('page', size, null)).toBe(null)
+    expect(fitZoomFor('width', size, { w: 0, h: 10 })).toBe(null)
   })
 })

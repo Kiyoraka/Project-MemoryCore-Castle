@@ -11,7 +11,10 @@
 //   api.command(doc, name, args)  -> { ok, step, pages }    the member's own command (one undo step)
 //   api.undo(doc), api.redo(doc)  -> { ok, step, pages }    api.history(doc) -> [{ id, origin, label, undone }]
 //   api.pick()                    -> path | null            the host's open picker
-//   api.open(path)                -> { doc, editor, pages, title, path }
+//   api.open(path, password?)     -> { doc, editor, pages, title, path }
+//                                                           a locked PDF fails with the crate's words
+//                                                           (room.js pdfLock); the room asks for the
+//                                                           password in its own dialog and tries again
 //   api.pickSave(name)            -> path | null            the host's save picker
 //   api.save(doc, path | null)    -> the path saved to      (null: back to the file it came from)
 //   api.recent()                  -> [{ path, name, editor }]
@@ -28,14 +31,22 @@
 //                                                           line_start, line_end, doc_start, doc_end
 //   api.exportPdf(doc)            -> path | null            the host's save picker, then every page as a PDF
 //   api.print(doc)                -> words                  the document handed to the system's printing
-import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
+//   api.read(doc, what)           -> read JSON              (optional) the door's read (Folio's outline)
+//   api.openUrl(uri)              -> anything               (optional) a web link opened in the system's
+//                                                           browser, after the member said yes
+//
+// An editor may bring page-side work (`actions` in its index.js, run for a button's intent or command
+// with { api, doc, page, count, sel, args, pickFile }) and components (`views`): a full-screen one in
+// the room's overlay, a panel under the page or beside it (ribbon.js editorViews). Intents that ask the
+// member first (Scroll's insert.picture / insert.link) get the room's file picker or its prompt.
+import { computed, defineAsyncComponent, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
 import FindBar from './FindBar.vue'
 import ClassicLayout from './layout/ClassicLayout.vue'
 import StudioLayout from './layout/StudioLayout.vue'
 import PageNav from './PageNav.vue'
 import ScriptoriumPage from './ScriptoriumPage.vue'
 import { isPageInput } from './input.js'
-import { FIND_SOON, buttonCommand, commandNames, editorUi, findSupport, intentFor, notYet } from './ribbon.js'
+import { FIND_SOON, actionFor, askingFor, buttonCommand, commandNames, editorUi, editorViews, findSupport, intentFor, notYet, overlayFor, viewProps, viewToggle } from './ribbon.js'
 import { extendTo, isCollapsed, motionOf, readCaret, readClip, readPos, readRects, readSelection, selectionAt } from './selection.js'
 import {
   EARLY_BADGE,
@@ -44,13 +55,18 @@ import {
   editorForPath,
   editorOf,
   fileNameOf,
+  fitZoomFor,
   isDirty,
   isTypingTarget,
   layoutOf,
+  linkTarget,
   newestDone,
   pageKeyOf,
   pageNav,
+  pageSizeOf,
   parseJson,
+  passwordPrompt,
+  pdfLock,
   plainError,
   readDone,
   readHistory,
@@ -101,6 +117,40 @@ const findReplace = ref(false)
 const pageView = ref(null)
 // the last copy, so a paste back into the same editor keeps its rich form
 let lastClip = null
+
+// the room's own small dialog (a question, a line of text or a password):
+// { kind: 'confirm' | 'text' | 'password', title, message, detail?, ok, wrong?, placeholder?, resolve }
+const dialog = shallowRef(null)
+const dialogText = ref('')
+const dialogInput = ref(null)
+
+// an editor's views: the full-screen one on show, the panels switched on, Folio's outline
+const overlay = shallowRef(null)
+const panelsOn = reactive({})
+const outline = shallowRef([])
+const loaded = new Map()
+function viewComponent(v) {
+  const key = `${editor.value}:${v.name}`
+  if (!loaded.has(key)) loaded.set(key, markRaw(defineAsyncComponent(v.load)))
+  return loaded.get(key)
+}
+const views = computed(() => editorViews(editor.value))
+// a panel beside the page is on until switched off (the bookmarks only when there are some); one under
+// the page waits for its button
+function panelOn(v) {
+  const set = panelsOn[`${editor.value}:${v.name}`]
+  if (set !== undefined) return set
+  if (v.place !== 'side') return false
+  return v.name !== 'bookmarks' || (Array.isArray(outline.value) && outline.value.length > 0)
+}
+function placed(place) {
+  if (doc.value === null) return null
+  const v = views.value.find((x) => x.place === place && panelOn(x))
+  if (!v) return null
+  return { name: v.name, comp: viewComponent(v), props: viewProps(v.name, { api: props.api, doc: doc.value, page: page.value, count: nav.value.count, outline: outline.value }) }
+}
+const belowView = computed(() => placed('below'))
+const sideView = computed(() => placed('side'))
 const has = (name) => typeof props.api[name] === 'function'
 const ui = computed(() => editorUi(editor.value, commands.value))
 const finding = computed(() => findSupport(editor.value, commands.value))
@@ -152,8 +202,15 @@ async function paint() {
 async function refresh() {
   if (doc.value === null) return
   const d = doc.value
-  const [described, steps] = await Promise.all([describe(d), props.api.history(d)])
+  const wantsOutline = has('read') && editorViews(editor.value).some((v) => v.name === 'bookmarks')
+  const [described, steps, tree] = await Promise.all([
+    describe(d),
+    props.api.history(d),
+    wantsOutline ? Promise.resolve(props.api.read(d, { outline: true })).catch(() => null) : null,
+  ])
   if (d !== doc.value) return
+  const read = parseJson(tree)
+  outline.value = Array.isArray(read?.outline) ? read.outline : Array.isArray(read) ? read : []
   commands.value = commandNames(described)
   editable.value = described?.editable === true
   if (!editable.value) clearSelection()
@@ -239,13 +296,31 @@ const open = (path) => step(async () => {
   const kind = editorForPath(target)
   if (kind && !mayLeave(kind, 'open', target)) return
   status.value = `Opening ${fileNameOf(target)}…`
-  const opened = await props.api.open(target)
+  const opened = await openLocked(target)
   status.value = ''
   if (!opened) return
   place(editorOf(opened.editor).id, opened.doc, { title: opened.title || fileNameOf(opened.path ?? target), path: opened.path ?? target })
   await refresh()
   await loadRecent()
 })
+
+// a file opened, and a locked PDF's password asked for (again after a wrong one) until it opens or
+// the member gives up (null). The password lives only in this call: never logged, never kept.
+async function openLocked(target) {
+  let password = null
+  for (;;) {
+    try {
+      return await (password === null ? props.api.open(target) : props.api.open(target, password))
+    } catch (reason) {
+      const lock = pdfLock(reason)
+      if (!lock) throw reason
+      status.value = ''
+      password = await ask({ kind: 'password', ...passwordPrompt(password === null ? lock : 'wrong', fileNameOf(target)), ok: 'Open' })
+      if (password === null) return null
+      status.value = `Opening ${fileNameOf(target)}…`
+    }
+  }
+}
 
 // Save goes back to the file it came from; Save as (and a new document's first save) asks where
 const save = (as = false) => step(async () => {
@@ -339,7 +414,8 @@ async function refreshSelection(follow = false) {
   }
   const [c, r, st] = await Promise.all([
     props.api.caret(d, s.focus),
-    isCollapsed(s) || !has('selection') ? [] : props.api.selection(d, s),
+    // the editor decides: a single cell or a single shape has boxes though it is collapsed
+    has('selection') ? props.api.selection(d, s) : [],
     has('state') ? props.api.state(d, s) : {},
   ])
   if (d !== doc.value || s !== sel.value) return
@@ -445,7 +521,8 @@ async function selectAll() {
 
 async function copySelection() {
   const s = sel.value
-  if (!s || isCollapsed(s) || !has('copy')) return false
+  // collapsed is the editor's to judge (one cell, one shape copies); an empty clip is nothing to copy
+  if (!s || !has('copy')) return false
   const clip = readClip(await props.api.copy(doc.value, s))
   if (!clip.text && !clip.rich) return false
   lastClip = clip
@@ -466,11 +543,163 @@ async function runIntent({ command, args = {} }) {
     if (!cut) return void (status.value = notYet(editor.value, command))
     return runCommand(cut.command, withSel({ ...cut.args }))
   }
-  if (!own) return void (status.value = notYet(editor.value, command))
+  if (!own) {
+    const asking = askingFor(editor.value, command)
+    if (asking) return runAsking(asking)
+    const act = actionFor(editor.value, command)
+    if (act) return runAction(act, args)
+    return void (status.value = notYet(editor.value, command))
+  }
   const extra = { ...args }
   // a paste of our own last copy keeps its rich form
   if (command === 'clip.paste' && lastClip?.rich && lastClip.text === extra.text) extra.rich = lastClip.rich
   return runCommand(own.command, withSel({ ...own.args, ...extra }))
+}
+
+// a file chosen on the page (one picker for every editor): a File, or null when none was chosen
+function pickFile(accept = '') {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined') return resolve(null)
+    const input = document.createElement('input')
+    input.type = 'file'
+    if (accept) input.accept = accept
+    let settled = false
+    const done = (file) => {
+      if (settled) return
+      settled = true
+      window.removeEventListener('focus', back)
+      resolve(file)
+    }
+    // the picker closed without a file: the window gets its focus back and no change follows
+    const back = () => setTimeout(() => done(input.files?.[0] ?? null), 600)
+    input.onchange = () => done(input.files?.[0] ?? null)
+    window.addEventListener('focus', back)
+    input.click()
+  })
+}
+
+// an intent that asks the member first (a picture file, a link's address), then runs its command
+async function runAsking(asking) {
+  if (asking.asks === 'file') {
+    const file = await pickFile(asking.accept)
+    if (!file) return
+    const c = await asking.build(file)
+    if (c) await runCommand(c.command, withSel(c.args))
+    return
+  }
+  if (asking.asks === 'url') {
+    const url = await ask({ kind: 'text', title: 'Insert a link', message: 'The address to link to (a web address, an email address or #bookmark).', placeholder: 'https://', ok: 'Link' })
+    if (url === null) return
+    const c = asking.build(url)
+    if (!c) return void (status.value = 'That is not an address to link to.')
+    await runCommand(c.command, withSel(c.args))
+  }
+}
+
+// an editor's page-side work: its answer may carry where the selection landed; the room reads the
+// document again afterwards
+async function runAction(act, args = {}) {
+  const d = doc.value
+  if (d === null) return
+  const result = await act({ api: props.api, doc: d, page: page.value, count: nav.value.count, sel: sel.value, args: { ...args }, pickFile })
+  if (d !== doc.value) return
+  const done = parseJson(result)
+  if (done && typeof done === 'object' && done.ok === false) status.value = plainError(done.error)
+  const landed = readSelection(done?.selection)
+  if (landed) sel.value = landed
+  await refresh()
+  await refreshSelection(true)
+}
+
+// --- the editor's views ---
+
+function togglePanel(name) {
+  const v = views.value.find((x) => x.name === name)
+  if (!v) return
+  panelsOn[`${editor.value}:${name}`] = !panelOn(v)
+}
+
+function openOverlay(o) {
+  if (doc.value === null) return
+  overlay.value = { name: o.name, comp: viewComponent(o), props: viewProps(o.name, { api: props.api, doc: doc.value, page: page.value, start: o.start, count: nav.value.count }) }
+}
+
+function closeOverlay() {
+  if (!overlay.value) return
+  overlay.value = null
+  enqueue(async () => {
+    await refresh()
+    await refreshSelection()
+  })
+  nextTick(() => pageView.value?.focusInput?.())
+}
+
+// a panel changed the document itself (the notes pane's own command): read it again
+function onViewChanged() {
+  enqueue(async () => {
+    await refresh()
+    await refreshSelection()
+  })
+}
+
+// a panel asks for a command (a bookmark row turns to its page)
+function onViewCommand(c) {
+  if (!c || !c.command) return
+  enqueue(() => runCommand(c.command, withSel({ ...(c.args ?? {}) })))
+}
+
+// --- the room's own dialog ---
+
+function ask(d) {
+  return new Promise((resolve) => {
+    // a dialog still open gives way (answered no)
+    if (dialog.value) dialog.value.resolve(null)
+    dialogText.value = ''
+    dialog.value = { ...d, resolve }
+    nextTick(() => dialogInput.value?.focus?.())
+  })
+}
+
+function answer(yes) {
+  const d = dialog.value
+  if (!d) return
+  dialog.value = null
+  const text = dialogText.value
+  dialogText.value = ''
+  d.resolve(yes ? (d.kind === 'confirm' ? true : text) : null)
+  nextTick(() => pageView.value?.focusInput?.())
+}
+
+// --- links on the page ---
+
+function onLink(l) {
+  if (!l || doc.value === null) return
+  const t = linkTarget(l.target)
+  if (!t) return
+  if (t.kind === 'web') return void openWeb(t)
+  enqueue(async () => {
+    const follow = `${editor.value}.follow_link`
+    if (commands.value.includes(follow) && Number.isFinite(l.x) && Number.isFinite(l.y)) return void (await runCommand(follow, { page: page.value, x: l.x, y: l.y }))
+    await turn(t.page)
+  })
+}
+
+async function openWeb(t) {
+  if (!has('openUrl')) return
+  const yes = await ask({ kind: 'confirm', title: 'Open a web link', message: `Open ${t.host} in your browser?`, detail: t.uri, ok: 'Open' })
+  if (!yes) return
+  try {
+    await props.api.openUrl(t.uri)
+  } catch (reason) {
+    status.value = plainError(reason)
+  }
+}
+
+// --- fit page, fit width ---
+
+function fit(mode) {
+  const z = fitZoomFor(mode, pageSizeOf(editState.value, list.value), pageView.value?.viewSize?.())
+  if (z) zoom.value = z
 }
 
 function openFind(replace) {
@@ -493,10 +722,17 @@ const ROOM_INTENTS = {
   'file.print': () => print(),
   'find.open': () => openFind(false),
   'find.replace': () => openFind(true),
+  'view.fit_page': () => fit('page'),
+  'view.fit_width': () => fit('width'),
 }
 
 function onIntent(it) {
   if (!it || !it.command) return
+  // an editor's panel shown and hidden, or its full-screen view opened
+  const toggle = viewToggle(editor.value, it.command)
+  if (toggle) return togglePanel(toggle)
+  const shown = overlayFor(editor.value, it.command, it.args, page.value, nav.value.count)
+  if (shown) return openOverlay(shown)
   const mine = ROOM_INTENTS[it.command]
   if (mine) {
     if (!busy.value) mine()
@@ -507,7 +743,9 @@ function onIntent(it) {
 
 function onButton(b) {
   if (!b) return
+  const act = !b.intent && actionFor(editor.value, b.command)
   if (b.intent) onIntent({ command: b.intent, args: b.args })
+  else if (act) enqueue(() => runAction(act, b.args))
   else
     enqueue(async () => {
       const c = buttonCommand(b, sel.value)
@@ -535,6 +773,7 @@ function onReplace({ query, with: replacement, all }) {
 const SHORTCUTS = { undo: () => undoStep(), redo: () => redoStep(), open: () => open(), save: () => save(false), saveAs: () => save(true) }
 
 function onKey(e) {
+  if (dialog.value || overlay.value) return
   // the page's own keyboard sends its intents itself; what it lets through (page keys) is ours
   if (isTypingTarget(e.target) && !isPageInput(e.target)) return
   const what = shortcutOf(e)
@@ -611,10 +850,17 @@ defineExpose({ refresh, show: switchEditor, open })
               :rects="rects"
               @pointer="onPointer"
               @intent="onIntent"
+              @link="onLink"
             />
             <FindBar v-model:replace="findReplace" :open="findOpen" :support="finding" :busy="busy" @find="onFind" @replace="onReplace" @close="closeFind" />
           </div>
         </PageNav>
+      </template>
+      <template v-if="belowView" #below>
+        <component :is="belowView.comp" :key="`${editor}:${belowView.name}:${doc}`" v-bind="belowView.props" @changed="onViewChanged" @command="onViewCommand" />
+      </template>
+      <template v-if="sideView" #side>
+        <component :is="sideView.comp" :key="`${editor}:${sideView.name}:${doc}`" v-bind="sideView.props" @changed="onViewChanged" @command="onViewCommand" />
       </template>
       <template #strip>
         <div v-if="pills.length" class="ai-strip" role="list" :aria-label="`${aiName}'s changes`">
@@ -629,11 +875,36 @@ defineExpose({ refresh, show: switchEditor, open })
         <slot name="chat" />
       </template>
     </component>
+    <div v-if="overlay" class="room-overlay">
+      <component :is="overlay.comp" v-bind="overlay.props" @end="closeOverlay" @close="closeOverlay" />
+    </div>
+    <div v-if="dialog" class="room-dialog" role="presentation" @keydown.esc.stop.prevent="answer(false)">
+      <form class="dialog-card" role="dialog" aria-modal="true" :aria-label="dialog.title" @submit.prevent="answer(true)">
+        <h2>{{ dialog.title }}</h2>
+        <p class="dialog-message" :class="{ wrong: dialog.wrong }">{{ dialog.message }}</p>
+        <p v-if="dialog.detail" class="dialog-detail" :title="dialog.detail">{{ dialog.detail }}</p>
+        <input
+          v-if="dialog.kind !== 'confirm'"
+          ref="dialogInput"
+          v-model="dialogText"
+          :type="dialog.kind === 'password' ? 'password' : 'text'"
+          :placeholder="dialog.placeholder || undefined"
+          :aria-label="dialog.kind === 'password' ? 'Password' : dialog.title"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="dialog-actions">
+          <button type="button" @click="answer(false)">Cancel</button>
+          <button type="submit" class="primary" :disabled="dialog.kind !== 'confirm' && !dialogText.trim()">{{ dialog.ok || 'OK' }}</button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .scriptorium {
+  position: relative;
   --scr-accent: var(--accent, #8b7bff);
   --scr-text: var(--text, #ece9ff);
   --scr-muted: color-mix(in srgb, var(--scr-text) 62%, transparent);
@@ -690,6 +961,82 @@ defineExpose({ refresh, show: switchEditor, open })
   cursor: pointer;
 }
 .pill button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.room-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+}
+.room-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(6, 5, 20, 0.55);
+}
+.dialog-card {
+  display: grid;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 18px 20px;
+  border: 1px solid var(--scr-line);
+  border-radius: 14px;
+  background: var(--scr-panel);
+  color: var(--scr-text);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.dialog-card h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.dialog-message {
+  margin: 0;
+  font-size: 14px;
+}
+.dialog-message.wrong {
+  color: #ffb4b4;
+}
+.dialog-detail {
+  margin: 0;
+  overflow: hidden;
+  color: var(--scr-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dialog-card input {
+  padding: 8px 10px;
+  border: 1px solid var(--scr-line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--scr-text);
+  font: inherit;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dialog-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--scr-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--scr-text);
+  font: inherit;
+  cursor: pointer;
+}
+.dialog-actions button.primary {
+  border-color: transparent;
+  background: var(--scr-chip);
+}
+.dialog-actions button:disabled {
   opacity: 0.45;
   cursor: default;
 }

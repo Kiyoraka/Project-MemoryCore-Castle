@@ -5,6 +5,8 @@
 // host or any editor.
 //
 //   caret.left / right / up / down        args { extend }   Shift extends the selection
+//   caret.up / down                       args { ctrl: true, extend }  Ctrl+Up / Ctrl+Down (a sheet's
+//                                                           data edge; the ground's plain up/down elsewhere)
 //   caret.word_left / word_right          args { extend }   Ctrl+Left / Ctrl+Right
 //   caret.line_start / line_end           args { extend }   Home / End
 //   caret.doc_start / doc_end             args { extend }   Ctrl+Home / Ctrl+End
@@ -94,6 +96,8 @@ export function keyIntent(e) {
     if (letter && CTRL_LETTERS[letter]) return CTRL_LETTERS[letter](shift)
     if (key === 'ArrowLeft') return intent('caret.word_left', { extend: shift })
     if (key === 'ArrowRight') return intent('caret.word_right', { extend: shift })
+    if (key === 'ArrowUp') return intent('caret.up', { ctrl: true, extend: shift })
+    if (key === 'ArrowDown') return intent('caret.down', { ctrl: true, extend: shift })
     if (key === 'Home') return intent('caret.doc_start', { extend: shift })
     if (key === 'End') return intent('caret.doc_end', { extend: shift })
     if (key === 'Backspace') return intent('edit.backspace', { word: true })

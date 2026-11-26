@@ -151,8 +151,9 @@ export const scriptoriumPrint = (doc) => invoke('scriptorium_print', { doc })
 // -> a path, or null when the picker was closed
 export const scriptoriumOpenDialog = () => invoke('scriptorium_open_dialog')
 export const scriptoriumSaveDialog = (name) => invoke('scriptorium_save_dialog', { name: name ?? null })
-// .docx/.docm, .xlsx/.xlsm, .pptx/.pptm, .pdf -> { doc, editor, pages, title, path } (opened off the window's thread)
-export const scriptoriumOpen = (path) => invoke('scriptorium_open', { path })
+// .docx/.docm, .xlsx/.xlsm (.csv/.txt as one sheet), .pptx/.pptm, .pdf -> { doc, editor, pages, title, path }
+// (opened off the window's thread); `password` opens a locked PDF, used once and never kept
+export const scriptoriumOpen = (path, password = null) => invoke('scriptorium_open', { path, password: password ?? null })
 // path null: back to the file it came from -> the path it was saved to
 export const scriptoriumSave = (doc, path = null) => invoke('scriptorium_save', { doc, path: path ?? null })
 // -> [{ path, name, editor, openedAt }], newest first

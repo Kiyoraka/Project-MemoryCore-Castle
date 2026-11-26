@@ -1,5 +1,6 @@
 // The room shell's pure parts: the editors, the history read for the AI's changes,
 // and the shortcuts. Nothing here knows any host: each host passes its own api in.
+import { fitPage, fitWidth } from './paint/tiles.js'
 
 export const EDITORS = [
   { id: 'scroll', label: 'Scroll', what: 'Documents', ext: 'docx' },
@@ -128,8 +129,9 @@ export function saveName(editor, name = 'Untitled') {
   return `${String(name || 'Untitled').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Untitled'}.${editorOf(editor).ext}`
 }
 
-// The types each editor opens, each saved back as its own type (a .docm stays a .docm).
-const TYPES = { scroll: ['docx', 'docm'], ledger: ['xlsx', 'xlsm'], stage: ['pptx', 'pptm'], folio: ['pdf'] }
+// The types each editor opens, each saved back as its own type (a .docm stays a .docm; a .csv or .txt
+// opens into Ledger as one sheet and saves back as text, or as .xlsx by Save as).
+const TYPES = { scroll: ['docx', 'docm'], ledger: ['xlsx', 'xlsm', 'csv', 'txt'], stage: ['pptx', 'pptm'], folio: ['pdf'] }
 
 /** The Save as picker's name: the document's own name and type when it has one, else Untitled. */
 export function saveAsName(editor, title) {
@@ -208,4 +210,80 @@ export function editorForPath(path) {
 /** A path's file name. */
 export function fileNameOf(path) {
   return String(path ?? '').split(/[\\/]/).pop()
+}
+
+// --- locked PDFs ---
+
+// the crate's own words (folio FolioError's Display) for a PDF that needs a password, and a wrong one
+export const PDF_LOCKED = 'locked with a password'
+export const PDF_WRONG_PASSWORD = 'password does not open'
+
+/** What an open's failure says about a password: 'needs' (ask for it), 'wrong' (ask again) or null. */
+export function pdfLock(error) {
+  const text = plainError(error)
+  if (text.includes(PDF_WRONG_PASSWORD)) return 'wrong'
+  if (text.includes(PDF_LOCKED)) return 'needs'
+  return null
+}
+
+/** The password dialog's words for a locked file: { title, message, wrong }. */
+export function passwordPrompt(lock, name = '') {
+  const file = String(name ?? '').trim() || 'This PDF'
+  const wrong = lock === 'wrong'
+  return {
+    title: 'This PDF is locked',
+    message: wrong ? `That password does not open ${file}. Try again.` : `${file} is locked with a password. Enter its password to open it.`,
+    wrong,
+  }
+}
+
+// --- links on the page ---
+
+/** A web address the member may open in the browser: { uri, host } (https, http or mailto only), or null. */
+export function webLink(uri) {
+  const text = String(uri ?? '').trim()
+  if (!text || /\s/.test(text)) return null
+  let url
+  try {
+    url = new URL(text)
+  } catch {
+    return null
+  }
+  if (url.protocol === 'mailto:') return { uri: text, host: url.pathname || text }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  return url.hostname ? { uri: text, host: url.hostname } : null
+}
+
+/** Where a link on the page goes: { kind: 'page', page } (0-based; the target says #page=N) or { kind: 'web',
+ * uri, host }, or null for a target the room does not follow. */
+export function linkTarget(target) {
+  const text = String(target ?? '').trim()
+  const m = /^#page=(\d+)$/.exec(text)
+  if (m) return Number(m[1]) >= 1 ? { kind: 'page', page: Number(m[1]) - 1 } : null
+  const web = webLink(text)
+  return web ? { kind: 'web', ...web } : null
+}
+
+// --- fitting the page in the view ---
+
+/** The page's size in points: the editor's state (`width`, `height`) when it says, else the display list's. */
+export function pageSizeOf(state, list) {
+  const w = Number(state?.width)
+  const h = Number(state?.height)
+  if (w > 0 && h > 0) return { w, h }
+  const lw = Number(list?.w)
+  const lh = Number(list?.h)
+  return lw > 0 && lh > 0 ? { w: lw, h: lh } : null
+}
+
+const SCROLLBAR = 14
+
+/** The zoom (css px per point) for 'page' (all of it) or 'width', in a view { w, h } in css px; null
+ * when either size is unknown. */
+export function fitZoomFor(mode, size, view) {
+  const vw = Number(view?.w)
+  const vh = Number(view?.h)
+  if (!size || !(size.w > 0) || !(size.h > 0) || !(vw > 0) || !(vh > 0)) return null
+  // fitting the width leaves room for the scrollbar the taller page brings
+  return mode === 'width' ? fitWidth(size.w, Math.max(1, vw - SCROLLBAR)) : fitPage(size.w, size.h, vw, vh)
 }

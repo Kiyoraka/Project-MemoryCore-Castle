@@ -100,7 +100,13 @@ onBeforeUnmount(() => {
   if (raf && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf)
 })
 
-defineExpose({ focusInput })
+// the page area's size in css px (fit page and fit width measure against it)
+function viewSize() {
+  const el = root.value
+  return el ? { w: el.clientWidth, h: el.clientHeight } : null
+}
+
+defineExpose({ focusInput, viewSize })
 </script>
 
 <template>
