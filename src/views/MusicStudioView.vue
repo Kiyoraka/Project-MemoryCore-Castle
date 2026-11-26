@@ -877,7 +877,9 @@ const loopFile = ref('')
 
 <style scoped>
 .studio {
-  position: relative;
+  /* fills the screen the way every room does (a percent height has nothing to measure against) */
+  position: absolute;
+  inset: 0;
   display: grid;
   grid-template-columns: minmax(170px, 220px) minmax(0, 1fr) minmax(300px, 360px);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -887,7 +889,6 @@ const loopFile = ref('')
     'shelf main chat'
     'dials dials credits';
   gap: 12px;
-  height: 100%;
   padding: 14px 18px;
   box-sizing: border-box;
   color: var(--text);

@@ -115,7 +115,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .scriptorium-view {
-  height: 100%;
+  /* fills the screen the way every room does (a percent height has nothing to measure against) */
+  position: absolute;
+  inset: 0;
   min-height: 0;
   box-sizing: border-box;
 }

@@ -508,10 +508,12 @@ watch(attached, (game) => game || stopAuto())
 
 <style scoped>
 .worldsmith {
+  /* fills the screen the way every room does (a percent height has nothing to measure against) */
+  position: absolute;
+  inset: 0;
   display: grid;
   grid-template-rows: auto auto auto 1fr auto;
   gap: 10px;
-  height: 100%;
   padding: 14px 18px;
   box-sizing: border-box;
 }

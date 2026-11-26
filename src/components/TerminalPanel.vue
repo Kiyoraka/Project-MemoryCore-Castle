@@ -378,7 +378,7 @@ onMounted(async () => {
   if (snapshot) term.write(snapshot)
 
   // Once per sign-in, and only now that this screen is listening (the main session only).
-  if (mainSession && !state.running && (await takeAutoWake())) {
+  if (isMain && !state.running && (await takeAutoWake())) {
     if (state.status.ready) await wake()
     else problem.value = `${props.companion} could not start by itself: ${state.status.message}`
   }
