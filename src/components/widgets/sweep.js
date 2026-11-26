@@ -9,9 +9,10 @@ export const GROUP_COLORS = {
   browser: 'var(--sweep-browser, #38bdf8)',
   thumbs: 'var(--sweep-thumbs, #818cf8)',
   crash: 'var(--sweep-crash, #60a5fa)',
+  rust: 'var(--sweep-rust, #f0a35e)',
   recycle: 'var(--sweep-recycle, #34d399)',
 }
-export const GROUP_ICONS = { temp: '🗎', browser: '🌐', thumbs: '🖼', crash: '🗒', recycle: '🗑' }
+export const GROUP_ICONS = { temp: '🗎', browser: '🌐', thumbs: '🖼', crash: '🗒', rust: '⚙', recycle: '🗑' }
 
 // 6_871_947_673 -> "6.4 GB"; 850 MB; 12 KB; 0 B
 export function sizeLabel(bytes) {
@@ -57,9 +58,14 @@ export function resolveLook(memberLook, themeLook) {
   return 'bar'
 }
 
-// The sheet starts with every group ticked but the Recycle Bin, unless the gear says otherwise.
+// The groups a sheet always opens unticked: the Rust build caches (the next build of each project
+// starts from scratch). The Recycle Bin follows the gear.
+export const UNTICKED_FIRST = ['rust']
+
+// The sheet starts with every group ticked but the Recycle Bin (unless the gear says otherwise) and
+// the UNTICKED_FIRST groups.
 export function startingTicks(groups = [], recycleBin = false) {
-  return new Set(groups.filter((g) => g.id !== 'recycle' || recycleBin).map((g) => g.id))
+  return new Set(groups.filter((g) => !UNTICKED_FIRST.includes(g.id) && (g.id !== 'recycle' || recycleBin)).map((g) => g.id))
 }
 
 // "Freed 5.9 GB - 214 files skipped (in use)" from the groups' results.

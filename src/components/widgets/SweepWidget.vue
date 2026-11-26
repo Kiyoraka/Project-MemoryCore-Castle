@@ -21,7 +21,7 @@ const { groups, measuring, status, ticks, cleaning, freedSoFar, result, deepBusy
 const look = computed(() => resolveLook(status.value.settings.look, props.themeLook))
 const parts = computed(() => barParts(groups.value))
 const legend = computed(() => {
-  const label = { temp: 'Temp', browser: 'Caches', thumbs: 'Thumbnails', crash: 'Logs', recycle: 'Recycle Bin' }
+  const label = { temp: 'Temp', browser: 'Caches', thumbs: 'Thumbnails', crash: 'Logs', rust: 'Rust', recycle: 'Recycle Bin' }
   return parts.value.map((p) => ({ id: p.id, label: label[p.id] ?? p.id, color: GROUP_COLORS[p.id] }))
 })
 // "Last swept" moves on by itself while the card is shown

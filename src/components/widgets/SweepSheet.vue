@@ -19,6 +19,23 @@ const props = defineProps({
 })
 const emit = defineEmits(['toggle', 'clean', 'deep', 'close'])
 
+// The line under a group: the Recycle Bin can't be undone; else the group's own note (a browser
+// open, a build running, still measuring); the Rust caches say what freeing them costs.
+function noteOf(g) {
+  if (g.id === 'recycle') return "Can't be undone"
+  if (g.note) return g.note
+  if (g.id === 'rust') return 'The next build of each project starts from scratch (a few minutes longer)'
+  return ''
+}
+
+// Broom's tiles go three to a row (2 of 6 columns); a short last row stretches to fill it, so six
+// groups (Windows) and fewer (macOS) both fill their rows.
+function tileSpan(index, count) {
+  const left = count % 3
+  if (index < count - left) return 2
+  return left === 1 ? 6 : 3
+}
+
 const largest = computed(() => Math.max(1, ...props.groups.map((g) => g.bytes || 0)))
 const busy = computed(() => props.cleaning || props.deepBusy)
 
@@ -42,7 +59,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <div v-if="look === 'ring'" class="list">
           <label v-for="g in groups" :key="g.id" class="row">
             <input type="checkbox" :checked="ticks.has(g.id)" :disabled="busy" @change="emit('toggle', g.id)" />
-            <span class="name">{{ g.label }}<small v-if="g.id === 'recycle'">Can't be undone</small><small v-else-if="g.note">{{ g.note }}</small></span>
+            <span class="name">{{ g.label }}<small v-if="noteOf(g)">{{ noteOf(g) }}</small></span>
             <span class="size">{{ sizeLabel(g.bytes) }}</span>
           </label>
         </div>
@@ -54,7 +71,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <div class="middle">
               <div class="line"><span class="name">{{ g.label }}</span><span class="size">{{ sizeLabel(g.bytes) }}</span></div>
               <div class="meter"><span :style="{ width: `${(g.bytes / largest) * 100}%`, background: GROUP_COLORS[g.id] }" /></div>
-              <small v-if="g.id === 'recycle'">Can't be undone</small><small v-else-if="g.note">{{ g.note }}</small>
+              <small v-if="noteOf(g)">{{ noteOf(g) }}</small>
             </div>
             <input class="switch" type="checkbox" role="switch" :aria-label="g.label" :checked="ticks.has(g.id)" :disabled="busy" @change="emit('toggle', g.id)" />
           </div>
@@ -62,11 +79,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
         <!-- Broom: tiles -->
         <div v-else class="tiles">
-          <button v-for="g in groups" :key="g.id" type="button" class="tile" :class="{ on: ticks.has(g.id), wide: g.id === 'crash' || g.id === 'recycle' }" :disabled="busy" :aria-pressed="ticks.has(g.id)" @click="emit('toggle', g.id)">
+          <button v-for="(g, i) in groups" :key="g.id" type="button" class="tile" :class="{ on: ticks.has(g.id) }" :style="{ gridColumn: `span ${tileSpan(i, groups.length)}` }" :disabled="busy" :aria-pressed="ticks.has(g.id)" @click="emit('toggle', g.id)">
             <span class="icon" :style="{ color: GROUP_COLORS[g.id] }">{{ GROUP_ICONS[g.id] }}</span>
             <span class="name">{{ g.label }}</span>
             <span class="size">{{ sizeLabel(g.bytes) }}</span>
-            <small v-if="g.id === 'recycle'">Can't be undone</small><small v-else-if="g.note">{{ g.note }}</small>
+            <small v-if="noteOf(g)">{{ noteOf(g) }}</small>
             <span class="tick" aria-hidden="true">{{ ticks.has(g.id) ? '✓' : '' }}</span>
           </button>
         </div>
@@ -259,9 +276,6 @@ h2 {
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-.tile.wide {
-  grid-column: span 3;
 }
 .tile.on {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));

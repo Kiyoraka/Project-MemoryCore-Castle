@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barParts, resolveLook, resultLine, sizeLabel, startingTicks, sweptLine, totalOf } from './sweep.js'
+import { UNTICKED_FIRST, barParts, resolveLook, resultLine, sizeLabel, startingTicks, sweptLine, totalOf } from './sweep.js'
 
 const groups = [
   { id: 'temp', bytes: 1_181_116_006 },
@@ -48,6 +48,15 @@ describe('sweep', () => {
   it('starts the sheet with the Recycle Bin unticked unless the gear says so', () => {
     expect([...startingTicks(groups)]).toEqual(['temp', 'browser', 'thumbs'])
     expect(startingTicks(groups, true).has('recycle')).toBe(true)
+  })
+
+  it('opens the Rust build caches unticked, whatever the gear says', () => {
+    const withRust = [...groups, { id: 'rust', bytes: 300 * 1024 ** 3 }]
+    expect(UNTICKED_FIRST).toContain('rust')
+    expect(startingTicks(withRust).has('rust')).toBe(false)
+    expect(startingTicks(withRust, true).has('rust')).toBe(false)
+    expect(startingTicks(withRust, true).has('recycle')).toBe(true)
+    expect(startingTicks(withRust).has('temp')).toBe(true)
   })
 
   it('says what was freed and what stayed', () => {
