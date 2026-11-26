@@ -19,6 +19,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 - Stage builds slides: text, shapes, lines, pictures and tables, arranging and aligning, new, duplicated and moved slides, speaker notes, and a full-screen slide show (F5).
 - Folio works with PDFs: find and copy text, follow links and bookmarks, delete and rotate pages, fill in forms, and open locked PDFs (a password asked when needed, a restricted file's permissions honoured).
 - Project plans survive Move back to files: every plan is written out under plans/ with its ticks, and comes back with its progress when your memory moves in again.
+- Telling Castle where its words go in your own ComfyUI workflow no longer needs a file edit: in Settings > ComfyUI press Import, tick the prompt field (and, if you like, width, height, seed and steps) and press Use these. Castle never changes your file, and says so in plain words if a field you chose is gone when the file changes.
 
 ## 0.7.0 - 2026-11-26
 

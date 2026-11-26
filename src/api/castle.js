@@ -267,6 +267,12 @@ export const comfyCheck = () => invoke('comfy_check')
 export const comfyStart = () => invoke('comfy_start')
 // A file picker: kind 'workflow' (a .json) or 'start' (.bat, .cmd, .sh); null when the member closes it.
 export const comfyChooseFile = (kind) => invoke('comfy_choose_file', { kind })
+// Reads the saved workflow and lists what Castle's words could go into (the Import list):
+// -> { file, prompt, width, height, seed, steps: [{ node, input, classType, title, preview, role, suggested }],
+//      placeholders: { prompt, width, height, seed, steps }, bindings }. Changes nothing.
+export const comfyScan = () => invoke('comfy_scan')
+// Keeps the inputs the member ticked: { prompt, width, height, seed, steps }, each a list of { node, input }.
+export const comfyBind = (bindings) => invoke('comfy_bind', { bindings })
 export const weatherRead = (force = false) => invoke('weather_read', { force })
 
 // DISKS, HOME's drive-space card. diskDrives -> [{ mount, label, total, free (bytes), removable, media }]; read only.
