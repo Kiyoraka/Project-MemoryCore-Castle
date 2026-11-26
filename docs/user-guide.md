@@ -1248,10 +1248,22 @@ guards still run.
 
 ## 22. Worldsmith
 
-**WORLDSMITH** (in APPS, under Create) is a cheat engine your companion drives, for **your own
-offline single-player games**: you play and take screenshots, and your companion finds the numbers in
-the game's memory and changes them when you ask. It is off to begin with: switch it on in
-**Settings > Rooms** (Make and play). Windows only.
+**WORLDSMITH** (in APPS, under Create) is your game modding room, for **your own offline single-player
+games**. It is off to begin with: switch it on in **Settings > Rooms** (Make and play). Windows only.
+
+### Its tools
+
+When the room opens, you choose a tool. Each is one of three kinds, and each kind keeps its own
+promise:
+
+- **Hammer** (live) changes a running game. **Values** is a Hammer: your companion finds the numbers
+  in the game's memory and changes them when you ask (below).
+- **Lens** (screen) only looks at the game and draws on top; the game itself is never touched.
+  **Translate** is a Lens (below).
+- **Chisel** (files) will change a game's files, always with a backup and one press to undo. None yet.
+
+A tool your helper is too old for shows **Needs a newer helper**. The **Tools** button in the room
+brings the chooser back; your chat and your games stay as they are.
 
 ### First use
 
@@ -1284,6 +1296,22 @@ F9 is taken only while a game is attached; if another app holds F9, the room say
 What your companion finds is kept in your own memory database, per game (a patched game counts as a
 new one), so the next visit starts from it. Your companion may propose a **recipe** ("Gold to 9,999");
 it waits in the dock with **Keep** and **No**, and a kept recipe is one press next time.
+
+### Translate
+
+**Translate** reads the text in your game (menus, dialogue, quest lines, buttons) and floats the
+translation beside it in small glass speech bubbles, in your browser language (**Settings > Rooms >
+BROWSER**). Attach your game, choose Translate, then press **F10** in the game (or **Translate** in the
+room); press **F10** again, or **Hide**, to put the bubbles away. The **Lines** list in the room shows
+each line, the original small above its translation.
+
+**Auto** (off to begin with) keeps watching: while the screen moves the bubbles hide, and once it is
+still they come back translated. Names and words a game used before are kept for that game, so they
+are translated the same way next time.
+
+The bubbles sit on top of the game and never take a click. A game in **exclusive full screen** can't
+be drawn over: set it to borderless or windowed. Translate needs Claude Code as your companion's
+program, and only reads the one picture it is given.
 
 ### What it never does
 
