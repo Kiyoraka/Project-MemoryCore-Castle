@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use super::crypt::{self, Security, UnlockError};
 use super::filters::{self, Decoded};
 use super::lexer::{find, is_regular, is_white, rfind, Lexer, Parsed, Tok};
 use super::obj::{Dict, FolioError, Obj, Stream};
@@ -44,6 +45,9 @@ pub struct PdfFile {
     pub repaired: bool,
     /// Changed and new objects (the edits).
     pub overlay: BTreeMap<u32, Obj>,
+    /// The keys of a locked file (strings and streams are unlocked as objects load, and locked again
+    /// when an update is written).
+    pub security: Option<Security>,
     cache: Mutex<HashMap<u32, Obj>>,
     objstms: Mutex<HashMap<u32, Option<Arc<ObjStm>>>>,
     /// Object streams being loaded right now (a stream whose /Length lives inside itself).
@@ -66,8 +70,14 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl PdfFile {
-    /// Parse a file. Encrypted files are refused with [`FolioError::Encrypted`].
+    /// Parse a file. A locked file opens when its user password is empty; otherwise the answer is
+    /// [`FolioError::NeedsPassword`] (see [`PdfFile::open_with`]).
     pub fn open(data: Vec<u8>) -> Result<PdfFile, FolioError> {
+        PdfFile::open_with(data, None)
+    }
+
+    /// Parse a file, unlocking it with `password` (the user's or the owner's) when it is locked.
+    pub fn open_with(data: Vec<u8>, password: Option<&str>) -> Result<PdfFile, FolioError> {
         let head = &data[..data.len().min(1024)];
         let version = match find(head, b"%PDF-", 0) {
             Some(p) => {
@@ -95,6 +105,7 @@ impl PdfFile {
             xref_is_stream: false,
             repaired: false,
             overlay: BTreeMap::new(),
+            security: None,
             cache: Mutex::new(HashMap::new()),
             objstms: Mutex::new(HashMap::new()),
             loading: Mutex::new(HashSet::new()),
@@ -104,13 +115,70 @@ impl PdfFile {
         if !ok {
             f.repair();
         }
-        if f.trailer.get("Encrypt").map_or(false, |e| !e.is_null()) {
-            return Err(FolioError::Encrypted);
-        }
         if f.xref.is_empty() {
             return Err(FolioError::Broken("no objects could be found".into()));
         }
+        if let Some(enc) = f.trailer.get("Encrypt").filter(|e| !e.is_null()).cloned() {
+            f.unlock(&enc, password)?;
+        }
         Ok(f)
+    }
+
+    /// Unlock a locked file: find its keys, then forget every object read so far (they were read
+    /// still locked).
+    fn unlock(&mut self, enc: &Obj, password: Option<&str>) -> Result<(), FolioError> {
+        let dict_num = enc.as_ref().map_or(0, |r| r.0);
+        let ed = self.resolve(enc);
+        let Some(ed) = ed.as_dict().cloned() else {
+            return Err(FolioError::Unsupported("its /Encrypt dictionary is missing".into()));
+        };
+        let id0 = match self.resolve(self.trailer.get("ID").unwrap_or(&Obj::Null)) {
+            Obj::Arr(a) => a.first().map(|v| self.resolve(v)).and_then(|v| v.as_bytes().map(|b| b.to_vec())).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let sec = {
+            let resolve = |o: &Obj| self.resolve(o);
+            crypt::unlock(&ed, dict_num, &id0, password, &resolve)
+        };
+        match sec {
+            Ok(sec) => {
+                self.security = Some(sec);
+                *lock(&self.cache) = HashMap::new();
+                *lock(&self.objstms) = HashMap::new();
+                if self.repaired {
+                    // The object streams' contents could only be listed once they were unlocked.
+                    let nums: Vec<u32> = self.xref.iter().filter(|(_, x)| matches!(x, XRef::Offset(..))).map(|(n, _)| *n).collect();
+                    for num in nums {
+                        if self.get(num).as_dict().map_or(false, |d| d.is_type("ObjStm")) {
+                            if let Some(stm) = self.objstm(num) {
+                                for (i, (n, _)) in stm.entries.iter().enumerate() {
+                                    self.xref.entry(*n).or_insert(XRef::Compressed(num, i as u32));
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Err(UnlockError::Password) => Err(if password.map_or(false, |p| !p.is_empty()) { FolioError::WrongPassword } else { FolioError::NeedsPassword }),
+            Err(UnlockError::Unsupported(m)) => Err(FolioError::Unsupported(m)),
+        }
+    }
+
+    /// An object just read from the file, unlocked when the file is locked.
+    fn unlocked(&self, o: Obj, num: u32, gen: u16) -> Obj {
+        match &self.security {
+            Some(sec) => sec.decrypt_obj(o, num, gen, &|x: &Obj| self.resolve(x)),
+            None => o,
+        }
+    }
+
+    /// An object as an update writes it: locked again when the file is locked.
+    pub fn locked(&self, o: &Obj, num: u32, gen: u16) -> Obj {
+        match &self.security {
+            Some(sec) => sec.encrypt_obj(o, num, gen, &|x: &Obj| self.resolve(x)),
+            None => o.clone(),
+        }
     }
 
     fn root_ok(&self) -> bool {
@@ -445,9 +513,9 @@ impl PdfFile {
     fn load(&self, num: u32, depth: u32) -> Obj {
         match self.xref.get(&num).copied() {
             Some(XRef::Offset(off, _)) => {
-                if let Some((n, _, o)) = self.parse_indirect_at(off, depth) {
+                if let Some((n, g, o)) = self.parse_indirect_at(off, depth) {
                     if n == num {
-                        return o;
+                        return self.unlocked(o, n, g);
                     }
                 }
                 self.load_scanned(num, depth)
@@ -468,7 +536,7 @@ impl PdfFile {
         };
         match table.get(&num) {
             Some(&off) => match self.parse_indirect_at(off, depth) {
-                Some((n, _, o)) if n == num => o,
+                Some((n, g, o)) if n == num => self.unlocked(o, n, g),
                 _ => Obj::Null,
             },
             None => Obj::Null,

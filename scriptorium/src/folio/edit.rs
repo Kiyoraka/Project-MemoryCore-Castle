@@ -22,7 +22,8 @@ pub fn incremental_update(file: &PdfFile) -> Vec<u8> {
         let gen = file.generation(num);
         let off = out.len();
         out.extend_from_slice(format!("{} {} obj\n", num, gen).as_bytes());
-        write_obj(&mut out, obj);
+        // A locked file's update is locked with the same key.
+        write_obj(&mut out, &file.locked(obj, num, gen));
         out.extend_from_slice(b"\nendobj\n");
         entries.push((num, gen, XRef::Offset(off, gen)));
     }
@@ -41,7 +42,7 @@ pub fn incremental_update(file: &PdfFile) -> Vec<u8> {
     }
     let base = file.trailer();
     let mut trailer = Dict::new();
-    for k in ["Root", "Info", "ID"] {
+    for k in ["Root", "Info", "ID", "Encrypt"] {
         if let Some(v) = base.get(k) {
             trailer.set(k, v.clone());
         }

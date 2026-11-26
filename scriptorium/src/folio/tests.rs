@@ -16,11 +16,11 @@ use crate::ground::picture::jpeg::Image;
 // Builders
 // ---------------------------------------------------------------------------------------------------
 
-fn b(s: &str) -> Vec<u8> {
+pub(super) fn b(s: &str) -> Vec<u8> {
     s.as_bytes().to_vec()
 }
 
-fn stream(dict: &str, data: &[u8]) -> Vec<u8> {
+pub(super) fn stream(dict: &str, data: &[u8]) -> Vec<u8> {
     let mut v = format!("<< {} /Length {} >>\nstream\n", dict, data.len()).into_bytes();
     v.extend_from_slice(data);
     v.extend_from_slice(b"\nendstream");
@@ -28,7 +28,7 @@ fn stream(dict: &str, data: &[u8]) -> Vec<u8> {
 }
 
 /// A file with a classic cross-reference: object i+1 is bodies[i].
-fn pdf(bodies: &[Vec<u8>], trailer_extra: &str) -> Vec<u8> {
+pub(super) fn pdf(bodies: &[Vec<u8>], trailer_extra: &str) -> Vec<u8> {
     let mut out = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offs = Vec::new();
     for (i, body) in bodies.iter().enumerate() {
@@ -70,7 +70,7 @@ fn hello_with_info() -> Vec<u8> {
     one_page(HELLO, "", "", vec![b("<< /Title (First title) /Author (Kiyo) >>")], "/Info 6 0 R")
 }
 
-fn open(bytes: &[u8]) -> FolioDoc {
+pub(super) fn open(bytes: &[u8]) -> FolioDoc {
     FolioDoc::open(bytes.to_vec()).unwrap_or_else(|e| panic!("open failed: {}", e))
 }
 
@@ -397,7 +397,8 @@ fn incremental_update_newest_wins() {
 }
 
 #[test]
-fn encrypted_files_are_refused_clearly() {
+fn broken_locks_are_refused_clearly() {
+    // A lock whose /O and /U are cut short cannot be checked: a plain refusal, never a panic.
     let bytes = one_page(
         b"BT /F1 12 Tf 72 700 Td (Secret) Tj ET",
         "",
@@ -406,9 +407,8 @@ fn encrypted_files_are_refused_clearly() {
         "/Encrypt 6 0 R /ID [<01><01>]",
     );
     let err = FolioDoc::open(bytes).unwrap_err();
-    assert_eq!(err, FolioError::Encrypted);
-    assert!(err.to_string().contains("password-protected"));
-    assert!(err.to_string().contains("arrives later"));
+    assert!(matches!(err, FolioError::Unsupported(_)), "{:?}", err);
+    assert!(err.to_string().contains("locked"));
     assert_eq!(FolioDoc::open(b"just some text".to_vec()).unwrap_err(), FolioError::NotPdf);
 }
 

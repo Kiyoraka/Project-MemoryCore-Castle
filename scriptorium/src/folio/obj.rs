@@ -168,8 +168,13 @@ impl Obj {
 pub enum FolioError {
     /// Not a PDF at all.
     NotPdf,
-    /// Locked with a password (or a certificate).
-    Encrypted,
+    /// Locked with a password that is not empty: open it again with the password
+    /// ([`super::FolioDoc::open_with_password`]).
+    NeedsPassword,
+    /// The password given does not open it.
+    WrongPassword,
+    /// Locked in a way Folio does not read (a certificate, an unknown method); the words say which.
+    Unsupported(String),
     /// Damaged beyond what repair could recover.
     Broken(String),
 }
@@ -178,7 +183,9 @@ impl fmt::Display for FolioError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FolioError::NotPdf => write!(f, "This file is not a PDF."),
-            FolioError::Encrypted => write!(f, "This PDF is password-protected - opening locked files arrives later."),
+            FolioError::NeedsPassword => write!(f, "This PDF is locked with a password. Enter its password to open it."),
+            FolioError::WrongPassword => write!(f, "That password does not open this PDF."),
+            FolioError::Unsupported(m) => write!(f, "This PDF is locked and Folio cannot open it: {}.", m),
             FolioError::Broken(m) => write!(f, "This PDF is damaged and could not be opened: {}", m),
         }
     }

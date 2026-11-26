@@ -231,3 +231,14 @@ pub fn named_encoding(name: &str) -> Option<Encoding> {
 pub fn ascii_index(name: &str) -> Option<usize> {
     ASCII_NAMES.iter().position(|n| *n == name)
 }
+
+/// The StandardEncoding glyph name of a printable ASCII character (for the standard-14 width tables).
+pub fn ascii_name(c: char) -> Option<&'static str> {
+    let u = c as u32;
+    if (32..=126).contains(&u) {
+        // In the width tables 39 and 96 are the quotes.
+        Some(ASCII_NAMES[(u - 32) as usize])
+    } else {
+        None
+    }
+}

@@ -11,11 +11,23 @@ const COLUMN_GAP: f64 = 1.6;
 
 #[derive(Debug, Clone)]
 struct Seg {
-    text: String,
+    /// Each character with the glyph it came from (None for a space the layout put in).
+    chars: Vec<(char, Option<usize>)>,
     x0: f64,
     x1: f64,
     y: f64,
     size: f64,
+}
+
+impl Seg {
+    fn ends_with_space(&self) -> bool {
+        self.chars.last().map_or(false, |c| c.0 == ' ')
+    }
+
+    fn ends_with_text(&self, t: &str) -> bool {
+        let want: Vec<char> = t.chars().collect();
+        want.len() <= self.chars.len() && self.chars[self.chars.len() - want.len()..].iter().map(|c| c.0).eq(want.iter().copied())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -27,19 +39,39 @@ struct Block {
     bottom: f64,
 }
 
+/// A page's text in reading order with, for every character, the glyph (an index into the page's
+/// glyphs) it came from; `None` marks a space or line break the layout put in.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Laid {
+    pub chars: Vec<char>,
+    pub glyphs: Vec<Option<usize>>,
+}
+
 /// The page's text in reading order: words joined by spaces, lines by `\n`, blocks by a blank line.
 pub fn reading_order(glyphs: &[TextGlyph]) -> String {
+    lay_out(glyphs).chars.into_iter().collect()
+}
+
+/// [`reading_order`] with each character's glyph.
+pub fn lay_out(glyphs: &[TextGlyph]) -> Laid {
     let blocks = blocks(glyphs);
-    let mut out = String::new();
+    let mut out = Laid::default();
+    let mut push = |c: char, g: Option<usize>| {
+        out.chars.push(c);
+        out.glyphs.push(g);
+    };
     for (i, b) in blocks.iter().enumerate() {
         if i > 0 {
-            out.push_str("\n\n");
+            push('\n', None);
+            push('\n', None);
         }
         for (j, l) in b.lines.iter().enumerate() {
             if j > 0 {
-                out.push('\n');
+                push('\n', None);
             }
-            out.push_str(&l.text);
+            for &(c, g) in &l.chars {
+                push(c, g);
+            }
         }
     }
     out
@@ -47,35 +79,35 @@ pub fn reading_order(glyphs: &[TextGlyph]) -> String {
 
 fn blocks(glyphs: &[TextGlyph]) -> Vec<Block> {
     // Mostly-horizontal glyphs go through the layout analysis; the rest follow in stream order.
-    let mut horiz: Vec<&TextGlyph> = Vec::new();
-    let mut other: Vec<&TextGlyph> = Vec::new();
-    for g in glyphs {
+    let mut horiz: Vec<(usize, &TextGlyph)> = Vec::new();
+    let mut other: Vec<(usize, &TextGlyph)> = Vec::new();
+    for (i, g) in glyphs.iter().enumerate() {
         if !g.x.is_finite() || !g.y.is_finite() || g.text.is_empty() {
             continue;
         }
         if g.dx > 0.9 {
-            horiz.push(g);
+            horiz.push((i, g));
         } else {
-            other.push(g);
+            other.push((i, g));
         }
     }
     // Lines: cluster by baseline.
-    horiz.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal).then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)));
-    let mut lines: Vec<Vec<&TextGlyph>> = Vec::new();
-    for g in horiz {
+    horiz.sort_by(|(_, a), (_, b)| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal).then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)));
+    let mut lines: Vec<Vec<(usize, &TextGlyph)>> = Vec::new();
+    for (i, g) in horiz {
         let tol = (g.size * 0.4).max(1.0);
         match lines.last_mut() {
-            Some(l) if (l[0].y - g.y).abs() <= tol => l.push(g),
-            _ => lines.push(vec![g]),
+            Some(l) if (l[0].1.y - g.y).abs() <= tol => l.push((i, g)),
+            _ => lines.push(vec![(i, g)]),
         }
     }
     // Segments: words by small gaps, columns by large ones.
     let mut segs: Vec<Seg> = Vec::new();
     for mut l in lines {
-        l.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+        l.sort_by(|(_, a), (_, b)| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
         let mut cur: Option<Seg> = None;
         let mut last_end = f64::NEG_INFINITY;
-        for g in l {
+        for (gi, g) in l {
             let size = g.size.max(1.0);
             let is_space = g.text.trim().is_empty();
             let gap = g.x - last_end;
@@ -86,24 +118,24 @@ fn blocks(glyphs: &[TextGlyph]) -> Vec<Block> {
                 }
                 last_end = g.x + g.w;
                 if !is_space {
-                    cur = Some(Seg { text: g.text.clone(), x0: g.x, x1: g.x + g.w, y: g.y, size });
+                    cur = Some(Seg { chars: g.text.chars().map(|c| (c, Some(gi))).collect(), x0: g.x, x1: g.x + g.w, y: g.y, size });
                 }
                 continue;
             }
             let Some(s) = cur.as_mut() else { continue };
             // A glyph drawn twice on itself (fake bold) is kept once.
-            if gap < -0.5 * size && s.text.ends_with(&g.text) && (g.x + g.w - s.x1).abs() < 0.3 * size {
+            if gap < -0.5 * size && s.ends_with_text(&g.text) && (g.x + g.w - s.x1).abs() < 0.3 * size {
                 continue;
             }
             if is_space {
-                if !s.text.ends_with(' ') {
-                    s.text.push(' ');
+                if !s.ends_with_space() {
+                    s.chars.push((' ', Some(gi)));
                 }
             } else {
-                if gap > WORD_GAP * size && !s.text.ends_with(' ') {
-                    s.text.push(' ');
+                if gap > WORD_GAP * size && !s.ends_with_space() {
+                    s.chars.push((' ', None));
                 }
-                s.text.push_str(&g.text);
+                s.chars.extend(g.text.chars().map(|c| (c, Some(gi))));
                 s.size = s.size.max(size);
             }
             s.x1 = s.x1.max(g.x + g.w);
@@ -114,10 +146,11 @@ fn blocks(glyphs: &[TextGlyph]) -> Vec<Block> {
         }
     }
     for s in segs.iter_mut() {
-        let t = s.text.trim_end().to_string();
-        s.text = t;
+        while s.chars.last().map_or(false, |c| c.0.is_whitespace()) {
+            s.chars.pop();
+        }
     }
-    segs.retain(|s| !s.text.is_empty());
+    segs.retain(|s| !s.chars.is_empty());
     // Blocks: a segment joins the block whose last line sits just above it and overlaps it.
     let mut blocks: Vec<Block> = Vec::new();
     for s in segs {
@@ -146,11 +179,11 @@ fn blocks(glyphs: &[TextGlyph]) -> Vec<Block> {
     }
     let mut ordered = order_blocks(blocks);
     if !other.is_empty() {
-        let mut text = String::new();
-        for g in other {
-            text.push_str(&g.text);
+        let mut chars = Vec::new();
+        for (gi, g) in other {
+            chars.extend(g.text.chars().map(|c| (c, Some(gi))));
         }
-        ordered.push(Block { lines: vec![Seg { text, x0: 0.0, x1: 0.0, y: 0.0, size: 1.0 }], x0: 0.0, x1: 0.0, top: 0.0, bottom: 0.0 });
+        ordered.push(Block { lines: vec![Seg { chars, x0: 0.0, x1: 0.0, y: 0.0, size: 1.0 }], x0: 0.0, x1: 0.0, top: 0.0, bottom: 0.0 });
     }
     ordered
 }
