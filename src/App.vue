@@ -64,7 +64,7 @@ import ThemeSound from './components/ThemeSound.vue'
 import WhatsNew from './components/WhatsNew.vue'
 import { sectionFor, unseenSections } from './components/changelog.js'
 import { moveTab, orderTabs } from './components/taborder.js'
-import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn, GRID_PX, snapOn, snapPatch, snapPx, sizeOf, themeScaleOf, arrangeWidgets, anyOverlap, arrangePatch } from './components/widgets/widgetplaces.js'
+import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn, GRID_PX, snapOn, snapPatch, snapPx, gridOrigin, sizeOf, themeScaleOf, arrangeWidgets, anyOverlap, arrangePatch } from './components/widgets/widgetplaces.js'
 import { isCreditWidget } from './components/widgets/credits.js'
 import changelog from '../CHANGELOG.md?raw'
 import { version as appVersion } from '../package.json'
@@ -205,6 +205,8 @@ const arranging = ref(false)
 const drag = ref(null) // { id, x, y, dx, dy, box }
 // what "Arrange for me" last said, and the layout before it (Undo puts it back)
 const arrangeNote = ref('')
+// where the grid starts (pixels in HOME): its dots are drawn from there
+const gridAt = ref({ x: 0, y: 0 })
 const beforeArrange = ref(null)
 const homeEl = ref(null)
 // the member's own tab order (dragged in the top bar); empty = Castle's order
@@ -332,7 +334,7 @@ async function keepPlaces() {
   // (only the panel and the other widgets count here: the corner button is kept clear when arranging)
   if (anyOverlap(freshBoxes) || freshBoxes.some((f) => [...measured.walls, ...measured.boxes.filter((b) => !found[b.id])].some((o) => anyOverlap([f, o])))) {
     const kept = measured.boxes.filter((b) => !found[b.id])
-    const done = arrangeWidgets(measured.items.filter((it) => found[it.id]), measured.area, [...measured.blocked, ...kept], { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0 })
+    const done = arrangeWidgets(measured.items.filter((it) => found[it.id]), measured.area, [...measured.blocked, ...kept], { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0, origin: measured.origin })
     // a widget with no room anywhere still keeps the theme's spot, so it is never lost
     const places = { ...done.places }
     for (const id of done.left) {
@@ -378,8 +380,12 @@ function measureHome() {
   // widgets are laid out in the order the member reads them now: top to bottom, then left to right
   const at = Object.fromEntries(boxes.map((b) => [b.id, b]))
   items.sort((a, b) => at[a.id].top - at[b.id].top || at[a.id].left - at[b.id].left)
-  const area = { left: HOME_MARGIN, top: HOME_MARGIN, right: home.width - HOME_MARGIN, bottom: home.height - HOME_MARGIN }
-  return { home: { width: home.width, height: home.height }, area, walls, blocked, items, boxes }
+  // the first row starts level with the panel's top border and the last ends level with its bottom
+  const wall = walls[0]
+  const area = { left: HOME_MARGIN, top: wall ? wall.top : HOME_MARGIN, right: home.width - HOME_MARGIN, bottom: wall ? wall.top + wall.height : home.height - HOME_MARGIN }
+  const origin = gridOrigin(wall, home, GRID_PX)
+  gridAt.value = origin
+  return { home: { width: home.width, height: home.height }, area, walls, blocked, items, boxes, origin }
 }
 
 // ARRANGE FOR ME: every shown widget laid out so none overlaps another or the companion's panel.
@@ -388,7 +394,7 @@ async function arrangeForMe() {
   if (!homeEl.value) return
   const measured = measureHome()
   if (!measured.items.length) return
-  const done = arrangeWidgets(measured.items, measured.area, measured.blocked, { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0 })
+  const done = arrangeWidgets(measured.items, measured.area, measured.blocked, { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0, origin: measured.origin })
   beforeArrange.value = { widgetPlaces: widgetPrefs.value.widgetPlaces ?? {}, widgetSizes: widgetPrefs.value.widgetSizes ?? {} }
   await saveWidgets(arrangePatch(widgetPrefs.value, theme.value?.id, done.places, measured.home, done.sizes))
   const name = (id) => WIDGETS.find((w) => w.id === id)?.name ?? id
@@ -437,7 +443,9 @@ function startDrag(event, id) {
 
 function beginDrag() {
   pressed.el.setPointerCapture(pressed.pointerId)
-  drag.value = { id: pressed.id, x: pressed.x, y: pressed.y, dx: 0, dy: 0, box: pressed.box }
+  // with the grid on, where the grid starts (the panel's corner), taken once as the drag begins
+  const origin = snapOn(widgetPrefs.value) ? measureHome().origin : null
+  drag.value = { id: pressed.id, x: pressed.x, y: pressed.y, dx: 0, dy: 0, box: pressed.box, origin }
 }
 
 function moveDrag(event) {
@@ -446,9 +454,11 @@ function moveDrag(event) {
   let dx = event.clientX - drag.value.x
   let dy = event.clientY - drag.value.y
   // with the grid on, the widget jumps from grid point to grid point as it follows the pointer
-  if (snapOn(widgetPrefs.value)) {
-    dx = snapPx(drag.value.box.left + dx) - drag.value.box.left
-    dy = snapPx(drag.value.box.top + dy) - drag.value.box.top
+  const origin = drag.value.origin
+  if (origin) {
+    const box = drag.value.box
+    dx = snapPx(box.left + dx, GRID_PX, origin.x) - box.left
+    dy = snapPx(box.top + dy, GRID_PX, origin.y) - box.top
   }
   drag.value = { ...drag.value, dx, dy }
 }
@@ -464,13 +474,15 @@ async function endDrag() {
   window.addEventListener('click', swallow, { capture: true, once: true })
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
   const home = homeEl.value.getBoundingClientRect()
-  const place = dropPlace({ ...d.box, left: d.box.left + d.dx, top: d.box.top + d.dy }, { width: home.width, height: home.height }, snapOn(widgetPrefs.value) ? GRID_PX : 0)
+  // a snapped drag is already on the grid: it is only kept on HOME here
+  const place = dropPlace({ ...d.box, left: d.box.left + d.dx, top: d.box.top + d.dy }, { width: home.width, height: home.height })
   await saveWidgets(placePatch(widgetPrefs.value, theme.value?.id, d.id, place))
 }
 
 function arrange() {
   active.value = 'home'
   arranging.value = true
+  nextTick(() => homeEl.value && measureHome())
   arrangeNote.value = ''
   beforeArrange.value = null
 }
@@ -870,7 +882,7 @@ watch(settingsStamp, () => {
       @hide="hideCastle().catch(() => {})"
     />
     <main class="screen">
-      <div v-show="active === 'home'" ref="homeEl" class="home" :class="[theme?.widgetStyle ?? 'glass', skinClass(theme), { arranging, snapping: arranging && snapOn(widgetPrefs), still: !wallpaperMotion || active !== 'home' }]">
+      <div v-show="active === 'home'" ref="homeEl" class="home" :class="[theme?.widgetStyle ?? 'glass', skinClass(theme), { arranging, snapping: arranging && snapOn(widgetPrefs), still: !wallpaperMotion || active !== 'home' }]" :style="{ '--grid-x': `${gridAt.x}px`, '--grid-y': `${gridAt.y}px` }">
         <UsageReveal v-if="theme?.usageReveal" :theme="theme" :visible="active === 'home'" />
         <ThemeMotion v-if="theme?.motion" :theme="theme" :visible="active === 'home'" :enabled="wallpaperMotion" />
         <ThemeVideo v-if="theme?.motionVideoUrl" :theme="theme" :visible="active === 'home'" :enabled="wallpaperMotion" />
@@ -1059,7 +1071,7 @@ body {
   transform-origin: top left;
 }
 
-/* Snap to grid in arrange mode: the grid's points show faintly, from HOME's top-left corner. */
+/* Snap to grid in arrange mode: the grid's points show faintly, counted from the panel's corner. */
 .home.snapping::before {
   content: '';
   position: absolute;
@@ -1067,7 +1079,13 @@ body {
   pointer-events: none;
   background-image: radial-gradient(circle, color-mix(in srgb, var(--text) 28%, transparent) 1px, transparent 1.5px);
   background-size: 16px 16px;
-  background-position: -8px -8px;
+  background-position: calc(var(--grid-x, 0px) - 8px) calc(var(--grid-y, 0px) - 8px);
+}
+
+/* Arrange mode: a drag never selects text on HOME (WebKit, the Mac's engine, otherwise does). */
+.home.arranging {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Arrange mode: every widget shows its edge and follows the pointer; nothing inside is pressed. */

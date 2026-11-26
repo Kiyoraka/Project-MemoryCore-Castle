@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dragBegins, dropPlace, isOn, startsOnControl, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, sizeOf, sizePatch, switchPatch, WIDGETS, hasItsKey, roomIsOn , GRID_PX, snapOn, snapPatch, snapPx, packBoxes, arrangeWidgets, anyOverlap, arrangePatch, themeScaleOf } from './widgetplaces.js'
+import { dragBegins, dropPlace, isOn, startsOnControl, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, sizeOf, sizePatch, switchPatch, WIDGETS, hasItsKey, roomIsOn , GRID_PX, snapOn, snapPatch, snapPx, packBoxes, arrangeWidgets, anyOverlap, arrangePatch, themeScaleOf, gridOrigin } from './widgetplaces.js'
 
 describe('HOME widgets as the member arranges them', () => {
   it('lists every widget the themes place', () => {
@@ -146,7 +146,7 @@ describe('HOME widgets snapped to a grid and arranged for the member', () => {
   it('puts a dropped widget on the grid and still wholly on HOME', () => {
     const home = { width: 1600, height: 1000 }
     expect(dropPlace({ left: 103, top: 57, width: 200, height: 100 }, home, 16)).toEqual({ left: 6, top: 6.4 })
-    expect(dropPlace({ left: 103, top: 57, width: 200, height: 100 }, home)).toEqual({ left: 6.4, top: 5.7 })
+    expect(dropPlace({ left: 103, top: 57, width: 200, height: 100 }, home)).toEqual({ left: 6.44, top: 5.7 })
     expect(dropPlace({ left: 1590, top: 995, width: 200, height: 100 }, home, 16)).toEqual({ left: 87.5, top: 90 })
   })
 
@@ -217,6 +217,26 @@ describe('HOME widgets snapped to a grid and arranged for the member', () => {
     expect(patch.widgetSizes).toEqual({ diary: 's' })
     const backToM = arrangePatch(settings, 'seed', {}, { width: 1600, height: 1000 }, { diary: 'm' })
     expect(backToM.widgetSizes).toEqual({})
+  })
+
+  it('starts the grid at the chat panel: level with its top border, one gap past its side', () => {
+    const home = { width: 1440, height: 852 }
+    expect(gridOrigin({ left: 23, top: 26, width: 446, height: 801 }, home, 16)).toEqual({ x: 485, y: 26 })
+    // a panel on the right: the grid starts one gap before it
+    expect(gridOrigin({ left: 971, top: 26, width: 446, height: 801 }, home, 16)).toEqual({ x: 955, y: 26 })
+    expect(gridOrigin(null, home)).toEqual({ x: 0, y: 0 })
+    expect(snapPx(30, 16, 26)).toBe(26)
+    expect(snapPx(36, 16, 26)).toBe(42)
+    expect(dropPlace({ left: 500, top: 30, width: 100, height: 100 }, { width: 1000, height: 1000 }, 16, { x: 485, y: 26 })).toEqual({ left: 50.1, top: 2.6 })
+  })
+
+  it('puts the first arranged row level with the chat top', () => {
+    const panel = { left: 23, top: 26, width: 446, height: 801 }
+    const origin = gridOrigin(panel, { width: 1440, height: 852 }, 16)
+    const { places } = packBoxes([{ id: 'a', width: 200, height: 100 }, { id: 'b', width: 200, height: 100 }], { left: 16, top: 26, right: 1424, bottom: 827 }, [panel], { gap: 16, grid: 16, origin })
+    expect(places.a).toEqual({ left: 485, top: 26 })
+    expect(places.b.top).toBe(26)
+    expect((places.b.left - origin.x) % 16).toBe(0)
   })
 
   it('keeps the theme scale on its own', () => {

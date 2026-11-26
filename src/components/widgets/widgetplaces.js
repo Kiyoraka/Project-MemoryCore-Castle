@@ -137,10 +137,13 @@ export function adoptPatch(settings = {}, themeId, found = {}) {
   return { widgetPlaces: all }
 }
 
-const round = (n) => Math.round(n * 10) / 10
+// places are kept to 0.01 percent (a fraction of a pixel), so a widget put on the grid stays on it
+const round = (n) => Math.round(n * 100) / 100
 
-// SNAP TO GRID: a widget put down lands on an even grid of GRID_PX pixels, counted from HOME's
-// top-left corner, so widgets line up without pixel hunting. On unless the member turned it off.
+// SNAP TO GRID: a widget put down lands on an even grid of GRID_PX pixels, so widgets line up
+// without pixel hunting. The grid is counted from the companion's panel (its
+// top border, and one gap past its side), so widgets line up with the chat too. On unless the member
+// turned it off.
 export const GRID_PX = 16
 
 export function snapOn(settings = {}) {
@@ -151,20 +154,28 @@ export function snapPatch(on) {
   return { widgetSnap: !!on }
 }
 
-// A length in pixels on the grid (`grid` 0 or less leaves it as it is).
-export function snapPx(n, grid = GRID_PX) {
-  return grid > 0 ? Math.round(n / grid) * grid : n
+// A length in pixels on the grid counted from `origin` (`grid` 0 or less leaves it as it is).
+export function snapPx(n, grid = GRID_PX, origin = 0) {
+  return grid > 0 ? Math.round((n - origin) / grid) * grid + origin : n
+}
+
+// Where the grid starts, in pixels relative to HOME: level with the panel's top border, and one
+// `gap` past the panel's side that faces the widgets. No panel: HOME's top-left corner.
+export function gridOrigin(panel, home, gap = GRID_PX) {
+  if (!panel?.width || !home?.width) return { x: 0, y: 0 }
+  const onLeft = panel.left + panel.width / 2 < home.width / 2
+  return { x: onLeft ? panel.left + panel.width + gap : panel.left - gap, y: panel.top }
 }
 
 // A dropped widget's corner in percent, kept wholly on HOME: `box` is where the widget now is
 // (left, top, width, height in pixels, relative to HOME), `home` is HOME's width and height. With
 // `grid`, the corner lands on the grid first (and stays on HOME).
-export function dropPlace(box, home, grid = 0) {
+export function dropPlace(box, home, grid = 0, origin = { x: 0, y: 0 }) {
   if (!home?.width || !home?.height) return { left: 0, top: 0 }
   const maxLeft = Math.max(0, home.width - box.width)
   const maxTop = Math.max(0, home.height - box.height)
-  const left = Math.min(Math.max(0, snapPx(box.left, grid)), maxLeft)
-  const top = Math.min(Math.max(0, snapPx(box.top, grid)), maxTop)
+  const left = Math.min(Math.max(0, snapPx(box.left, grid, origin.x)), maxLeft)
+  const top = Math.min(Math.max(0, snapPx(box.top, grid, origin.y)), maxTop)
   return { left: round((left / home.width) * 100), top: round((top / home.height) * 100) }
 }
 
@@ -172,21 +183,24 @@ export function dropPlace(box, home, grid = 0) {
 // All in pixels relative to HOME. `boxes` is [{ id, width, height }] in the order they are wanted
 // (the first takes the top-left free spot); `area` is { left, top, right, bottom }, the room they may
 // use; `blocked` is [{ left, top, width, height }] they must keep clear of (the panel, a button).
-// Each widget takes the highest free spot, then the leftmost, `gap` apart from everything. Returns
-// the corners found and the ids that did not fit anywhere (`left`).
-export function packBoxes(boxes = [], area, blocked = [], { gap = GRID_PX, grid = 0 } = {}) {
+// Each widget takes the highest free spot, then the leftmost, `gap` apart from everything; with
+// `grid`, every spot is on the grid counted from `origin`. Returns the corners found and the ids
+// that did not fit anywhere (`left`).
+export function packBoxes(boxes = [], area, blocked = [], { gap = GRID_PX, grid = 0, origin = { x: 0, y: 0 } } = {}) {
   const taken = blocked.map((b) => ({ left: b.left, top: b.top, width: b.width, height: b.height }))
-  const up = (n) => (grid > 0 ? Math.ceil(n / grid) * grid : n)
+  const upOn = (n, o) => (grid > 0 ? Math.ceil((n - o) / grid) * grid + o : n)
+  const upX = (n) => upOn(n, origin.x)
+  const upY = (n) => upOn(n, origin.y)
   const clear = (a, b) => a.left >= b.left + b.width + gap || b.left >= a.left + a.width + gap || a.top >= b.top + b.height + gap || b.top >= a.top + a.height + gap
   const places = {}
   const left = []
   for (const box of boxes) {
     // the spots worth trying: the area's own edges and just past every edge already taken
-    const xs = new Set([up(area.left)])
-    const ys = new Set([up(area.top)])
+    const xs = new Set([upX(area.left)])
+    const ys = new Set([upY(area.top)])
     for (const t of taken) {
-      xs.add(up(t.left + t.width + gap))
-      ys.add(up(t.top + t.height + gap))
+      xs.add(upX(t.left + t.width + gap))
+      ys.add(upY(t.top + t.height + gap))
     }
     const spots = []
     for (const y of ys) for (const x of xs) spots.push({ left: x, top: y })
