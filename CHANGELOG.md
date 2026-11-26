@@ -4,8 +4,11 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.8.1 - 2026-11-26
+
 - A room you switch on in Settings > Rooms opens fresh: SCRIPTORIUM (and WORLDSMITH, STORY, STUDIO, PHOTO and MUSIC STUDIO) no longer keeps saying it is turned off after you turn it on.
 - WORLDSMITH, SCRIPTORIUM and MUSIC STUDIO fill the whole window again (they had shrunk to a thin strip, and SCRIPTORIUM's page showed nothing), and Castle wakes your companion by itself at sign-in again when that is on.
+- The Mac build of 0.8.0 did not get made (GitHub's Mac machine never came); 0.8.1 brings the .dmg again.
 
 ## 0.8.0 - 2026-11-26
 
