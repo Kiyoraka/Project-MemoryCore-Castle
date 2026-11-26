@@ -2,8 +2,10 @@
 // One card component for HOME's memory widgets, so every card shares one look: TODAY,
 // PROJECTS, DIARY, GROWTH, BACKUP and DATABASE. Each shows a friendly empty line when the member's
 // memory has nothing there yet (a fresh MemoryCore), never an error.
-import { computed } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { homeReminderDone } from '../../api/castle.js'
 import { card as databaseCard } from '../database.js'
+import { cardCount, cardItems, ticker } from './homecards.js'
 
 const props = defineProps({
   kind: { type: String, required: true }, // today | projects | diary | growth | backup | database
@@ -11,7 +13,18 @@ const props = defineProps({
   backup: { type: Object, default: null }, // BackupStatus
   database: { type: Object, default: null }, // { engine, memory } from db_status and db_memory
 })
-defineEmits(['open', 'backup', 'database'])
+const emit = defineEmits(['open', 'backup', 'database', 'changed'])
+// TODAY: ○ ticks a reminder (database memories only); it stays struck through with Undo for a moment
+const ticks = ticker((id, done) => homeReminderDone(id, done), () => emit('changed'), 6000, reactive(new Map()))
+const tickError = ref('')
+async function tick(id) {
+  tickError.value = ''
+  try { await ticks.tick(id) } catch (e) { tickError.value = String(e?.message ?? e) }
+}
+async function untick(id) {
+  tickError.value = ''
+  try { await ticks.undo(id) } catch (e) { tickError.value = String(e?.message ?? e) }
+}
 const db = computed(() => databaseCard(props.database?.engine ?? null, props.database?.memory ?? null))
 
 const TITLES = { today: 'TODAY', projects: 'PROJECTS', diary: 'DIARY', growth: 'GROWTH', backup: 'BACKUP', database: 'DATABASE' }
@@ -37,20 +50,25 @@ function due(date) {
 
 <template>
   <section class="widget card" :class="kind">
-    <h3><span class="icon">{{ ICONS[kind] }}</span>{{ TITLES[kind] }}</h3>
+    <h3><span class="icon">{{ ICONS[kind] }}</span>{{ TITLES[kind] }}<span v-if="kind === 'today' || kind === 'projects'" class="count">{{ cardCount(kind, kind === 'today' ? data?.reminders : data?.projects) }}</span></h3>
 
     <template v-if="kind === 'today'">
-      <ul v-if="data?.reminders?.length">
-        <li v-for="r in data.reminders.slice(0, 4)" :key="r.title" :title="r.detail || r.title">
-          <span class="dot">○</span><span class="text">{{ r.title }}</span><span class="side">{{ due(r.due) }}</span>
+      <ul v-if="data?.reminders?.length" class="scroll">
+        <li v-for="r in cardItems(data.reminders)" :key="r.id ?? r.title" :title="r.detail || r.title" :class="{ ticked: ticks.has(r.id) }">
+          <button v-if="r.id != null" type="button" class="dot tick" :aria-label="ticks.has(r.id) ? `Done: ${r.title}` : `Mark done: ${r.title}`" :disabled="ticks.has(r.id)" @click="tick(r.id)">{{ ticks.has(r.id) ? '✓' : '○' }}</button>
+          <span v-else class="dot">○</span>
+          <span class="text">{{ r.title }}</span>
+          <button v-if="ticks.has(r.id)" type="button" class="undo" @click="untick(r.id)">Undo</button>
+          <span v-else class="side">{{ due(r.due) }}</span>
         </li>
       </ul>
+      <p v-if="tickError" class="tick-error">{{ tickError }}</p>
       <p v-else class="empty">{{ data?.features?.reminders ? 'Nothing open - a calm day.' : 'Ask your companion to remind you of something.' }}</p>
     </template>
 
     <template v-else-if="kind === 'projects'">
-      <ul v-if="data?.projects?.length">
-        <li v-for="(p, i) in data.projects.slice(0, 4)" :key="p.name" class="link" @click="$emit('open', p.file)">
+      <ul v-if="data?.projects?.length" class="scroll">
+        <li v-for="(p, i) in cardItems(data.projects)" :key="p.name" class="link" @click="$emit('open', p.file)">
           <span class="num">{{ i + 1 }}</span><span class="text">{{ p.name }}</span>
           <span v-if="p.tree?.kids || p.tree?.tasks" class="side progress-side" :title="`${p.tree.kids ? `${p.tree.kids} sub-project${p.tree.kids === 1 ? '' : 's'}` : ''}${p.tree.kids && p.tree.tasks ? ' · ' : ''}${p.tree.tasks ? `${p.tree.done} of ${p.tree.tasks} tasks done` : ''}`">{{ p.tree.tasks ? `${p.tree.done}/${p.tree.tasks}` : `${p.tree.kids} sub` }} ›</span>
           <span v-else class="side">›</span>
@@ -119,6 +137,21 @@ ul {
   padding: 0;
   list-style: none;
 }
+/* TODAY and PROJECTS are never taller than four one-line rows (the card's height before it
+   listed everything) and scroll for the rest. HOME places widgets freely with no collision check,
+   so a taller card would cover the one below it (W4). */
+ul.scroll {
+  max-height: calc(4 * 22px + 3 * 8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.count {
+  float: right;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
 li,
 .diary-line {
   display: flex;
@@ -152,6 +185,39 @@ li,
 }
 .dot {
   color: var(--text-dim);
+}
+button.tick {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+button.tick:hover:not(:disabled),
+button.tick:focus-visible {
+  color: var(--accent);
+}
+button.tick:disabled {
+  color: var(--accent);
+  cursor: default;
+}
+.ticked .text {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.undo {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.tick-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--danger, #e66);
 }
 .num {
   display: grid;

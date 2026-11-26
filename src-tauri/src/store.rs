@@ -51,10 +51,10 @@ pub fn home(conn: &mut Conn, folder: &Path, today: &str) -> HomeData {
     features.reminders = true;
 
     let reminders: Vec<Reminder> = conn
-        .query::<(String, Option<String>, String), _>("SELECT title, DATE_FORMAT(due_date, '%Y-%m-%d'), detail FROM reminders WHERE state = 'open' ORDER BY position, id")
+        .query::<(u64, String, Option<String>, String), _>("SELECT id, title, DATE_FORMAT(due_date, '%Y-%m-%d'), detail FROM reminders WHERE state = 'open' ORDER BY position, id")
         .unwrap_or_default()
         .into_iter()
-        .map(|(title, due, detail)| Reminder { title, due, detail })
+        .map(|(id, title, due, detail)| Reminder { id: Some(id), title, due, detail })
         .collect();
     // the active projects at the top of the tree: a sub-project shows under its parent's line,
     // unless its parent is not active
@@ -184,6 +184,31 @@ pub fn read(conn: &mut Conn, file: &str) -> Result<String, String> {
             })
         }
     }
+}
+
+/// Ticks a reminder (or takes the tick off), from HOME's TODAY card or `castle-memory reminder done`.
+/// A task's reminder ticks its task with it, as a ticked task closes its reminder. The title.
+pub fn reminder_set_done(conn: &mut Conn, id: u64, done: bool) -> Result<String, String> {
+    let title: Option<String> = conn.exec_first("SELECT title FROM reminders WHERE id = ?", (id,)).map_err(|_| "The reminder could not be read.".to_string())?;
+    let title = title.ok_or(format!("No reminder #{id}."))?;
+    let (state, at, from) = if done { ("done", "NOW()", "open") } else { ("open", "NULL", "done") };
+    conn.exec_drop(format!("UPDATE reminders SET state = ?, done_at = {at} WHERE id = ? AND state = ?"), (state, id, from))
+        .map_err(|_| "The reminder could not be ticked.".to_string())?;
+    if conn.affected_rows() == 0 {
+        return Err(format!("No {from} reminder #{id}."));
+    }
+    let task_at = if done { "COALESCE(done_at, NOW())" } else { "NULL" };
+    conn.exec_drop(format!("UPDATE project_tasks SET done_at = {task_at} WHERE reminder_id = ?"), (id,))
+        .map_err(|_| "The reminder's task could not be ticked.".to_string())?;
+    Ok(title)
+}
+
+/// HOME's TODAY card: tick a reminder, or Undo the tick.
+#[tauri::command]
+pub fn home_reminder_done(id: u64, done: bool, store: tauri::State<crate::settings::SettingsStore>) -> Result<(), String> {
+    let folder = store.get().memory_folder.ok_or("No memory folder is set.")?;
+    let mut conn = source(Path::new(&folder)).ok_or("This memory is not in the database, so its reminders are ticked in the file.")?;
+    reminder_set_done(&mut conn, id, done).map(|_| ())
 }
 
 #[cfg(test)]

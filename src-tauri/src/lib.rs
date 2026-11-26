@@ -591,6 +591,7 @@ pub fn run() {
             commands::media_open,
             commands::memory_features,
             memory::memory_home,
+            store::home_reminder_done,
             memory::memory_shelves,
             memory::memory_read,
             theme::theme_create,

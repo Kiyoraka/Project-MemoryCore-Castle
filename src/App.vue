@@ -797,7 +797,7 @@ watch(settingsStamp, () => {
           <SweepWidget v-else-if="id === 'sweep'" :theme-look="theme?.sweep?.look ?? ''" />
           <UsageWidget v-else-if="id === 'usage'" :stamp="settingsStamp" />
           <CreditWidget v-else-if="isCreditWidget(id)" :widget="id" />
-          <HomeCards v-else :kind="id" :data="home" :backup="backup" :database="database" @open="openMemoryFile" @backup="onBackupCard" @database="onDatabaseCard" />
+          <HomeCards v-else :kind="id" :data="home" :backup="backup" :database="database" @open="openMemoryFile" @changed="loadHome" @backup="onBackupCard" @database="onDatabaseCard" />
         </div>
         <button v-if="!arranging" class="manage-widgets" @click="openSettings('widgets')">Manage widgets</button>
         <div v-if="arranging" class="arrange-bar" role="toolbar" aria-label="Arrange HOME">

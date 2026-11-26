@@ -380,10 +380,7 @@ fn reminder_list(conn: &mut Conn, ask: &Ask) -> Result<String, String> {
 
 fn reminder_done(conn: &mut Conn, ask: &Ask) -> Result<String, String> {
     let id: u64 = ask.need("id")?.trim_start_matches('#').parse().map_err(|_| "--id is a number, like 3.".to_string())?;
-    conn.exec_drop("UPDATE reminders SET state = 'done', done_at = NOW() WHERE id = ? AND state = 'open'", (id,)).map_err(sql("Closing the reminder"))?;
-    if conn.affected_rows() == 0 {
-        return Err(format!("No open reminder #{id}."));
-    }
+    crate::store::reminder_set_done(conn, id, true)?;
     Ok(format!("REMINDER #{id} done"))
 }
 
