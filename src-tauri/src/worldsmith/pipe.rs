@@ -159,11 +159,29 @@ pub async fn worldsmith_call(app: AppHandle, verb: String, args: Vec<String>) ->
     Ok(answer)
 }
 
-/// The game's picture now (F9 or the page's Screenshot button): its path, for the chat.
-pub fn shot() -> Result<String, String> {
+/// Where the helper saves the game's pictures (the contract: `%TEMP%\worldsmith-shots`).
+pub fn shots_folder() -> std::path::PathBuf {
+    std::env::temp_dir().join("worldsmith-shots")
+}
+
+/// Whether a picture the helper named sits in its own shots folder (nothing else is ever shown). Pure on its inputs.
+pub fn in_shots(path: &Path, folder: &Path) -> bool {
+    let key = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    let (path, folder) = (key(path), key(folder));
+    path.starts_with(&format!("{}\\", folder.trim_end_matches('\\'))) && path.ends_with(".png") && !path.contains("..")
+}
+
+/// The game's picture now (F9 or the page's Screenshot button): its path, for the canvas and the chat.
+/// The page may show it (the asset scope allows that one file).
+pub fn shot(app: &AppHandle) -> Result<String, String> {
     let file = helper::ready()?;
     let answer = run(&file, &["shot".to_string()])?;
-    answer.get("path").and_then(Value::as_str).map(str::to_string).ok_or_else(|| "The Worldsmith helper gave no picture.".to_string())
+    let path = answer.get("path").and_then(Value::as_str).map(str::to_string).ok_or_else(|| "The Worldsmith helper gave no picture.".to_string())?;
+    if !in_shots(Path::new(&path), &shots_folder()) {
+        return Err("The Worldsmith helper saved its picture somewhere else, so it was not shown.".into());
+    }
+    let _ = app.asset_protocol_scope().allow_file(&path);
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -186,6 +204,17 @@ mod tests {
         assert!(call_args("freeze", &s(&["0x1A2F40", "u8", "1"])).is_err());
         assert!(call_args("freeze", &s(&["0x1A2F40", "f32", "NaN"])).is_err());
         assert!(call_args("games", &s(&["extra"])).is_err());
+    }
+
+    #[test]
+    fn only_a_png_in_the_shots_folder_is_shown() {
+        let folder = Path::new(r"C:\Users\m\AppData\Local\Temp\worldsmith-shots");
+        assert!(in_shots(Path::new(r"C:\Users\m\AppData\Local\Temp\worldsmith-shots\shot-1.png"), folder));
+        assert!(in_shots(Path::new("c:/users/m/appdata/local/temp/worldsmith-shots/shot-2.PNG"), folder));
+        assert!(!in_shots(Path::new(r"C:\Users\m\Documents\secret.png"), folder));
+        assert!(!in_shots(Path::new(r"C:\Users\m\AppData\Local\Temp\worldsmith-shots\..\x.png"), folder));
+        assert!(!in_shots(Path::new(r"C:\Users\m\AppData\Local\Temp\worldsmith-shots-evil\a.png"), folder));
+        assert!(!in_shots(Path::new(r"C:\Users\m\AppData\Local\Temp\worldsmith-shots\a.exe"), folder));
     }
 
     #[test]

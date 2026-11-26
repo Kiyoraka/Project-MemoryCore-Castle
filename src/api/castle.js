@@ -95,6 +95,20 @@ export const terminalStart = (cols, rows, room, greet = false, fresh = false) =>
 export const terminalWrite = (data, room) => invoke('terminal_write', { data, room })
 export const terminalResize = (cols, rows, room) => invoke('terminal_resize', { cols, rows, room })
 export const storyClose = () => invoke('story_close')
+// WORLDSMITH: its session, the memory helper (fetched on the member's press) and each game's memory.
+export const worldsmithPrepare = () => invoke('worldsmith_prepare')
+export const worldsmithClose = () => invoke('worldsmith_close')
+export const worldsmithStatus = () => invoke('worldsmith_status')
+export const worldsmithGetHelper = () => invoke('worldsmith_get_helper')
+export const worldsmithStart = () => invoke('worldsmith_start')
+export const worldsmithStop = () => invoke('worldsmith_stop')
+export const worldsmithCall = (verb, args = []) => invoke('worldsmith_call', { verb, args: args.map(String) })
+export const worldsmithMemory = (game) => invoke('worldsmith_memory', { game: game ?? null })
+export const worldsmithGame = (exe, title, stamp) => invoke('worldsmith_game', { exe, title, stamp })
+export const worldsmithRecipe = (id, keep) => invoke('worldsmith_recipe', { id, keep })
+export const worldsmithSnap = () => invoke('worldsmith_snap')
+export const onWorldsmithShot = (handler) => listen('worldsmith-shot', (event) => handler(event.payload))
+export const onWorldsmithInstall = (handler) => listen('castle://worldsmith-install', (event) => handler(event.payload))
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 

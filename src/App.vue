@@ -45,6 +45,7 @@ import ThemeView from './views/ThemeView.vue'
 import StudioView from './views/StudioView.vue'
 import AppearanceView from './views/AppearanceView.vue'
 import StoryView from './views/StoryView.vue'
+import WorldsmithView from './views/WorldsmithView.vue'
 import WorldView from './views/WorldView.vue'
 import ChatRoomView from './views/ChatRoomView.vue'
 import BrowserWindow from './browser/BrowserWindow.vue'
@@ -134,11 +135,13 @@ const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
 // Rooms that are built; any other room shows its name until its phase lands.
-const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance'])
+const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
 const marks = ref([])
 const memberName = ref('')
 const storyOpened = ref(active.value === 'story')
+// WORLDSMITH stays mounted once opened, so a frozen value keeps holding while the member plays
+const worldsmithOpened = ref(active.value === 'worldsmith')
 const chatOpened = ref(active.value === 'chat')
 // DEV stays mounted once opened, so its project sessions keep going behind the other rooms
 const devOpened = ref(active.value === 'dev')
@@ -155,6 +158,7 @@ watch(active, (room, was) => {
   alertActiveRoom(room).catch(() => {})
   if (room !== 'home') arranging.value = false
   if (room === 'story') storyOpened.value = true
+  if (room === 'worldsmith') worldsmithOpened.value = true
   if (room === 'chat') chatOpened.value = true
   if (room === 'dev') devOpened.value = true
   if (room === 'browser') browserOpened.value = true
@@ -217,6 +221,7 @@ watch(tabs, (list) => {
   const ids = new Set(list.map((t) => t.id))
   if (!ids.has(active.value) && active.value !== 'launcher') active.value = 'home'
   if (!ids.has('story')) storyOpened.value = false
+  if (!ids.has('worldsmith')) worldsmithOpened.value = false
   if (!ids.has('chat')) chatOpened.value = false
   if (!ids.has('dev')) devOpened.value = false
   marks.value = marks.value.filter((m) => ids.has(m))
@@ -783,6 +788,7 @@ watch(settingsStamp, () => {
       <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" @settings="openSettings" @setup="openSetup" />
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
       <StoryView v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />
+      <WorldsmithView v-show="active === 'worldsmith'" v-if="worldsmithOpened" :companion="companion" :cli="cli" :visible="active === 'worldsmith'" />
       <AppearanceView v-if="active === 'appearance'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
       <StudioView v-if="active === 'studio'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
       <ThemeView v-if="active === 'theme'" :companion="companion" @changed="themeChanged" @show-chat="active = 'home'" />

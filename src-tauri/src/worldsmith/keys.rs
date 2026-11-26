@@ -43,7 +43,7 @@ pub fn release_f9(app: &AppHandle) {
 pub fn on_f9(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
-        let payload = match super::pipe::shot() {
+        let payload = match super::pipe::shot(&app) {
             Ok(path) => serde_json::json!({ "path": path }),
             Err(error) => serde_json::json!({ "error": error }),
         };

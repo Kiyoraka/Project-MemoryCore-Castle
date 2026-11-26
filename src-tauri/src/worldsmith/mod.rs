@@ -13,6 +13,7 @@
 pub mod companion;
 pub mod helper;
 pub mod keys;
+pub mod page;
 pub mod pipe;
 pub mod room;
 pub mod store;
