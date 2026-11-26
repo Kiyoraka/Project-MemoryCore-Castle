@@ -47,6 +47,9 @@ static READ: std::sync::Mutex<Option<std::collections::HashMap<String, Option<St
 #[cfg(target_os = "macos")]
 fn remember(account: &str, key: Option<String>) {
     READ.lock().unwrap().get_or_insert_with(Default::default).insert(account.to_string(), key);
+    if let Some(refused) = REFUSED.lock().unwrap().as_mut() {
+        refused.remove(account);
+    }
 }
 
 fn save_as(account: &str, key: &str) -> Result<(), String> {
@@ -58,14 +61,40 @@ fn save_as(account: &str, key: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A read the Keychain refused (the member clicked Deny, or missed the prompt after a new build) is
+/// tried again after this long - never kept for the whole run, or a bridge stays "not set up" until
+/// Castle restarts - but not at once either, so a refused prompt does not come straight back.
+#[cfg(target_os = "macos")]
+const RETRY_REFUSED: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[cfg(target_os = "macos")]
+static REFUSED: std::sync::Mutex<Option<std::collections::HashMap<String, std::time::Instant>>> = std::sync::Mutex::new(None);
+
+/// Whether a Keychain answer may be kept for the rest of the run: a key, or "there is none".
+/// Anything else (access refused, a platform failure) is asked again later.
+fn keepable<T>(read: &Result<T, keyring::Error>) -> bool {
+    matches!(read, Ok(_) | Err(keyring::Error::NoEntry))
+}
+
 fn load_as(account: &str) -> Option<String> {
     #[cfg(target_os = "macos")]
-    if let Some(known) = READ.lock().unwrap().as_ref().and_then(|read| read.get(account)) {
-        return known.clone();
+    {
+        if let Some(known) = READ.lock().unwrap().as_ref().and_then(|read| read.get(account)) {
+            return known.clone();
+        }
+        let refused_at = REFUSED.lock().unwrap().as_ref().and_then(|r| r.get(account).copied());
+        if refused_at.is_some_and(|at| at.elapsed() < RETRY_REFUSED) {
+            return None;
+        }
     }
-    let key = entry(account).ok()?.get_password().ok().filter(|key| !key.is_empty());
+    let read = entry(account).ok()?.get_password();
+    let key = read.as_ref().ok().filter(|key| !key.is_empty()).cloned();
     #[cfg(target_os = "macos")]
-    remember(account, key.clone());
+    if keepable(&read) {
+        remember(account, key.clone());
+    } else {
+        REFUSED.lock().unwrap().get_or_insert_with(Default::default).insert(account.to_string(), std::time::Instant::now());
+    }
     key
 }
 
@@ -250,6 +279,27 @@ mod tests {
         assert_eq!(load_as(&account).as_deref(), Some("sk-test-only-1111"));
         forget_as(&account).unwrap();
         assert_eq!(load_as(&account), None);
+    }
+
+    #[test]
+    fn a_refused_keychain_read_is_asked_again_not_kept_for_the_run() {
+        assert!(keepable(&Ok::<_, keyring::Error>("sk")), "a key is kept");
+        assert!(keepable(&Err::<String, _>(keyring::Error::NoEntry)), "no key is kept");
+        let refused = keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("denied")));
+        assert!(!keepable(&Err::<String, _>(refused)), "a refused read is tried again");
+        let failed = keyring::Error::PlatformFailure(Box::new(std::io::Error::other("busy")));
+        assert!(!keepable(&Err::<String, _>(failed)), "a platform failure is tried again");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_saved_key_clears_an_earlier_refusal() {
+        let account = format!("castle-refused-{}", std::process::id());
+        REFUSED.lock().unwrap().get_or_insert_with(Default::default).insert(account.clone(), std::time::Instant::now());
+        assert_eq!(load_as(&account), None, "inside the wait, the Keychain is not asked");
+        save_as(&account, "sk-test-only-2222").unwrap();
+        assert_eq!(load_as(&account).as_deref(), Some("sk-test-only-2222"));
+        forget_as(&account).unwrap();
     }
 
     #[test]
