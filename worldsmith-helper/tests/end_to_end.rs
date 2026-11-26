@@ -18,17 +18,17 @@ fn unique_pipe(tag: &str) -> String {
     format!("worldsmith-test-{tag}-{}-{nanos}", std::process::id())
 }
 
-/// The example is built by `cargo test` next to the test binaries: target/<profile>/examples.
+/// The example is built by `cargo test` into target/<profile>/examples, beside the helper itself.
+/// Newer cargo keeps the test binaries in a deeper build folder, so the helper's own place is read
+/// first and the test binary's old neighbour second.
 fn target_game_exe() -> PathBuf {
+    let beside_helper = PathBuf::from(HELPER).parent().map(|d| d.join("examples").join("target_game.exe"));
     let me = std::env::current_exe().unwrap();
-    let profile_dir = me.parent().unwrap().parent().unwrap();
-    let exe = profile_dir.join("examples").join("target_game.exe");
-    assert!(
-        exe.exists(),
-        "{} is missing - run the whole `cargo test` (it builds the examples) or `cargo build --examples` first",
-        exe.display()
-    );
-    exe
+    let beside_test = me.parent().and_then(|d| d.parent()).map(|d| d.join("examples").join("target_game.exe"));
+    let found = [beside_helper, beside_test].into_iter().flatten().find(|p| p.exists());
+    found.unwrap_or_else(|| {
+        panic!("target_game.exe is missing beside {HELPER} - run the whole `cargo test` (it builds the examples) or `cargo build --examples` first")
+    })
 }
 
 fn client(pipe: &str, args: &[&str]) -> Value {
