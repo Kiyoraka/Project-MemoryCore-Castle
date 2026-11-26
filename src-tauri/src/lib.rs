@@ -26,6 +26,7 @@ mod node_runtime;
 mod sweep;
 mod worldsmith;
 mod scriptorium_host;
+mod sweep_dev;
 mod dev;
 mod dev_files;
 mod dev_git;
@@ -574,6 +575,8 @@ pub fn run() {
             sweep::sweep_clean,
             sweep::sweep_deep,
             sweep::sweep_settings_save,
+            sweep_dev::sweep_dev_scan,
+            sweep_dev::sweep_dev_clean,
             credits::credits_read,
             credits::credits_set,
             credits::credits_budget,

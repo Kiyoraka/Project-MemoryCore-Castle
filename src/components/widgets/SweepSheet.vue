@@ -2,8 +2,11 @@
 // Sweep's preview: each group with its size and a tick, laid out the way the chosen look draws it
 // (Ring: a checklist; Bar: rows with size bars and switches; Broom: tiles). Nothing is deleted until
 // Clean now. The Recycle Bin says it can't be undone; Deep clean (Windows) asks for administrator rights.
+// Below them, the Developer section (SweepDeveloper.vue): the DEV projects' build output, its own Scan.
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { GROUP_COLORS, GROUP_ICONS, sizeLabel } from './sweep.js'
+import SweepDeveloper from './SweepDeveloper.vue'
+import { useSweepDev } from '../../composables/useSweepDev.js'
 
 const props = defineProps({
   look: { type: String, default: 'bar' },
@@ -16,6 +19,8 @@ const props = defineProps({
   problem: { type: String, default: '' },
   deepOffered: { type: Boolean, default: false },
   deepBusy: { type: Boolean, default: false },
+  // opened from the DEV room: the Developer section starts open
+  developer: { type: Boolean, default: false },
 })
 const emit = defineEmits(['toggle', 'clean', 'deep', 'close'])
 
@@ -37,7 +42,8 @@ function tileSpan(index, count) {
 }
 
 const largest = computed(() => Math.max(1, ...props.groups.map((g) => g.bytes || 0)))
-const busy = computed(() => props.cleaning || props.deepBusy)
+const devCleaning = useSweepDev().cleaning
+const busy = computed(() => props.cleaning || props.deepBusy || devCleaning.value)
 
 function onKey(event) {
   if (event.key === 'Escape' && !busy.value) emit('close')
@@ -87,6 +93,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <span class="tick" aria-hidden="true">{{ ticks.has(g.id) ? '✓' : '' }}</span>
           </button>
         </div>
+
+        <SweepDeveloper :open-at-start="developer" />
 
         <p v-if="cleaning" class="status">Cleaning… {{ sizeLabel(freedSoFar) }} freed</p>
         <p v-else-if="result" class="status good">{{ result }}</p>

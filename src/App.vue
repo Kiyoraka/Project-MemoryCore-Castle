@@ -9,6 +9,7 @@ import WeatherWidget from './components/widgets/WeatherWidget.vue'
 import DisksWidget from './components/widgets/DisksWidget.vue'
 import SentinelWidget from './components/widgets/SentinelWidget.vue'
 import SweepWidget from './components/widgets/SweepWidget.vue'
+import SweepSheetHost from './components/widgets/SweepSheetHost.vue'
 import AutomationsWidget from './components/widgets/AutomationsWidget.vue'
 import CalendarWidget from './components/widgets/CalendarWidget.vue'
 import SetupView from './views/SetupView.vue'
@@ -868,6 +869,7 @@ watch(settingsStamp, () => {
       <AmbientMusic />
       <UpdateChip @status="updateInfo = $event" @about="openSettings('about')" />
       <LinkMenu />
+      <SweepSheetHost :theme-look="theme?.sweep?.look ?? ''" />
       <SetupView v-if="setupOpen" :reopened="setupReopened" @done="setupDone" @close="setupOpen = false" />
     </main>
   </div>
