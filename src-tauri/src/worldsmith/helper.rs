@@ -32,6 +32,8 @@ fn url_of(release: &Release) -> String {
 
 /// Castle's own Worldsmith folder for this helper version.
 pub fn home() -> PathBuf {
+    // platform: windows-only - WORLDSMITH runs on Windows only: elsewhere this names a folder in
+    // the temp folder that nothing installs to (install and start refuse with WINDOWS_ONLY)
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     local.join("MemoryCore Castle").join("worldsmith").join(VERSION)
 }
