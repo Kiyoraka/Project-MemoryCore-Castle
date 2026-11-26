@@ -145,10 +145,22 @@ export const scriptoriumSave = (doc, path = null) => invoke('scriptorium_save', 
 export const scriptoriumRecent = () => invoke('scriptorium_recent')
 // { doc }: the companion changed a document through the door
 export const onScriptoriumChanged = (handler) => listen('scriptorium-changed', (event) => handler(event.payload))
+// PHOTO (photo.rs): open a picture (the picker, or a dropped path) -> { name, dataUrl } (null when cancelled)
+export const photoOpenDialog = () => invoke('photo_open_dialog')
+export const photoRead = (path) => invoke('photo_read', { path })
+// a project in media-generation/photo/<name>/: doc (JSON without pixels), layers [{ id, png }], thumb -> the name kept
+export const photoSave = (name, doc, layers, thumb) => invoke('photo_save', { name, doc: JSON.stringify(doc), layers, thumb })
 // -> [{ name, at, thumb }], newest first
+export const photoRecent = () => invoke('photo_recent')
 // -> { name, doc, pngs: { [layerId]: dataUrl } }
+export const photoLoad = (name) => invoke('photo_load', { name })
 // one chat line: the flattened picture (PNG data URL) and the document -> { say, ops }
+export const photoAsk = (words, picture, doc, history = []) => invoke('photo_ask', { words, picture, doc: JSON.stringify(doc), history })
+// a redrawing edit on the image queue -> { id, size }; photoResult(id) -> the finished picture's data URL
+export const photoRedraw = (kind, { prompt = null, region = null, picture, width, height }) => invoke('photo_redraw', { kind, prompt, region, picture, width, height })
+export const photoResult = (id) => invoke('photo_result', { id })
 // Export: the flattened picture (kind 'png' or 'jpg', a data URL encoded in the page) saved where the member picks -> the path, or null
+export const photoExport = (name, kind, data) => invoke('photo_export', { name, kind, data })
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 

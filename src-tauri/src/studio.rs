@@ -94,6 +94,10 @@ pub fn library_of(folder: &Path, shelves: &[&str]) -> Library {
         if rel.starts_with("media-generation/paint/") && name != "flat.png" {
             continue;
         }
+        // a PHOTO project shows as its thumbnail; its layers and the redraw work files never do
+        if rel.starts_with("media-generation/photo/") && (rel.starts_with("media-generation/photo/.work/") || name != "thumb.png") {
+            continue;
+        }
         if name.ends_with(".prompt.md") || name.ends_with(".lyrics.md") || name.ends_with(".line.txt") {
             lib.saved.push(made(&path, group));
             continue;
@@ -301,13 +305,17 @@ mod tests {
             ("adventures/celestial/scenes", "01-gate.png"),
             ("media-generation/paint/Night sky", "layer-1.png"),
             ("media-generation/paint/Night sky", "flat.png"),
+            ("media-generation/photo/Beach", "layer-1.png"),
+            ("media-generation/photo/Beach", "thumb.png"),
+            ("media-generation/photo/.work", "1-in.png"),
         ] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
             std::fs::write(root.join(dir).join(file), b"x").unwrap();
         }
         let lib = library_of(&root, &SHELVES);
-        assert_eq!(lib.images.len(), 3, "the lake, the scene and the painting's flat picture, never its layers");
-        assert!(lib.images.iter().any(|m| m.name == "flat.png") && !lib.images.iter().any(|m| m.name == "layer-1.png"));
+        assert_eq!(lib.images.len(), 4, "the lake, the scene, the painting's flat picture and the photo's thumbnail, never their layers");
+        assert!(lib.images.iter().any(|m| m.name == "flat.png") && lib.images.iter().any(|m| m.name == "thumb.png"));
+        assert!(!lib.images.iter().any(|m| m.name == "layer-1.png" || m.name == "1-in.png"), "no layer or redraw work file");
         assert_eq!(lib.videos.len(), 1);
         assert_eq!(lib.voices.len(), 1);
         assert_eq!(lib.songs.len(), 1);
@@ -315,7 +323,7 @@ mod tests {
         assert_eq!(lib.saved.len(), 2);
         assert!(lib.images.iter().any(|m| m.group.as_deref() == Some("celestial")));
         let studio = library_of(&root, &MADE_HERE);
-        assert_eq!(studio.images.len(), 2, "STUDIO's own gallery leaves the adventure's scene in its world");
+        assert_eq!(studio.images.len(), 3, "STUDIO's own gallery leaves the adventure's scene in its world");
         assert_eq!((studio.songs.len(), studio.videos.len(), studio.voices.len()), (1, 1, 1));
         let _ = std::fs::remove_dir_all(root);
     }

@@ -241,6 +241,10 @@ pub struct ImageJob {
     size: Option<String>,
     #[serde(default)]
     quality: Option<String>,
+    /// A see-through background (castle-image.mjs `--transparent`): PHOTO's Remove background.
+    /// False in older queues.
+    #[serde(default)]
+    pub(crate) transparent: bool,
     /// Drawn by Castle itself, with the OpenAI key or with the member's ComfyUI (not by Codex): a
     /// process that never touches the conversation, so it neither waits for a safe pause nor holds
     /// the chat or a provider switch. (Named for the key, which came first.)
@@ -436,7 +440,7 @@ pub fn image_request(
     store: State<SettingsStore>,
     images: State<Images>,
 ) -> Result<ImageJob, String> {
-    queue_image(&store, &images, ImageAsk { brief, output, references, room, label, look, size: None, quality: None })
+    queue_image(&store, &images, ImageAsk { brief, output, references, room, label, look, size: None, quality: None, transparent: false })
 }
 
 /// One picture asked for: what `image_request` takes, plus a STUDIO workflow's size and quality.
@@ -449,13 +453,15 @@ pub(crate) struct ImageAsk {
     pub look: Option<LookSpec>,
     pub size: Option<String>,
     pub quality: Option<String>,
+    /// A see-through background (PHOTO's Remove background); false everywhere else.
+    pub transparent: bool,
 }
 
 /// Puts one picture on the queue (the image worker draws it): every check `image_request` makes.
 pub(crate) fn queue_image(store: &SettingsStore, images: &Images, ask: ImageAsk) -> Result<ImageJob, String> {
-    let ImageAsk { brief, output, references, room, label, look, size, quality } = ask;
-    if !matches!(room.as_str(), "appearance" | "studio") {
-        return Err("Choose Appearance or Studio.".into());
+    let ImageAsk { brief, output, references, room, label, look, size, quality, transparent } = ask;
+    if !matches!(room.as_str(), "appearance" | "studio" | "photo") {
+        return Err("Choose Appearance, Studio or Photo.".into());
     }
     crate::rooms::need(&store, &room)?;
     if let Some(spec) = &look {
@@ -540,6 +546,7 @@ pub(crate) fn queue_image(store: &SettingsStore, images: &Images, ask: ImageAsk)
         look,
         size,
         quality,
+        transparent,
         by_key: false,
         stop_asked: false,
     };
@@ -722,6 +729,7 @@ pub(crate) fn draw_once(brief: &str, folder: &Path, output: &Path, limit: std::t
         look: None,
         size: None,
         quality: None,
+        transparent: false,
         by_key: false,
         stop_asked: false,
     };
@@ -1014,6 +1022,9 @@ fn free_picture_args(job: &ImageJob, brief: &Path) -> Vec<String> {
     }
     if let Some(quality) = &job.quality {
         args.extend(["--quality".into(), quality.clone()]);
+    }
+    if job.transparent {
+        args.push("--transparent".into());
     }
     args
 }
@@ -1344,7 +1355,7 @@ mod tests {
 
     #[test]
     fn only_a_codex_drawing_keeps_the_conversation_still() {
-        let job = |phase: &str, by_key: bool| ImageJob { id: "1".into(), label: String::new(), phase: phase.into(), message: String::new(), output: String::new(), brief: String::new(), references: vec![], memory: PathBuf::new(), prompt: PathBuf::new(), look: None, size: None, quality: None, by_key, stop_asked: false };
+        let job = |phase: &str, by_key: bool| ImageJob { id: "1".into(), label: String::new(), phase: phase.into(), message: String::new(), output: String::new(), brief: String::new(), references: vec![], memory: PathBuf::new(), prompt: PathBuf::new(), look: None, size: None, quality: None, transparent: false, by_key, stop_asked: false };
         assert!(job("working", false).holds_session());
         assert!(!job("working", true).holds_session(), "a drawing with the key never holds the chat");
         assert!(!job("queued", false).holds_session());
@@ -1458,11 +1469,16 @@ mod tests {
     }
     #[test]
     fn a_free_picture_sends_every_reference_and_the_workflows_size() {
-        let job = |references: Vec<String>, size: Option<&str>| ImageJob { id: "1".into(), label: String::new(), phase: "queued".into(), message: String::new(), output: "out.png".into(), brief: String::new(), references, memory: PathBuf::new(), prompt: PathBuf::new(), look: None, size: size.map(str::to_string), quality: size.map(|_| "low".to_string()), by_key: true, stop_asked: false };
+        let job = |references: Vec<String>, size: Option<&str>| ImageJob { id: "1".into(), label: String::new(), phase: "queued".into(), message: String::new(), output: "out.png".into(), brief: String::new(), references, memory: PathBuf::new(), prompt: PathBuf::new(), look: None, size: size.map(str::to_string), quality: size.map(|_| "low".to_string()), transparent: false, by_key: true, stop_asked: false };
         let two = free_picture_args(&job(vec!["a.png".into(), "b.png".into()], Some("1536x1024")), Path::new("brief.txt"));
         assert_eq!(two, ["--prompt", "brief.txt", "--out-file", "out.png", "--reference", "a.png", "--reference", "b.png", "--size", "1536x1024", "--quality", "low"]);
         let plain = free_picture_args(&job(vec![], None), Path::new("brief.txt"));
         assert_eq!(plain, ["--prompt", "brief.txt", "--out-file", "out.png"], "a picture without a workflow keeps the helper's own size");
+        assert!(!plain.contains(&"--transparent".to_string()), "a plain picture never asks for a see-through background");
+        let mut clear = job(vec!["in.png".into()], None);
+        clear.transparent = true;
+        let clear = free_picture_args(&clear, Path::new("brief.txt"));
+        assert_eq!(clear.last().map(String::as_str), Some("--transparent"), "PHOTO's Remove background asks for a see-through background");
     }
 
     #[test]
@@ -1488,6 +1504,7 @@ mod tests {
             look: None,
             size: None,
             quality: None,
+            transparent: false,
             by_key: false,
             stop_asked: false,
         };

@@ -29,6 +29,8 @@ import { isMac } from '../platform.js'
 const props = defineProps({
   companion: { type: String, default: 'Your companion' },
   stamp: { type: Number, default: 0 },
+  // STUDIO stays mounted (App.vue keeps it, so a painting's strokes survive): shown again, it reads anew
+  visible: { type: Boolean, default: true },
 })
 const emit = defineEmits(['keys'])
 
@@ -262,6 +264,11 @@ onMounted(() => {
   loadMember()
 })
 watch(() => props.stamp, () => {
+  load()
+  loadWorkflows()
+})
+watch(() => props.visible, (shown) => {
+  if (!shown) return
   load()
   loadWorkflows()
 })

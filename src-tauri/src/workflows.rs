@@ -702,6 +702,7 @@ pub fn workflow_run(id: String, values: HashMap<String, RunValue>, store: State<
             look: None,
             size: Some(prepared.size),
             quality: Some(prepared.quality),
+            transparent: false,
         },
     )
 }

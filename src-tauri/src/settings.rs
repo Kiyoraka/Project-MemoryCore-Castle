@@ -132,7 +132,7 @@ pub fn used_by_newer(settings: &Settings) -> Option<String> {
 
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
-pub const ROOMS: [&str; 20] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance", "worldsmith", "scriptorium"];
+pub const ROOMS: [&str; 21] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance", "worldsmith", "scriptorium", "photo"];
 /// Tiles that open the BROWSER window rather than a room (launcher.js windowRoom): pinnable too.
 const WINDOW_TILES: [&str; 2] = ["browser", "artifacts"];
 /// Rooms that wait for the member's own switch in Settings > Rooms, for a new Castle and for one
@@ -1442,6 +1442,7 @@ mod tests {
         assert!(!fresh.room_on("market"), "the Market waits for the member's switch");
         assert!(!fresh.room_on("worldsmith"), "WORLDSMITH waits for the member's switch");
         assert!(!fresh.room_on("scriptorium"), "SCRIPTORIUM waits for the member's switch while it is early");
+        assert!(ROOMS.contains(&"photo") && fresh.room_on("photo"), "PHOTO is on at first");
         let mut rooms = std::collections::BTreeMap::new();
         rooms.insert("story".to_string(), false);
         rooms.insert("home".to_string(), false);
@@ -1450,6 +1451,7 @@ mod tests {
         assert!(!s.room_on("story"));
         assert!(s.room_on("home"));
         assert!(s.room_on("world"), "a room missing from the file is on");
+        assert!(s.room_on("photo"), "PHOTO is on for a Castle that never chose it");
         assert!(!s.room_on("market"), "the Market stays off for a Castle that never chose it");
         assert!(!s.rooms.contains_key("spaceship") && !s.rooms.contains_key("home"));
         assert_eq!(s.rooms.len(), ROOMS.len());

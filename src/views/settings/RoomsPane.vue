@@ -60,6 +60,7 @@ const ROOM_GROUPS = [
     title: 'Make and play',
     rooms: [
       { id: 'studio', label: 'STUDIO' },
+      { id: 'photo', label: 'PHOTO', line: 'A basic photo editor with your companion.', tip: 'PHOTO is a basic photo editor: layers, eight adjustments, selections, a brush, a clone stamp and text, with your companion in the chat bar. Version 1 is basic (no RAW, PSD or CMYK). Redrawing edits (Remove background, Replace sky, Erase, Generate layer) use your image credit; everything else is free and instant. Pictures are saved in your memory folder under media-generation/photo/.' },
       { id: 'story', label: 'STORY', line: 'Off ends the story session. Its files stay.', tip: 'Turning STORY off ends the story session. Its files stay.' },
       { id: 'world', label: 'WORLD', line: 'Off closes the world screens. Its files stay.', tip: 'Turning WORLD off closes the world screens. Its files stay.' },
       { id: 'chat', label: 'CHAT', line: 'Off stops reading the room. Its files stay.', tip: 'Turning CHAT off stops reading the room. Its files stay.' },

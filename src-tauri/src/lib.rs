@@ -71,6 +71,7 @@ mod messages;
 mod page_reader;
 mod oneshot;
 mod paint;
+mod photo;
 mod resume;
 mod quota;
 mod alerts;
@@ -654,6 +655,15 @@ pub fn run() {
             paint::paint_save,
             paint::paint_open,
             paint::paint_export,
+            photo::photo_open_dialog,
+            photo::photo_read,
+            photo::photo_save,
+            photo::photo_recent,
+            photo::photo_load,
+            photo::photo_ask,
+            photo::photo_redraw,
+            photo::photo_result,
+            photo::photo_export,
             voicestudio::voicestudio_status,
             bridges::telegram::telegram_bridge_status,
             bridges::telegram::telegram_bridge_approve,
