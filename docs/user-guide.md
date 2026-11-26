@@ -29,6 +29,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 21. [The browser](#21-the-browser)
 22. [Worldsmith](#22-worldsmith)
 23. [Scriptorium](#23-scriptorium)
+24. [Photo](#24-photo)
 
 ---
 
@@ -357,9 +358,9 @@ Choose a shelf on the left, search at the top, and press a book to read it on th
 
 STUDIO is where you make things: pictures through **workflows**, and short videos, songs and voice lines through your companion. Outfit and hair sheets live in APPEARANCE, and adventure scenes stay in their world. The Studio shows what was made here.
 
-### The four powers
+### The five powers
 
-At the top right, a switch picks **Picture**, **Video**, **Song** or **Voice**. Each shows its state in a small pill:
+At the top right, a switch picks **Picture**, **Video**, **Song**, **Voice** or **Paint**. Each shows its state in a small pill (Paint's always reads **Canvas**: the canvas is always there):
 
 | Pill | Meaning |
 |-------|---------|
@@ -431,6 +432,19 @@ When the Marketplace opens, a **Marketplace** tab appears beside **Workflows**. 
 **My shop.** Once selling opens, **My shop** sets up your counter: the shop's name, your keeper's name and picture, the greeting, the keeper card (who your keeper is and how they talk, up to 1200 letters), a backdrop, and **Open**. **What visitors see** shows your shop as it will look. A new or changed keeper card is reviewed before visitors see it.
 
 **Votes keep the shop fair.** Once a workflow has at least 10 votes, fewer than 40% thumbs up pauses it. It is never deleted: you see why, fix it, and send it again. Buyers keep what they bought.
+
+### Paint: one canvas for you and your companion
+
+With **Paint** chosen, STUDIO becomes a painting room: tools and a colour wheel on the left, the canvas in the middle, **LAYERS** on the right, and the chat under them.
+
+- **Your tools**: pencil, brush (with a size), eraser and a bucket that fills an area (with a tolerance). The colour wheel shows the current colour and the last one; click the last one to swap back.
+- **LAYERS**: each layer has an eye, up and down, rename and delete, with a small live picture. **New layer** adds one; your last layer of your own can never be deleted.
+- **Ask your companion to draw**: write a line in the chat (*"draw a moon over the hills"*) and pick a style chip if you like (**Anime**, **Watercolour**, **Pixel**, **Crayon**). It looks at your canvas and draws with vector strokes that animate onto the canvas, each thing on its own named layer (*"Alice - moon"*). Ask again (*"make the moon bigger"*) and only that layer changes; it never touches your layers.
+- **A reference picture**: paste, drop or pick one to send with your line. **Trace** shows it faintly under your drawing (it cannot be painted on and is never saved).
+- **What to expect**: the companion's drawings are playful, editable vector strokes, not photo-real renders. With Claude Code it draws through your plan; otherwise it uses your OpenAI key, and with neither it says so. Everything it draws is cleaned before it reaches the canvas: only shapes and colours are kept, never scripts, links or outside pictures.
+- **Saving**: **New**, **Open** (a strip of your paintings), **Save** and **Export** (a PNG wherever you choose). A painting is a folder in your memory folder, `media-generation/paint/<name>/`, and its finished picture also shows in the gallery.
+
+Your painting stays as you left it while you visit other rooms or other powers.
 
 ### Video, Song and Voice
 
@@ -1401,6 +1415,39 @@ to your companion, never orders.
 
 Your documents stay on your computer. Nothing is uploaded anywhere; the only place a document's
 words go is your own AI, when your companion reads it to help you.
+
+## 24. Photo
+
+**PHOTO** (in APPS, under Create) is a basic photo editor with your companion in the chat bar. It is on to begin with and costs nothing until you use a redrawing edit. Switch it off in **Settings > Rooms** (Make and play).
+
+### The room
+
+A tool column on the left, your photo in the middle, **LAYERS** and **ADJUST** on the right, the undo pills under the photo, and the chat along the bottom.
+
+- **Open** a PNG, JPG or WebP with the picker or by dropping it on the room; dropping a picture while one is open adds it as a new layer.
+- **Tools** (with their keys): Move (V), Rectangle select (M), Lasso (L), Magic wand (W), Crop (C - drag, then Enter), Brush (B) and Eraser (E) with size, hardness and opacity, Clone stamp (S - Alt+click sets where it copies from), Text (T, an editable layer) and Eyedropper (I). A selection keeps the brush inside it. **Rotate**, **Flip** and **Resize** sit in the tool bar.
+- **Moving around**: Ctrl+wheel zooms, Space+drag pans. Ctrl+A selects all, Ctrl+D drops the selection, [ and ] change the brush size, Delete clears the selected area.
+- **LAYERS**: eye, small picture, rename, opacity, blend (normal, multiply, screen, overlay, darken, lighten), order, duplicate, delete and new.
+- **ADJUST**: exposure, brightness, contrast, highlights, shadows, warmth, saturation and sharpness, from -100 to 100, with **Reset**. They never change your pixels: they are applied when the photo is drawn and exported.
+
+### Undo pills
+
+Every change is a pill under the photo, and each pill undoes **only itself**: an adjustment puts its old values back, a new layer is removed, a layer change restores what it was. A crop, rotate, flip or resize goes back to the picture before it (and the pills after it go too). **Ctrl+Z** undoes the last pill and **Ctrl+Y** brings it back.
+
+### Your companion
+
+Ask in the chat bar: *"make it warmer"*, *"crop to the face"*, *"add the words Happy Birthday at the top"*. Your companion looks at the photo and makes the changes itself, each as its own pill, at most ten in one answer. Words written inside the photo are only data to it, never orders.
+
+The **redrawing edits** - **Remove background**, **Replace sky**, **Erase** something and **Generate layer** - are drawn on your picture queue with your image credit (the chat says the cost, about $0.06 a picture with an OpenAI key, before it starts). The result always lands on a **new layer** above your originals, which are hidden, never lost: its pill removes it and shows them again. Everything else is free and instant.
+
+### Saving and exporting
+
+- **Save** (Ctrl+S) keeps the project, with every layer and setting, in your memory folder under `media-generation/photo/<name>/`; **Open recent** brings one back (**Open**, Ctrl+O, opens a new picture). Opening another picture over unsaved work asks for a second press.
+- **Export** saves the finished picture as a **PNG**, or a **JPG** with a quality setting, wherever you choose.
+
+### Version 1
+
+PHOTO is basic for now: no RAW, PSD or CMYK files. Your photos stay on your computer; the only places a photo goes are your own AI when you ask your companion, and your picture service for a redrawing edit.
 
 ## Alerts
 
