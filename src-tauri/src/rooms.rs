@@ -37,6 +37,7 @@ pub async fn rooms_apply(app: AppHandle, rooms: BTreeMap<String, bool>, store: S
     if worldsmith == (true, false) {
         // the game let go, every frozen value stopped, the helper ended
         crate::worldsmith::pipe::stop(&app);
+        app.state::<crate::session::WorldsmithHost>().0.kill();
     }
     if story == (true, false) {
         app.state::<StoryHost>().0.kill();

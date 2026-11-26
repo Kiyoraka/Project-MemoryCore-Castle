@@ -1,7 +1,7 @@
 //! Messages accepted during a provider switch or image job, separate from either CLI queue.
 use crate::{
     providers::{Control, Images},
-    session::{MainHost, StoryHost},
+    session::{MainHost, StoryHost, WorldsmithHost},
     settings::SettingsStore,
 };
 use serde::{Deserialize, Serialize};
@@ -99,13 +99,20 @@ fn send_main(app: &AppHandle, text: &str) -> Result<(), String> {
 }
 
 fn send_story(app: &AppHandle, text: &str) -> Result<(), String> {
-    let host = &app.state::<StoryHost>().0;
+    send_room::<StoryHost>(app, text, |h| &h.0)
+}
+
+/// A room of its own (STORY, WORLDSMITH): the words pasted whole, Enter after the pictures land.
+fn send_room<H: Send + Sync + 'static>(app: &AppHandle, text: &str, pty: fn(&H) -> &crate::pty::PtyHost) -> Result<(), String> {
+    let state = app.state::<H>();
+    let host = pty(&state);
     let session = host.started().map(|(id, _)| id);
     host.write(paste(text).as_bytes())?;
     let delay = enter_delay(text);
     let app = app.clone();
     std::thread::spawn(move || {
-        let host = &app.state::<StoryHost>().0;
+        let state = app.state::<H>();
+        let host = pty(&state);
         enter_after_pause(delay, session, || host.started().map(|(id, _)| id), || {
             let _ = host.write(b"\r");
         });
@@ -118,9 +125,17 @@ pub fn send_message(text: String, room: Option<String>, app: AppHandle) -> Resul
     if text.trim().is_empty() || text.len() > 128_000 {
         return Err("Use a nonempty message shorter than 128 KB.".into());
     }
-    if room.as_deref() == Some("story") {
-        send_story(&app, &text)?;
-        return Ok(Sent { queued: false });
+    match crate::session::Room::known(room.as_deref()) {
+        Some(crate::session::Room::Story) => {
+            send_story(&app, &text)?;
+            return Ok(Sent { queued: false });
+        }
+        Some(crate::session::Room::Worldsmith) => {
+            send_room::<WorldsmithHost>(&app, &text, |h| &h.0)?;
+            return Ok(Sent { queued: false });
+        }
+        Some(crate::session::Room::Main) => {}
+        None => return Err("Castle does not know that room. Your message has not been sent.".into()),
     }
     let store = app.state::<SettingsStore>();
     let control = app.state::<Control>();
@@ -312,6 +327,7 @@ pub fn chat_prompt_holds(room: Option<String>, text: String, app: AppHandle) -> 
     let screen = match room.as_deref() {
         None | Some("") | Some("main") => claude_screen(&app.state::<MainHost>().0),
         Some("story") => claude_screen(&app.state::<StoryHost>().0),
+        Some("worldsmith") => claude_screen(&app.state::<WorldsmithHost>().0),
         Some(other) => other
             .strip_prefix("dev:")
             .and_then(|n| n.parse::<usize>().ok())

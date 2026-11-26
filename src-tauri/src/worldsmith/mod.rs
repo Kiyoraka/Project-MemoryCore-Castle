@@ -14,6 +14,7 @@ pub mod companion;
 pub mod helper;
 pub mod keys;
 pub mod pipe;
+pub mod room;
 pub mod store;
 
 /// The room's id (Settings > Rooms, the launcher, `rooms::need`).

@@ -43,10 +43,11 @@ fn journal_file(store: &SettingsStore, room: Room) -> PathBuf {
         .folder()
         .join("conversations")
         .join(key)
-        .join(if room == Room::Main {
-            "main.json"
-        } else {
-            "story.json"
+        .join(match room {
+            Room::Main => "main.json",
+            Room::Story => "story.json",
+            // a room of its own never shares STORY's talk
+            Room::Worldsmith => "worldsmith.json",
         })
 }
 

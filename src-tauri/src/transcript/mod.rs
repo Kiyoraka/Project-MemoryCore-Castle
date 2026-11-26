@@ -256,9 +256,9 @@ pub struct Follower {
     pending: Vec<(String, SystemTime)>,
     /// Every picture and voice file shown so far: the only files the screen may ask for.
     shown: std::collections::HashSet<String>,
-    /// A folder whose files are another room's: the main Chat leaves the STORY room's pictures and
+    /// Folders whose files are other rooms': the main Chat leaves the STORY and WORLDSMITH rooms' pictures and
     /// voices to the STORY room.
-    skip: Option<String>,
+    skip: Vec<String>,
     /// Turns one record line into chat entries (the CLI's own format).
     parse: fn(&str) -> Vec<ChatEntry>,
     /// The paths in a record line that may name a file the companion made.
@@ -274,7 +274,7 @@ impl Follower {
             since,
             pending: Vec::new(),
             shown: std::collections::HashSet::new(),
-            skip: None,
+            skip: Vec::new(),
             parse,
             candidates,
         }
@@ -283,12 +283,13 @@ impl Follower {
     /// The same follower, leaving files under `folder` to another room.
     pub fn skipping(mut self, folder: &Path) -> Self {
         let folder = folder.display().to_string().replace('/', "\\").trim_end_matches('\\').to_lowercase();
-        self.skip = Some(format!("{folder}\\"));
+        self.skip.push(format!("{folder}\\"));
         self
     }
 
     fn skipped(&self, path: &str) -> bool {
-        self.skip.as_ref().is_some_and(|folder| path.replace('/', "\\").to_lowercase().starts_with(folder))
+        let path = path.replace('/', "\\").to_lowercase();
+        self.skip.iter().any(|folder| path.starts_with(folder))
     }
 
     /// Whether `path` was shown as a picture or voice of this session.

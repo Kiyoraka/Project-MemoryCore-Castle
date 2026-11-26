@@ -2,7 +2,7 @@
 //! their own reader, so the two Chats never mix.
 
 use crate::files;
-use crate::session::{MainHost, Room, StoryHost, STORY_FOLDER};
+use crate::session::{MainHost, Room, StoryHost, WorldsmithHost, STORY_FOLDER, WORLDSMITH_FOLDER};
 use crate::settings::{Cli, SettingsStore};
 use crate::transcript::{self, claude, ChatEntry, Follower};
 use serde::Serialize;
@@ -32,6 +32,8 @@ impl ChatState {
 pub struct MainChat(pub ChatState);
 #[derive(Default)]
 pub struct StoryChat(pub ChatState);
+#[derive(Default)]
+pub struct WorldsmithChat(pub ChatState);
 
 /// Pictures the member dropped or pasted into Chat this run: the screen may show these as
 /// thumbnails before they are sent (once sent, the record reader allows them as the member's).
@@ -48,10 +50,11 @@ pub struct ChatPoll {
     status: &'static str,
 }
 
-fn pick<'a>(room: Room, main: &'a MainChat, story: &'a StoryChat) -> &'a ChatState {
+fn pick<'a>(room: Room, main: &'a MainChat, story: &'a StoryChat, smith: &'a WorldsmithChat) -> &'a ChatState {
     match room {
         Room::Main => &main.0,
         Room::Story => &story.0,
+        Room::Worldsmith => &smith.0,
     }
 }
 
@@ -133,15 +136,18 @@ pub fn chat_poll(
     store: State<SettingsStore>,
     main: State<MainHost>,
     story: State<StoryHost>,
+    smith: State<WorldsmithHost>,
     main_chat: State<MainChat>,
     story_chat: State<StoryChat>,
+    smith_chat: State<WorldsmithChat>,
 ) -> ChatPoll {
     let room = Room::named(room.as_deref());
     let host = match room {
         Room::Main => &main.0,
         Room::Story => &story.0,
+        Room::Worldsmith => &smith.0,
     };
-    let chat = pick(room, &main_chat, &story_chat);
+    let chat = pick(room, &main_chat, &story_chat, &smith_chat);
     let empty = |status| ChatPoll { entries: Vec::new(), reset: false, status };
     let Some((session, started)) = host.started() else {
         return empty("asleep");
@@ -167,8 +173,8 @@ pub fn chat_poll(
         let follower = follow(newest, started);
         // The main Chat leaves the STORY room's pictures and voices to the STORY room.
         let follower = match room {
-            Room::Main => follower.skipping(&folder.join(STORY_FOLDER)),
-            Room::Story => follower,
+            Room::Main => follower.skipping(&folder.join(STORY_FOLDER)).skipping(&folder.join(WORLDSMITH_FOLDER)),
+            Room::Story | Room::Worldsmith => follower,
         };
         *slot = Some((session, follower));
         reset = true;
@@ -212,10 +218,11 @@ pub fn chat_media(
     room: Option<String>,
     main_chat: State<MainChat>,
     story_chat: State<StoryChat>,
+    smith_chat: State<WorldsmithChat>,
     member: State<MemberPictures>,
     store: State<SettingsStore>,
 ) -> Result<String, String> {
-    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat);
+    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat);
     let allowed = chat.was_shown(&path)
         || member.0.lock().unwrap().contains(&path)
         || crate::providers::history(&store, Room::named(room.as_deref())).iter().any(|e| e.path.as_ref() == Some(&path) || e.pictures.contains(&path));
@@ -248,10 +255,11 @@ pub fn chat_media_stream(
     room: Option<String>,
     main_chat: State<MainChat>,
     story_chat: State<StoryChat>,
+    smith_chat: State<WorldsmithChat>,
     store: State<SettingsStore>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat);
+    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat);
     let allowed = chat.was_shown(&path)
         || crate::providers::history(&store, Room::named(room.as_deref())).iter().any(|e| e.path.as_ref() == Some(&path));
     if !allowed {

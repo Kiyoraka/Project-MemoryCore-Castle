@@ -374,6 +374,8 @@ pub fn run() {
         .manage(meter_watch::Watch::default())
         .manage(chat::MainChat::default())
         .manage(chat::StoryChat::default())
+        .manage(chat::WorldsmithChat::default())
+        .manage(session::WorldsmithHost::default())
         .manage(chat::MemberPictures::default())
         .manage(projectdb::Held::default())
         .manage(markup::MarkedCopies::default())
@@ -495,6 +497,8 @@ pub fn run() {
             session::terminal_write,
             session::terminal_resize,
             session::story_close,
+            session::worldsmith_close,
+            worldsmith::room::worldsmith_prepare,
             commands::system_meters,
             gpu::gpu_meters,
             gpu::gpu_gauges_save,
