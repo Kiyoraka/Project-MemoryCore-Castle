@@ -163,6 +163,10 @@ fn draw_now(app: &AppHandle, folder: &Path, text: &str) -> String {
         Err(why) => return format!("could not draw \"{}\": {why}", text.chars().take(80).collect::<String>()),
     };
     let kind = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { "image/png" } else { "image/jpeg" };
+    // every picture in one place: STUDIO shows the room's drawings with the companion's others
+    if let Some(memory) = settings.memory_folder.as_deref() {
+        let _ = keep_in_studio(Path::new(memory), crate::link::now_secs(), kind, &bytes);
+    }
     let Some(ai_key) = crate::key::load("room-companion") else { return "drew a picture, but the companion is no longer in the room".into() };
     match Room::new(&crate::signin::portfolio(), &ai_key).post_picture(None, bytes, kind) {
         Ok(line) => {
@@ -174,6 +178,23 @@ fn draw_now(app: &AppHandle, folder: &Path, text: &str) -> String {
         }
         Err(refused) => format!("drew a picture, but the room refused it: {}", refused.message),
     }
+}
+
+/// Where a picture drawn for the CHAT room is kept in the memory folder, so STUDIO shows it with
+/// every other picture (CASTLE-8): media-generation/image-generation/room-<secs>.<png|jpg>.
+pub fn studio_copy(memory: &Path, secs: u64, kind: &str) -> PathBuf {
+    let ext = if kind == "image/png" { "png" } else { "jpg" };
+    memory.join("media-generation").join("image-generation").join(format!("room-{secs}.{ext}"))
+}
+
+/// Keeps the room's picture in STUDIO's shelf; a failure only means it is not kept there.
+pub fn keep_in_studio(memory: &Path, secs: u64, kind: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let file = studio_copy(memory, secs, kind);
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|_| "STUDIO's picture shelf could not be made.".to_string())?;
+    }
+    std::fs::write(&file, bytes).map_err(|_| "The picture could not be kept in STUDIO.".to_string())?;
+    Ok(file)
 }
 
 /// What Settings > Chat shows about pictures.
@@ -233,5 +254,19 @@ mod tests {
         assert_eq!(left_today(&day, "2026-11-15", 1), 1, "a new day starts again");
         assert_eq!(left_today(&Day::default(), "2026-11-15", 0), 0, "0 a day = never");
         assert_eq!(left_today(&Day { date: "2026-11-14".into(), count: 9 }, "2026-11-14", 2), 0, "never below 0");
+    }
+
+    #[test]
+    fn a_room_picture_is_kept_on_studios_shelf() {
+        let memory = std::path::Path::new("/m");
+        assert_eq!(studio_copy(memory, 42, "image/png"), std::path::Path::new("/m/media-generation/image-generation/room-42.png"));
+        assert_eq!(studio_copy(memory, 42, "image/jpeg"), std::path::Path::new("/m/media-generation/image-generation/room-42.jpg"));
+        let dir = std::env::temp_dir().join(format!("castle-studio-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let kept = keep_in_studio(&dir, 7, "image/png", b"\x89PNG fake").unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"\x89PNG fake");
+        let shown = crate::studio::library_of(&dir, &crate::studio::MADE_HERE);
+        assert_eq!(shown.images.len(), 1, "STUDIO's own gallery lists it");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
