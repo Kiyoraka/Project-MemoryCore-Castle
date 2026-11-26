@@ -263,6 +263,7 @@ About the **USAGE** card's login: to show Claude Code's limits, Castle reads the
 - **Browser caches** - Chrome, Edge, Brave and Firefox. A browser that is open is skipped and the sheet says so; close it to include it.
 - **Thumbnail cache** (Windows) - Explorer's picture previews; they are made again when needed.
 - **Crash dumps and logs** - reports left after an app crashed.
+- **Rust build caches** - the `target` folders cargo leaves in your DEV projects and the folders under your projects folder (only folders carrying cargo's own `CACHEDIR.TAG`, so nothing else is ever taken for one). They can grow to hundreds of gigabytes; the size is measured in the background and the sheet says "Measuring..." meanwhile. Starts unticked, because the next build of each project starts from scratch and takes a few minutes longer. Skipped while a Rust build is running.
 - **Recycle Bin** (Windows) - starts unticked, because emptying it can't be undone.
 
 **Deep clean** (Windows) also empties Windows' own temp folder and the leftovers of Windows Update. Windows asks once for administrator rights; say no and nothing changes.
@@ -1015,7 +1016,7 @@ and a page can never reach Castle itself.
 
 **Its settings** fold out under BROWSER in **Settings > Rooms**: press the small arrow beside BROWSER
 in the Top bar list (pinning BROWSER opens it too). Everything about the browser is there: where it
-opens, Remember sign-ins, what MY PROFILE may read, private browsing, where chat links open, the new
+opens, Remember sign-ins, bringing your tabs back, what MY PROFILE may read, private browsing, where chat links open, the new
 tab, saved passwords, bringing things from Chrome, and clearing the browsing data.
 
 ### Its own window or inside Castle
@@ -1116,6 +1117,16 @@ tab keeps nothing: no history, no searches for the suggestions, no sign-ins afte
 it is never offered **Always** for translation. Links and sign-in windows opened from it are private
 too. Every private page is still checked by the guards. Its visits reach MY PROFILE only if you turned
 on **Private browsing: remember for <companion>**. With **Remember sign-ins** off, every tab is private.
+
+### Your tabs come back
+
+Like Chrome, the browser brings your tabs back: close its window, quit Castle, or let it update, and
+the next time the browser opens your tabs are there again, in the same order, with the one in front and
+the pages side by side as you left them. A tab that was in a window of its own comes home. Pages load
+only when you open them, so many tabs never load at once. Private tabs never come back, and nothing is
+kept while **Remember sign-ins** is off. Turn it off with **Bring my tabs back when Castle opens** under
+BROWSER in **Settings > Rooms**; the saved tabs (`browser-session.json` in Castle's settings folder) are
+removed at once.
 
 ### Pages side by side
 

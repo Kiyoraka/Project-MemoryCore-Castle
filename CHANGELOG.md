@@ -4,6 +4,9 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Your browser tabs come back like Chrome's: close the browser window, quit or update, and they return in order with the pages side by side as you left them; pages load only when opened, private tabs never come back, and Settings > Rooms > BROWSER has the switch.
+- Sweep frees the Rust build caches: the `target` folders cargo leaves in your projects (only ones carrying cargo's own tag), starting unticked and skipped while a build runs.
+
 ## 0.7.0 - 2026-11-26
 
 - A browser tab on another screen: drag its chip past the browser's edge (a glowing card follows) or right-click Move to a new window, and the live page moves into a window of its own without reloading; its dim ⧉ chip brings it forward, Back to Castle or a drag brings it home, and closing that window closes its tabs.
