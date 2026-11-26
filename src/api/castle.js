@@ -145,6 +145,10 @@ export const scriptoriumSave = (doc, path = null) => invoke('scriptorium_save', 
 export const scriptoriumRecent = () => invoke('scriptorium_recent')
 // { doc }: the companion changed a document through the door
 export const onScriptoriumChanged = (handler) => listen('scriptorium-changed', (event) => handler(event.payload))
+// -> [{ name, at, thumb }], newest first
+// -> { name, doc, pngs: { [layerId]: dataUrl } }
+// one chat line: the flattened picture (PNG data URL) and the document -> { say, ops }
+// Export: the flattened picture (kind 'png' or 'jpg', a data URL encoded in the page) saved where the member picks -> the path, or null
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 
@@ -502,6 +506,18 @@ export const studioDelete = (path) => invoke('studio_delete', { path })
 export const pictureWay = () => invoke('picture_way')
 export const voiceStudioStatus = () => invoke('voicestudio_status')
 export const voiceStudioSpeak = (text) => invoke('voicestudio_speak', { text })
+// STUDIO > PAINT. paintWay -> "claude" | "key" | "" (how the companion's hand runs here).
+// paintAsk({ companion, line, style, width, height, canvas, reference, layers: [{ name, owner, visible, svg }] })
+//   -> { say, ops: [{ op: add | replace | remove, layer, svg }], leftOut: [layer names] }
+export const paintWay = () => invoke('paint_way')
+export const paintAsk = (request) => invoke('paint_ask', { request })
+// the paintings kept under media-generation/paint/: [{ name, flat, at }], newest first
+export const paintList = () => invoke('paint_list')
+// painting: { name, width, height, layers: [{ name, owner, visible, png (member), svg (companion) }], flat } -> the folder's name
+export const paintSave = (painting) => invoke('paint_save', { painting })
+export const paintOpen = (name) => invoke('paint_open', { name })
+// the flattened PNG saved where the member chooses; null when the dialog is closed
+export const paintExport = (png, name) => invoke('paint_export', { png, name })
 // MemoryCore in your pocket, Telegram: { on, connected, hasToken, paired, pending: { chatId, name } | null, problem }
 export const telegramBridgeStatus = () => invoke('telegram_bridge_status')
 export const telegramBridgeApprove = () => invoke('telegram_bridge_approve')

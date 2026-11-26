@@ -70,6 +70,7 @@ mod providers;
 mod messages;
 mod page_reader;
 mod oneshot;
+mod paint;
 mod resume;
 mod quota;
 mod alerts;
@@ -647,6 +648,12 @@ pub fn run() {
             studio::studio_powers,
             studio::picture_way,
             studio::studio_delete,
+            paint::paint_way,
+            paint::paint_ask,
+            paint::paint_list,
+            paint::paint_save,
+            paint::paint_open,
+            paint::paint_export,
             voicestudio::voicestudio_status,
             bridges::telegram::telegram_bridge_status,
             bridges::telegram::telegram_bridge_approve,

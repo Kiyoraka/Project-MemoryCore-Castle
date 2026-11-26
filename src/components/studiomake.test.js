@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { companionLines, makeAction, powerPill } from './studiomake.js'
+import { POWERS, companionLines, makeAction, powerPill } from './studiomake.js'
 
 describe("STUDIO's Make bar", () => {
   it('queues a picture with the key or on Codex, else asks for the key', () => {
@@ -42,6 +42,12 @@ describe("STUDIO's Make bar", () => {
     expect(powerPill('image', { image: 'builtin', comfy: false }).text).toBe('Codex')
     // still held back while the real state is read
     expect(makeAction('image', { comfy: true }, false, 'Mira', false).kind).toBe('checking')
+  })
+  it('opens PAINT as a page of its own, always ready, whatever the keys', () => {
+    expect(POWERS.map((p) => p.id)).toContain('paint')
+    expect(makeAction('paint', {})).toEqual({ kind: 'paint', label: 'Paint' })
+    expect(makeAction('paint', {}, false, 'Mira', false).kind).toBe('paint')
+    expect(powerPill('paint', {})).toEqual({ text: 'Canvas', tone: 'ready' })
   })
   it('types the ask and the cost question', () => {
     expect(companionLines('Make a short video of', '  a lake at dawn ')).toEqual(['Make a short video of a lake at dawn', 'Tell me the cost first and ask before you make it.'])

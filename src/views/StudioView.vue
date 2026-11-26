@@ -3,7 +3,9 @@
 // Workflows rail on the left, the chosen workflow's form in the middle and the canvas on the right
 // (the newest picture large, the Made here strip, and the gallery behind its tabs). A workflow's
 // picture goes to the queue (castle-image with the key, or Codex). Video, Song and Voice keep one
-// Make box: they are asked of the companion, which runs its own helper and tells the cost.
+// Make box: they are asked of the companion, which runs its own helper and tells the cost. Paint is
+// a page of its own (components/paint/PaintRoom.vue): one canvas the member and the companion share,
+// kept mounted once opened so its strokes stay while another power is shown.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import ImageViewer from '../components/ImageViewer.vue'
@@ -15,6 +17,7 @@ import WorkflowBuilder from '../components/WorkflowBuilder.vue'
 import MarketplacePanel from '../components/MarketplacePanel.vue'
 import PublishSheet from '../components/PublishSheet.vue'
 import HelpTip from '../components/HelpTip.vue'
+import PaintRoom from '../components/paint/PaintRoom.vue'
 import { chatMediaOpen, imageRequest, studioDelete, voiceStudioSpeak, workflowDelete, workflowDuplicate, workflowExport, workflowFolder, workflowImport, workflowList, memberStatus } from '../api/castle.js'
 import { refreshStudio, studioLib, studioPowersLoaded, studioPowersNow, studioThumbUrls, studioVoiceUp } from '../composables/useStudio.js'
 import { askCompanion } from '../api/ask.js'
@@ -43,6 +46,11 @@ const makeProblem = ref('')
 const makeDone = ref('')
 const voiceClip = ref('')
 const action = computed(() => makeAction(power.value, powers.value, voiceUp.value, props.companion, powersLoaded.value))
+// PAINT is mounted the first time it is chosen and then kept (v-show), so its canvas never resets
+const paintSeen = ref(false)
+watch(power, (p) => {
+  if (p === 'paint') paintSeen.value = true
+})
 const placeholder = computed(() => ({ image: 'Describe the picture…', video: 'Describe the short video…', song: 'What should the song be about…', voice: 'Type the words to say…' })[power.value])
 const canMake = computed(() => action.value.kind === 'key' || (action.value.kind !== 'checking' && !!brief.value.trim() && !making.value))
 
@@ -208,6 +216,7 @@ const tab = ref('latest')
 // Latest belongs to Picture's canvas; the other powers open on the shelf of their own kind
 watch(power, (p) => {
   asking.value = ''
+  if (p === 'paint') return
   if (p === 'image') tab.value = 'latest'
   else if (tab.value === 'latest') tab.value = { video: 'videos', song: 'songs', voice: 'voices' }[p] ?? 'images'
 })
@@ -316,7 +325,7 @@ watch(() => props.stamp, () => {
         </section>
       </template>
 
-      <section v-else class="make widget">
+      <section v-else-if="power !== 'paint'" class="make widget">
         <h3>MAKE</h3>
         <div class="make-row">
           <textarea v-model="brief" rows="2" :placeholder="placeholder" aria-label="What to make" :disabled="action.kind === 'key'" @keydown.ctrl.enter="make" @keydown.meta.enter="isMac && make()"></textarea>
@@ -327,7 +336,9 @@ watch(() => props.stamp, () => {
         <ThemedAudio v-if="voiceClip && power === 'voice'" :src="voiceClip" />
       </section>
 
-      <section v-if="power !== 'image' || side !== 'marketplace'" class="gallery widget">
+      <PaintRoom v-if="paintSeen" v-show="power === 'paint'" :companion="companion" />
+
+      <section v-if="power !== 'paint' && (power !== 'image' || side !== 'marketplace')" class="gallery widget">
         <nav class="tabs has-tip">
           <button v-if="power === 'image'" :class="{ active: tab === 'latest' }" @click="tab = 'latest'; asking = ''">Latest</button>
           <button v-for="[t, label] in TABS" :key="t" :class="{ active: tab === t }" @click="tab = t; asking = ''">{{ label }} ({{ counts[t] }})</button>
