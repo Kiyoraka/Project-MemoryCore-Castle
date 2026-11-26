@@ -215,14 +215,11 @@ fn pick_record(candidates: Vec<Candidate>, since: SystemTime) -> Option<PathBuf>
 }
 
 /// Who a message from another Claude Code session came from: its `from-name` and its `from`
-/// address, one per line, read from the `<cross-session-message>` tag that wraps it (Claude Code
-/// may put a short prefix in front). None for anything else, the member's own words that merely
-/// mention the tag among them.
-pub fn peer_from(text: &str) -> Option<String> {
+/// address, one per line, read from the `<cross-session-message>` tag in the isMeta user record
+/// Claude Code writes for it ("Another Claude session sent a message: <cross-session-message ...>";
+/// the tag may be left open). None for anything else.
+fn peer_in(text: &str) -> Option<String> {
     const TAG: &str = "<cross-session-message";
-    if !text.trim_end().ends_with("</cross-session-message>") {
-        return None;
-    }
     let start = text.find(TAG).filter(|at| *at <= 200)?;
     let rest = &text[start + TAG.len()..];
     if !rest.starts_with([' ', '>', '\n']) {
@@ -238,6 +235,15 @@ pub fn peer_from(text: &str) -> Option<String> {
     (!name.is_empty() || !from.is_empty()).then(|| format!("{name}\n{from}"))
 }
 
+/// A user record's words, as a string or as its text blocks joined.
+fn meta_text(record: &Value) -> Option<String> {
+    match record.get("message").and_then(|m| m.get("content")) {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Array(blocks)) => Some(blocks.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")),
+        _ => None,
+    }
+}
+
 /// Turns one record line into the chat entries it holds (often none).
 pub fn parse_line(line: &str) -> Vec<ChatEntry> {
     let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -247,6 +253,27 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
     // isCompactSummary / isVisibleInTranscriptOnly: the summary a /compact writes as a user record,
     // which is not the member's words.
     let flag = |name: &str| record.get(name).and_then(Value::as_bool) == Some(true);
+    // A message heard from another Claude Code session (a DEV tab reporting back) is written as an
+    // isMeta user record: never the member's words or a bubble, only the trail that says which tab
+    // HOME heard from. Read from this record alone (its queue-operation twin is left out), so one
+    // message is one trail entry. An agent's hand-back (<agent-message>) is no DEV tab.
+    if kind == "user" && flag("isMeta") && !flag("isSidechain") {
+        let heard = meta_text(&record).as_deref().and_then(peer_in);
+        return heard
+            .map(|heard| {
+                let id = record.get("uuid").and_then(Value::as_str).unwrap_or("");
+                vec![ChatEntry {
+                    id: format!("{id}-peer"),
+                    role: "peer".into(),
+                    text: heard,
+                    at: record.get("timestamp").and_then(Value::as_str).map(str::to_string),
+                    path: None,
+                    pictures: Vec::new(),
+                    state: Some("from".into()),
+                }]
+            })
+            .unwrap_or_default();
+    }
     if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") || flag("isVisibleInTranscriptOnly") {
         return Vec::new();
     }
@@ -309,12 +336,6 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
         // mid-turn, or as the next turn's words).
         "queue-operation" => {
             let text = record.get("content").and_then(Value::as_str).unwrap_or("").trim().to_string();
-            if record.get("operation").and_then(Value::as_str) == Some("enqueue") {
-                if let Some(heard) = peer_from(&text) {
-                    let stamp = at.clone().unwrap_or_default();
-                    return vec![ChatEntry { id: format!("peer-queued-{stamp}"), ..peer(0, "from", heard) }];
-                }
-            }
             if text.is_empty() || text.starts_with('<') {
                 return Vec::new();
             }
@@ -348,11 +369,6 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
                 _ => String::new(),
             };
             let text = text.trim();
-            // A message from another Claude Code session (a DEV tab reporting back): not the member's
-            // words, only the trail that says which tab HOME heard from.
-            if let Some(heard) = peer_from(text) {
-                return vec![peer(0, "from", heard)];
-            }
             // Slash commands, hook and system wrappers arrive as tags; they are not the member's words.
             if text.is_empty() || text.starts_with('<') {
                 Vec::new()
@@ -474,21 +490,34 @@ mod tests {
         // a SendMessage with no `to` leaves no trail
         let nowhere = r#"{"type":"assistant","uuid":"a8","message":{"content":[{"type":"tool_use","name":"SendMessage","input":{"message":"x"}}]}}"#;
         assert!(parse_line(nowhere).iter().all(|e| e.role != "peer"));
-        // a DEV tab reports back: never the member's bubble, only who it came from
-        let heard = r#"{"type":"user","uuid":"u9","message":{"content":"<cross-session-message from=\"uds:/tmp/cc-socks/4242.sock\" from-name=\"shop\">\nall green\n</cross-session-message>"}}"#;
+        // a DEV tab reports back, as Claude Code writes it: an isMeta user record. Never a bubble,
+        // only who it came from
+        let heard = r#"{"type":"user","uuid":"u9","isMeta":true,"timestamp":"t9","message":{"role":"user","content":"Another Claude session sent a message: <cross-session-message from=\"uds:/tmp/cc-socks/35791.sock\" from-name=\"memorycore-jerry-12\" from-mode=\"prompting\">\nall green\n</cross-session-message>"}}"#;
         let entries = parse_line(heard);
         assert_eq!(entries.len(), 1);
-        assert_eq!((entries[0].role.as_str(), entries[0].text.as_str(), entries[0].state.as_deref()), ("peer", "shop\nuds:/tmp/cc-socks/4242.sock", Some("from")));
-        // the same while it waits in the queue
-        let queued = r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t1","content":"<cross-session-message from=\"uds:/tmp/cc-socks/7.sock\">\nhi\n</cross-session-message>"}"#;
-        assert_eq!(parse_line(queued)[0].text, "\nuds:/tmp/cc-socks/7.sock");
+        assert_eq!((entries[0].role.as_str(), entries[0].text.as_str(), entries[0].state.as_deref()), ("peer", "memorycore-jerry-12\nuds:/tmp/cc-socks/35791.sock", Some("from")));
+        assert_eq!((entries[0].id.as_str(), entries[0].at.as_deref()), ("u9-peer", Some("t9")));
+        // the same with text blocks, and with the tag left open
+        let blocks = r#"{"type":"user","uuid":"u11","isMeta":true,"message":{"content":[{"type":"text","text":"Another Claude session sent a message: <cross-session-message from=\"uds:/tmp/cc-socks/7.sock\">\nhi"}]}}"#;
+        assert_eq!(parse_line(blocks)[0].text, "\nuds:/tmp/cc-socks/7.sock");
+        // its queue-operation twin is not counted again, and its removal is no receipt
+        let queued = r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t1","content":"<cross-session-message from=\"uds:/tmp/cc-socks/35791.sock\" from-name=\"memorycore-jerry-12\">\nall green\n</cross-session-message>"}"#;
+        assert!(parse_line(queued).is_empty());
+        let removed = queued.replace("enqueue", "remove");
+        assert!(parse_line(&removed).is_empty());
+        // an agent's hand-back, and any other meta record, stays out
+        let agent = r#"{"type":"user","uuid":"u12","isMeta":true,"message":{"content":"<agent-message from=\"a1\">done</agent-message>"}}"#;
+        assert!(parse_line(agent).is_empty());
+        assert!(parse_line(r#"{"type":"user","uuid":"u13","isMeta":true,"message":{"content":"caveat"}}"#).is_empty());
+        // the plain user record, should one ever carry it, is not the member's words either
+        let plain = r#"{"type":"user","uuid":"u14","message":{"content":"<cross-session-message from-name=\"shop\">\nx\n</cross-session-message>"}}"#;
+        assert!(parse_line(plain).is_empty());
         // other tags stay out as before
         assert!(parse_line(r#"{"type":"user","uuid":"u10","message":{"content":"<cross-session-messages>x"}}"#).is_empty());
-        assert_eq!(peer_from("<cross-session-message>no one</cross-session-message>"), None);
-        assert_eq!(peer_from("Note: <cross-session-message from-name=\"a b\">x</cross-session-message>").as_deref(), Some("a b\n"));
-        // the member's own words that only mention the tag stay the member's
-        assert_eq!(peer_from("what is <cross-session-message from-name=\"x\"> for?"), None);
-        assert_eq!(peer_from(&format!("{}<cross-session-message from-name=\"x\">y</cross-session-message>", "a".repeat(300))), None);
+        assert_eq!(peer_in("<cross-session-message>no one</cross-session-message>"), None);
+        assert_eq!(peer_in("<cross-session-messages from-name=\"x\">"), None);
+        assert_eq!(peer_in("Note: <cross-session-message from-name=\"a b\">x</cross-session-message>").as_deref(), Some("a b\n"));
+        assert_eq!(peer_in(&format!("{}<cross-session-message from-name=\"x\">y</cross-session-message>", "a".repeat(300))), None);
     }
 
     #[test]
