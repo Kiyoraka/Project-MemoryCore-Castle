@@ -157,6 +157,8 @@ pub struct Sheet {
     pub shared: HashMap<u32, SharedFormula>,
     /// The worksheet root's namespace declarations (to read fragments of it again).
     pub ns_decls: Vec<(String, String)>,
+    /// The AutoFilter's range (`<autoFilter ref>`), when the sheet has one.
+    pub auto_filter: Option<CellRange>,
 }
 
 /// Excel's width conversion for Calibri 11 (maximum digit width 7 px): character units to points.
@@ -195,6 +197,7 @@ impl Sheet {
             view: View::default(),
             shared: HashMap::new(),
             ns_decls: Vec::new(),
+            auto_filter: None,
         }
     }
 

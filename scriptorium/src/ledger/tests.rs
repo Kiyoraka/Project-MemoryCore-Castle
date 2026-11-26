@@ -11,7 +11,7 @@ const MAIN: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n";
 
-fn sheet_xml(body: &str) -> String {
+pub(super) fn sheet_xml(body: &str) -> String {
     format!(
         "{DECL}<worksheet xmlns=\"{MAIN}\" xmlns:r=\"{R}\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" \
 xmlns:x14ac=\"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\" mc:Ignorable=\"x14ac\">{body}</worksheet>"
@@ -21,7 +21,7 @@ xmlns:x14ac=\"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\" mc:I
 /// Builds an `.xlsx`: sheets (name, worksheet XML, state), optional shared strings and styles,
 /// workbookPr attributes and definedNames XML. A core-properties part and an unknown customXml
 /// part ride along to prove they survive.
-fn book(sheets: &[(&str, &str, &str)], sst: Option<&str>, styles: Option<&str>, wb_pr: &str, names: &str) -> Vec<u8> {
+pub(super) fn book(sheets: &[(&str, &str, &str)], sst: Option<&str>, styles: Option<&str>, wb_pr: &str, names: &str) -> Vec<u8> {
     let mut ct = format!(
         "{DECL}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
 <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
@@ -89,13 +89,13 @@ xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>Invented</dc:title></cp:
     z.finish()
 }
 
-const SST: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"5\" uniqueCount=\"4\">\
+pub(super) const SST: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"5\" uniqueCount=\"4\">\
 <si><t>Name</t></si>\
 <si><r><t xml:space=\"preserve\">Hello </t></r><r><rPr><b/></rPr><t>World</t></r><rPh sb=\"0\" eb=\"1\"><t>HA</t></rPh></si>\
 <si><t>007</t></si>\
 <si><t>Line_x000D_Two</t></si></sst>";
 
-const STYLES: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
+pub(super) const STYLES: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
 <numFmts count=\"2\"><numFmt numFmtId=\"164\" formatCode=\"&quot;$&quot;#,##0.00;[Red]\\-&quot;$&quot;#,##0.00\"/><numFmt numFmtId=\"165\" formatCode=\"yyyy\\-mm\\-dd\"/></numFmts>\
 <fonts count=\"2\"><font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/></font><font><b/><sz val=\"14\"/><color rgb=\"FFFF0000\"/><name val=\"Arial\"/></font></fonts>\
 <fills count=\"4\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill>\
@@ -121,7 +121,7 @@ const STYLES: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\
 <xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"><alignment wrapText=\"1\"/></xf>\
 </cellXfs></styleSheet>";
 
-fn data_sheet() -> String {
+pub(super) fn data_sheet() -> String {
     sheet_xml(
         "<dimension ref=\"A1:C4\"/>\
 <sheetViews><sheetView tabSelected=\"1\" workbookViewId=\"0\"><pane xSplit=\"1\" ySplit=\"1\" topLeftCell=\"B2\" activePane=\"bottomRight\" state=\"frozen\"/>\
@@ -132,7 +132,7 @@ fn data_sheet() -> String {
 <row r=\"1\" spans=\"1:3\" x14ac:dyDescent=\"0.25\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"C1\" t=\"inlineStr\"><is><t>Inline</t></is></c></row>\
 <row r=\"2\" spans=\"1:3\"><c r=\"A2\"><v>10</v></c><c r=\"B2\"><v>2.5</v></c><c r=\"C2\"><f>A2*B2</f><v>25</v></c></row>\
 <row r=\"3\" spans=\"1:3\"><c r=\"A3\"><v>20</v></c><c r=\"B3\" t=\"b\"><v>1</v></c><c r=\"C3\"><f t=\"shared\" ref=\"C3:C4\" si=\"0\">A3*2</f><v>40</v></c></row>\
-<row r=\"4\" spans=\"1:3\" ht=\"30\" customHeight=\"1\"><c r=\"A4\" t=\"e\"><v>#DIV/0!</v></c><c r=\"B4\" t=\"str\"><f>\"x\"&amp;\"y\"</f><v>xy</v></c><c r=\"C4\"><f t=\"shared\" si=\"0\"/><v>0</v></c></row>\
+<row r=\"4\" spans=\"1:3\" ht=\"30\" customHeight=\"1\"><c r=\"A4\" t=\"e\"><v>#DIV/0!</v></c><c r=\"B4\" t=\"str\"><f>\"x\"&amp;\"y\"</f><v>xy</v></c><c r=\"C4\" t=\"e\"><f t=\"shared\" si=\"0\"/><v>#DIV/0!</v></c></row>\
 </sheetData>\
 <pageMargins left=\"0.7\" right=\"0.7\" top=\"0.75\" bottom=\"0.75\" header=\"0.3\" footer=\"0.3\"/>\
 <extLst><ext uri=\"{01252117-D84E-4E92-8308-4BE1C098FCBB}\"><x14ac:unknownThing val=\"1\"/></ext></extLst>",
@@ -172,24 +172,24 @@ const NAMES: &str = "<definedNames><definedName name=\"Rate\">Data!$B$2</defined
 <definedName name=\"_xlnm.Print_Area\" localSheetId=\"0\">Data!$A$1:$C$4</definedName>\
 <definedName name=\"Secret\" hidden=\"1\">42</definedName></definedNames>";
 
-fn main_book() -> Vec<u8> {
+pub(super) fn main_book() -> Vec<u8> {
     let data = data_sheet();
     let fmt = fmt_sheet();
     let hidden = sheet_xml("<sheetData/>");
     book(&[("Data", &data, ""), ("Fmt", &fmt, ""), ("Secret Tab", &hidden, "hidden")], Some(SST), Some(STYLES), "defaultThemeVersion=\"166925\"", NAMES)
 }
 
-fn open(bytes: &[u8]) -> LedgerDoc {
+pub(super) fn open(bytes: &[u8]) -> LedgerDoc {
     LedgerDoc::open_with_fonts(bytes, FontCache::empty()).unwrap()
 }
 
 /// Every zip entry: (name, uncompressed bytes, stored bytes).
-fn entries(bytes: &[u8]) -> Vec<(String, Vec<u8>, Vec<u8>)> {
+pub(super) fn entries(bytes: &[u8]) -> Vec<(String, Vec<u8>, Vec<u8>)> {
     let a = ZipArchive::read(bytes).unwrap();
     a.entries.iter().map(|e| (e.name.clone(), a.data(bytes, e).unwrap(), a.raw_data(bytes, e).unwrap().to_vec())).collect()
 }
 
-fn part(bytes: &[u8], name: &str) -> String {
+pub(super) fn part(bytes: &[u8], name: &str) -> String {
     let e = entries(bytes);
     String::from_utf8(e.into_iter().find(|x| x.0 == name).unwrap().1).unwrap()
 }
@@ -277,7 +277,7 @@ fn cell_types_formulas_and_shared_formulas() {
     assert_eq!(s.cell(2, 2).unwrap().formula.as_deref(), Some("A3*2"));
     // The shared formula's child, expanded for the formula bar; its cached value is what shows.
     assert_eq!(s.cell(3, 2).unwrap().formula.as_deref(), Some("A4*2"));
-    assert_eq!(v(3, 2), CellValue::Number(0.0));
+    assert_eq!(v(3, 2), CellValue::Error("#DIV/0!".into()));
     assert_eq!(s.used_range().unwrap().to_string(), "A1:C4");
 }
 
@@ -356,7 +356,7 @@ fn set_cell_then_reopen_and_other_parts_untouched() {
     assert_eq!(before.len(), after.len());
     for (b, a) in before.iter().zip(&after) {
         assert_eq!(a.0, b.0, "entry order kept");
-        if a.0 != "xl/worksheets/sheet1.xml" {
+        if a.0 != "xl/worksheets/sheet1.xml" && a.0 != "xl/sharedStrings.xml" {
             assert_eq!(a.1, b.1, "{} unchanged", a.0);
             assert_eq!(a.2, b.2, "{} stored bytes unchanged", a.0);
         }
@@ -366,7 +366,11 @@ fn set_cell_then_reopen_and_other_parts_untouched() {
     assert!(xml.contains("<row r=\"3\" spans=\"1:3\"><c r=\"A3\"><v>20</v></c>"));
     assert!(xml.contains("<extLst><ext uri=\"{01252117-D84E-4E92-8308-4BE1C098FCBB}\"><x14ac:unknownThing val=\"1\"/></ext></extLst>"));
     assert!(xml.contains("<sheetFormatPr defaultRowHeight=\"15\" x14ac:dyDescent=\"0.25\"/>"));
-    assert!(xml.contains("<c r=\"A1\" t=\"inlineStr\"><is><t>Renamed &amp; &lt;ok&gt;</t></is></c>"));
+    // New text goes into the workbook's own string table (appended, counts kept right).
+    assert!(xml.contains("<c r=\"A1\" t=\"s\"><v>4</v></c>"), "{xml}");
+    let sst = part(&saved, "xl/sharedStrings.xml");
+    assert!(sst.contains("<si><t>Line_x000D_Two</t></si><si><t>Renamed &amp; &lt;ok&gt;</t></si></sst>"), "{sst}");
+    assert!(sst.contains("count=\"6\" uniqueCount=\"5\""), "{sst}");
     assert!(xml.contains("<row r=\"5\"><c r=\"B5\"><v>99</v></c></row></sheetData>"));
     assert!(xml.contains("<row r=\"2\" spans=\"1:5\">"));
     assert!(xml.starts_with(DECL));
@@ -397,7 +401,8 @@ fn overwriting_a_shared_formula_master_hands_it_on() {
     let mut doc = open(&main_book());
     set(&mut doc, "Data", "C3", Json::Num(5.0));
     let xml = part(&doc.save(), "xl/worksheets/sheet1.xml");
-    assert!(xml.contains("<c r=\"C4\"><f t=\"shared\" si=\"0\" ref=\"C4\">A4*2</f><v>0</v></c>"), "{xml}");
+    // The group is turned into plain formulas, so the other cell keeps its own.
+    assert!(xml.contains("<c r=\"C4\" t=\"e\"><f>A4*2</f><v>#DIV/0!</v></c>"), "{xml}");
     let re = open(&doc.save());
     let s = &re.sheets()[0];
     assert_eq!(s.cell(2, 2).unwrap().formula, None);
@@ -495,7 +500,11 @@ fn describe_for_the_ai() {
     assert_eq!(doc.kind(), "ledger");
     assert_eq!(doc.page_count(), 3);
     let cmds: Vec<String> = doc.commands().into_iter().map(|c| c.name).collect();
-    assert_eq!(cmds, ["ledger.set_cell", "ledger.scroll_to"]);
+    assert_eq!(&cmds[..3], ["ledger.set_cell", "ledger.set_cells", "ledger.scroll_to"]);
+    for c in ["ledger.insert_text", "ledger.format", "ledger.insert", "ledger.paste", "ledger.sort", "ledger.filter", "ledger.find", "ledger.replace", "ledger.freeze", "ledger.add_sheet"] {
+        assert!(cmds.iter().any(|x| x == c), "{c}");
+    }
+    assert!(!cmds.iter().any(|x| x == "ledger.restore_rows"), "the inverse is internal");
 }
 
 #[test]

@@ -290,6 +290,7 @@ pub fn parse_worksheet(bytes: &[u8], ctx: &ReadCtx<'_>, sheet: &mut Sheet, full:
                         }
                     }
                     "t" if in_is && rph == 0 => in_t = is_start,
+                    "autoFilter" if full && depth == 1 => sheet.auto_filter = attr(attrs, "ref").and_then(CellRange::parse),
                     "mergeCell" if full => {
                         if let Some(m) = attr(attrs, "ref").and_then(CellRange::parse) {
                             if !m.is_single() {

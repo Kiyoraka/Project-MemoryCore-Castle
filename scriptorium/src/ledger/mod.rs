@@ -8,21 +8,40 @@
 //!   dates. [`styles`]: `styles.xml` and colours.
 //! - Reading streams the worksheet XML (no DOM) into per-row `BTreeMap`s; writing patches only the
 //!   rows an edit touches through [`crate::ground::opc`], so unknown XML survives.
-//! - Formulas: the text is kept (shared formulas expanded per cell for the formula bar); nothing is
-//!   calculated yet: the cached values are shown.
+//! - Formulas: the text is kept (shared formulas expanded per cell for the formula bar); after
+//!   every change [`calc::recalc`] works the values out and the results are written back.
+//!
+//! M2 "write": Ledger is edited by hand and by chat. [`editing`] is the caret and the selection
+//! (a place is a cell), [`entry`] reads what is typed, [`ops`] holds the commands (cells, formats,
+//! structure, clipboard, sort, filter, find, freeze), [`book`] the sheets and CSV, [`refs`] rewrites
+//! references when rows, columns, cells or sheets move, [`stylesedit`] appends formats to
+//! `styles.xml`, and [`commit`] turns each change into its undo.
 
+mod book;
 pub mod calc;
 pub mod cellref;
+mod commit;
+pub mod csv;
 mod edit;
+pub mod editing;
+pub mod entry;
 mod formula;
 mod grid;
 pub mod model;
 pub mod numfmt;
+mod ops;
 mod read;
+pub mod refs;
+mod structure;
 pub mod styles;
+mod stylesedit;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_edit;
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub use cellref::{cell_name, col_index, col_name, parse_cell, CellRange, MAX_COLS, MAX_ROWS};
@@ -33,10 +52,12 @@ pub use numfmt::{builtin_format, format_value, format_value_full, general, is_da
 pub use styles::Styles;
 
 use self::edit::RowSnap;
+use self::editing::Place;
 use self::read::{parse_shared_strings, parse_workbook, parse_worksheet, ReadCtx};
 use crate::ground::bus::json::Json;
 use crate::ground::bus::{BusError, Change, Command, CommandSpec, Document};
 use crate::ground::display::{DisplayList, Resources};
+use crate::ground::edit::Editing;
 use crate::ground::draw::Theme;
 use crate::ground::font::FontIndex;
 use crate::ground::opc::{self, Package};
@@ -65,7 +86,84 @@ pub struct LedgerDoc {
     active: usize,
     fonts: Mutex<FontCache>,
     resources: Resources,
+    /// This workbook's identity for its own clipboard (a paste from it keeps formats).
+    id: u64,
+    /// The cells a cut marked (moved on the next paste).
+    cut: Option<(usize, CellRange)>,
+    /// The formats Format Painter took (painted on its next press).
+    painter: Option<(usize, CellRange)>,
+    sst_part: Option<String>,
+    styles_part: Option<String>,
+    /// Plain shared strings -> index, built on the first write of a string.
+    sst_plain: Option<HashMap<String, usize>>,
+    full_calc_marked: bool,
 }
+
+/// What reading a package gives.
+struct Loaded {
+    workbook_part: String,
+    sheets: Vec<Sheet>,
+    sst: Vec<String>,
+    styles: Styles,
+    theme: Theme,
+    date1904: bool,
+    names: Vec<DefinedName>,
+    active: usize,
+    sst_part: Option<String>,
+    styles_part: Option<String>,
+}
+
+fn load(pkg: &Package) -> Result<Loaded, String> {
+    let wb = pkg.main_part().ok_or("not a workbook: the package names no main part")?;
+    if let Some(ct) = pkg.content_type(&wb) {
+        if !ct.contains("spreadsheetml") && !ct.contains("ms-excel") {
+            return Err(format!("not a workbook: the main part is {ct}"));
+        }
+    }
+    let wb_bytes = pkg.part_bytes(&wb).map_err(|e| e.0)?;
+    let info = parse_workbook(&wb_bytes)?;
+    let first = |rel: &str| pkg.related(&wb, rel).into_iter().find(|p| pkg.part(p).is_some());
+    let theme = first(opc::REL_THEME)
+        .and_then(|p| pkg.part_bytes(&p).ok())
+        .and_then(|b| Theme::parse(&b).ok())
+        .unwrap_or_else(Theme::office_default);
+    let styles_part = first(opc::REL_STYLES);
+    let styles = match styles_part.as_ref().and_then(|p| pkg.part_bytes(p).ok()) {
+        Some(b) => Styles::parse(&b, &theme).unwrap_or_default(),
+        None => Styles::default(),
+    };
+    let sst_part = first(opc::REL_SHARED_STRINGS);
+    let sst = match sst_part.as_ref().and_then(|p| pkg.part_bytes(p).ok()) {
+        Some(b) => parse_shared_strings(&b)?,
+        None => Vec::new(),
+    };
+    let mut sheets = Vec::new();
+    for (name, id, rid, state) in &info.sheets {
+        let mut sheet = Sheet::new(name);
+        sheet.sheet_id = *id;
+        sheet.rel_id = rid.clone();
+        sheet.state = *state;
+        sheet.kind = SheetKind::Other;
+        if let Some(rel) = pkg.rel_by_id(&wb, rid).filter(|r| !r.target_mode_external) {
+            let part = pkg.resolve(&wb, rel);
+            if opc::rel_type_matches(&rel.rel_type, opc::REL_WORKSHEET) {
+                sheet.kind = SheetKind::Worksheet;
+                if let Ok(bytes) = pkg.part_bytes(&part) {
+                    let ctx = ReadCtx { sst: &sst, date1904: info.date1904 };
+                    parse_worksheet(&bytes, &ctx, &mut sheet, true)?;
+                    sheet.part = Some(part);
+                }
+            } else if rel.rel_type.ends_with("/chartsheet") {
+                sheet.kind = SheetKind::Chartsheet;
+            }
+        }
+        sheets.push(sheet);
+    }
+    let active = info.active_tab.min(sheets.len().saturating_sub(1));
+    Ok(Loaded { workbook_part: wb, sheets, sst, styles, theme, date1904: info.date1904, names: info.names, active, sst_part, styles_part })
+}
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 impl std::fmt::Debug for LedgerDoc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -86,67 +184,161 @@ impl LedgerDoc {
     /// Opens with a given font cache (an empty one draws no glyphs, for tests and headless use).
     pub fn open_with_fonts(bytes: &[u8], fonts: FontCache) -> Result<LedgerDoc, String> {
         let pkg = Package::open(bytes).map_err(|e| format!("not an Office file: {}", e.0))?;
-        let wb = pkg.main_part().ok_or("not a workbook: the package names no main part")?;
-        if let Some(ct) = pkg.content_type(&wb) {
-            if !ct.contains("spreadsheetml") && !ct.contains("ms-excel") {
-                return Err(format!("not a workbook: the main part is {ct}"));
-            }
-        }
-        let wb_bytes = pkg.part_bytes(&wb).map_err(|e| e.0)?;
-        let info = parse_workbook(&wb_bytes)?;
-        let first = |rel: &str| pkg.related(&wb, rel).into_iter().find(|p| pkg.part(p).is_some());
-        let theme = first(opc::REL_THEME)
-            .and_then(|p| pkg.part_bytes(&p).ok())
-            .and_then(|b| Theme::parse(&b).ok())
-            .unwrap_or_else(Theme::office_default);
-        let styles = match first(opc::REL_STYLES).and_then(|p| pkg.part_bytes(&p).ok()) {
-            Some(b) => Styles::parse(&b, &theme).unwrap_or_default(),
-            None => Styles::default(),
-        };
-        let sst = match first(opc::REL_SHARED_STRINGS).and_then(|p| pkg.part_bytes(&p).ok()) {
-            Some(b) => parse_shared_strings(&b)?,
-            None => Vec::new(),
-        };
-        let mut sheets = Vec::new();
-        for (name, id, rid, state) in &info.sheets {
-            let mut sheet = Sheet::new(name);
-            sheet.sheet_id = *id;
-            sheet.rel_id = rid.clone();
-            sheet.state = *state;
-            sheet.kind = SheetKind::Other;
-            if let Some(rel) = pkg.rel_by_id(&wb, rid).filter(|r| !r.target_mode_external) {
-                let part = pkg.resolve(&wb, rel);
-                if opc::rel_type_matches(&rel.rel_type, opc::REL_WORKSHEET) {
-                    sheet.kind = SheetKind::Worksheet;
-                    if let Ok(bytes) = pkg.part_bytes(&part) {
-                        let ctx = ReadCtx { sst: &sst, date1904: info.date1904 };
-                        parse_worksheet(&bytes, &ctx, &mut sheet, true)?;
-                        sheet.part = Some(part);
-                    }
-                } else if rel.rel_type.ends_with("/chartsheet") {
-                    sheet.kind = SheetKind::Chartsheet;
-                }
-            }
-            sheets.push(sheet);
-        }
-        let active = info.active_tab.min(sheets.len().saturating_sub(1));
+        let l = load(&pkg)?;
         let mut doc = LedgerDoc {
             pkg,
-            workbook_part: wb,
-            sheets,
-            sst,
-            styles,
-            theme,
-            date1904: info.date1904,
-            names: info.names,
-            active,
+            workbook_part: l.workbook_part,
+            sheets: l.sheets,
+            sst: l.sst,
+            styles: l.styles,
+            theme: l.theme,
+            date1904: l.date1904,
+            names: l.names,
+            active: l.active,
             fonts: Mutex::new(fonts),
             resources: Resources::new(),
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            cut: None,
+            painter: None,
+            sst_part: l.sst_part,
+            styles_part: l.styles_part,
+            sst_plain: None,
+            full_calc_marked: false,
         };
         for i in 0..doc.sheets.len() {
             doc.refresh(i);
         }
         Ok(doc)
+    }
+
+    /// Reads the model again from the package (after a change to whole parts); each sheet keeps
+    /// its view, the active sheet stays where it was.
+    fn reload(&mut self) -> Result<(), String> {
+        let l = load(&self.pkg)?;
+        let active_name = self.sheets.get(self.active).map(|s| s.name.clone());
+        let mut sheets = l.sheets;
+        for s in sheets.iter_mut() {
+            if let Some(old) = self.sheets.iter().find(|o| o.name == s.name || (o.part.is_some() && o.part == s.part)) {
+                let (fr, fc) = s.frozen();
+                s.view = old.view;
+                s.view.row = s.view.row.max(fr);
+                s.view.col = s.view.col.max(fc);
+            }
+        }
+        self.active = active_name.and_then(|n| sheets.iter().position(|s| s.name == n)).unwrap_or(self.active).min(sheets.len().saturating_sub(1));
+        self.sheets = sheets;
+        self.workbook_part = l.workbook_part;
+        self.sst = l.sst;
+        self.styles = l.styles;
+        self.theme = l.theme;
+        self.date1904 = l.date1904;
+        self.names = l.names;
+        self.sst_part = l.sst_part;
+        self.styles_part = l.styles_part;
+        self.sst_plain = None;
+        if let Some((s, _)) = self.cut {
+            if s >= self.sheets.len() {
+                self.cut = None;
+            }
+        }
+        if let Some((s, _)) = self.painter {
+            if s >= self.sheets.len() {
+                self.painter = None;
+            }
+        }
+        for i in 0..self.sheets.len() {
+            self.refresh(i);
+        }
+        Ok(())
+    }
+
+    /// A shared string's index (appended to the table when new; the table part is edited once
+    /// per call). Only plain entries are reused, so a rich string never gives its runs away.
+    fn intern(&mut self, texts: &[String]) -> Vec<usize> {
+        let Some(part) = self.sst_part.clone() else { return Vec::new() };
+        if self.sst_plain.is_none() {
+            let mut map = HashMap::new();
+            if let Ok(bytes) = self.pkg.part_bytes(&part) {
+                if let Ok(root) = crate::ground::xml::parse_dom(&bytes) {
+                    for (i, si) in root.children_named("si").enumerate() {
+                        let kids: Vec<_> = si.elements().collect();
+                        if kids.len() == 1 && kids[0].local() == "t" {
+                            if let Some(t) = self.sst.get(i) {
+                                map.entry(t.clone()).or_insert(i);
+                            }
+                        }
+                    }
+                }
+            }
+            self.sst_plain = Some(map);
+        }
+        let mut out = Vec::with_capacity(texts.len());
+        let mut added: Vec<String> = Vec::new();
+        for t in texts {
+            let map = self.sst_plain.as_mut().expect("built");
+            match map.get(t) {
+                Some(&i) => out.push(i),
+                None => {
+                    let i = self.sst.len();
+                    self.sst.push(t.clone());
+                    map.insert(t.clone(), i);
+                    added.push(t.clone());
+                    out.push(i);
+                }
+            }
+        }
+        if !added.is_empty() {
+            let total = self.sst.len();
+            let _ = self.pkg.edit_xml(&part, |root| {
+                let prefix = root.prefix().map(str::to_string);
+                for t in &added {
+                    let mut si = crate::ground::xml::Element::new(edit::qualify(&prefix, "si"));
+                    let mut te = crate::ground::xml::Element::new(edit::qualify(&prefix, "t"));
+                    if t.starts_with(char::is_whitespace) || t.ends_with(char::is_whitespace) || t.contains('\n') {
+                        te.attrs.push(("xml:space".into(), "preserve".into()));
+                    }
+                    te.children.push(crate::ground::xml::Node::Text(edit::encode_escapes(t)));
+                    si.children.push(crate::ground::xml::Node::Element(te));
+                    root.children.push(crate::ground::xml::Node::Element(si));
+                }
+                if root.attr("uniqueCount").is_some() || root.attr("count").is_some() {
+                    root.set_attr("uniqueCount", total.to_string());
+                    let count = root.attr("count").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0) + added.len();
+                    root.set_attr("count", count.max(total).to_string());
+                }
+            });
+        }
+        out
+    }
+
+    /// Gives the text values of `writes` their shared-string index (when the workbook keeps a
+    /// string table); text a cell already holds stays as it is.
+    fn intern_writes(&mut self, si: usize, writes: &mut [edit::CellWrite]) {
+        if self.sst_part.is_none() {
+            return;
+        }
+        let mut want: Vec<(usize, String)> = Vec::new();
+        for (k, w) in writes.iter().enumerate() {
+            let Some(spec) = &w.spec else { continue };
+            if spec.formula.is_some() || spec.sst.is_some() {
+                continue;
+            }
+            let CellValue::Text(t) = &spec.value else { continue };
+            let same = self.sheets[si].cell(w.row, w.col).is_some_and(|c| c.formula.is_none() && c.value == spec.value);
+            if !same {
+                want.push((k, t.clone()));
+            }
+        }
+        if want.is_empty() {
+            return;
+        }
+        let texts: Vec<String> = want.iter().map(|w| w.1.clone()).collect();
+        let ids = self.intern(&texts);
+        for ((k, _), id) in want.into_iter().zip(ids) {
+            if let Some(spec) = writes[k].spec.as_mut() {
+                spec.sst = Some(id);
+            }
+        }
     }
 
     /// A new workbook with one empty sheet, `Sheet1`.
@@ -266,76 +458,6 @@ impl LedgerDoc {
         self.sheets[si].part.clone().ok_or_else(|| BusError::failed(format!("'{}' is not a worksheet", self.sheets[si].name)))
     }
 
-    fn rows_json(rows: &[RowSnap]) -> Json {
-        Json::Arr(rows.iter().map(|s| Json::obj().with("row", s.row as u64 + 1).with("xml", s.xml.clone())).collect())
-    }
-
-    fn set_cell(&mut self, cmd: &Command) -> Result<Change, BusError> {
-        let name = cmd.name.as_str();
-        let si = self.sheet_index(name, cmd.args.get("sheet"))?;
-        let cell = cmd.args.get("cell").and_then(Json::as_str).ok_or_else(|| bad(name, "\"cell\" is an A1 reference like \"B2\""))?;
-        let (r, c) = parse_cell(cell).ok_or_else(|| bad(name, format!("'{cell}' is not a cell reference (A1 to XFD1048576)")))?;
-        let value = match cmd.args.get("value") {
-            None | Some(Json::Null) => CellValue::Empty,
-            Some(Json::Num(n)) if n.is_finite() => CellValue::Number(*n),
-            Some(Json::Str(s)) if s.is_empty() => CellValue::Empty,
-            Some(Json::Str(s)) => CellValue::Text(s.clone()),
-            Some(Json::Bool(b)) => CellValue::Bool(*b),
-            _ => return Err(bad(name, "\"value\" is a number, a string, a boolean or null")),
-        };
-        if let CellValue::Text(s) = &value {
-            if s.chars().count() > 32_767 {
-                return Err(bad(name, "a cell holds at most 32,767 characters"));
-            }
-        }
-        let part = self.worksheet_part(si)?;
-        let mut outcome = None;
-        self.pkg
-            .edit_xml(&part, |root| outcome = Some(edit::set_cell(root, r, c, &value)))
-            .map_err(|e| BusError::failed(e.0))?;
-        let outcome = outcome.ok_or_else(|| BusError::failed("the worksheet could not be read"))?.map_err(BusError::failed)?;
-        self.reparse_rows(si, &outcome.new_rows).map_err(BusError::failed)?;
-        if let Some(d) = &outcome.new_dimension {
-            self.sheets[si].dimension = Some(d.clone());
-        }
-        let mut args = Json::obj().with("sheet", si).with("rows", Self::rows_json(&outcome.old_rows));
-        if let Some(d) = outcome.old_dimension {
-            args.set("dimension", d);
-        }
-        self.refresh(si);
-        Ok(Change { undo: vec![Command::new("ledger.restore_rows", args)], pages_touched: vec![si] })
-    }
-
-    fn restore_rows(&mut self, cmd: &Command) -> Result<Change, BusError> {
-        let name = cmd.name.as_str();
-        let si = self.sheet_index(name, cmd.args.get("sheet"))?;
-        let list = cmd.args.get("rows").and_then(Json::as_arr).ok_or_else(|| bad(name, "\"rows\" is a list"))?;
-        let mut snaps = Vec::new();
-        for item in list {
-            let row = item.get("row").and_then(Json::as_usize).filter(|&r| r >= 1 && r <= MAX_ROWS as usize).ok_or_else(|| bad(name, "each row has a \"row\" number"))?;
-            let xml = item.get("xml").and_then(Json::as_str).map(str::to_string);
-            snaps.push(RowSnap { row: row as u32 - 1, xml });
-        }
-        let dim = cmd.args.get("dimension").and_then(Json::as_str).map(str::to_string);
-        let part = self.worksheet_part(si)?;
-        let ns = self.sheets[si].ns_decls.clone();
-        let mut outcome = None;
-        self.pkg
-            .edit_xml(&part, |root| outcome = Some(edit::restore_rows(root, &snaps, dim.as_deref(), &ns)))
-            .map_err(|e| BusError::failed(e.0))?;
-        let outcome = outcome.ok_or_else(|| BusError::failed("the worksheet could not be read"))?.map_err(BusError::failed)?;
-        self.reparse_rows(si, &outcome.new_rows).map_err(BusError::failed)?;
-        if let Some(d) = &outcome.new_dimension {
-            self.sheets[si].dimension = Some(d.clone());
-        }
-        let mut args = Json::obj().with("sheet", si).with("rows", Self::rows_json(&outcome.old_rows));
-        if let Some(d) = outcome.old_dimension {
-            args.set("dimension", d);
-        }
-        self.refresh(si);
-        Ok(Change { undo: vec![Command::new("ledger.restore_rows", args)], pages_touched: vec![si] })
-    }
-
     fn scroll_to(&mut self, cmd: &Command) -> Result<Change, BusError> {
         let name = cmd.name.as_str();
         let si = self.sheet_index(name, cmd.args.get("sheet"))?;
@@ -380,18 +502,40 @@ impl LedgerDoc {
     }
 }
 
+impl LedgerDoc {
+    /// Applies one command (the bus's `apply`).
+    fn apply_inner(&mut self, cmd: &Command) -> Result<Change, BusError> {
+        match cmd.name.as_str() {
+            "ledger.set_cell" => self.cmd_set_cell(cmd),
+            "ledger.scroll_to" => self.scroll_to(cmd),
+            "ledger.restore_rows" => self.restore(cmd),
+            other => match self.apply_edit(cmd) {
+                Some(r) => r,
+                None => Err(BusError::unknown(other)),
+            },
+        }
+    }
+
+    /// The bytes of one sheet as CSV (`read {"csv": true}` answers the text).
+    fn read_csv(&self, what: &Json) -> Result<Json, BusError> {
+        let si = self.sheet_index("read", what.get("sheet"))?;
+        let rows = self.sheet_rows(si);
+        let text = String::from_utf8(csv::write(&rows, ',', false)).unwrap_or_default();
+        Ok(Json::obj().with("sheet", self.sheets[si].name.as_str()).with("csv", text))
+    }
+}
+
 impl Document for LedgerDoc {
     fn kind(&self) -> &'static str {
         "ledger"
     }
 
     fn apply(&mut self, cmd: &Command) -> Result<Change, BusError> {
-        match cmd.name.as_str() {
-            "ledger.set_cell" => self.set_cell(cmd),
-            "ledger.scroll_to" => self.scroll_to(cmd),
-            "ledger.restore_rows" => self.restore_rows(cmd),
-            other => Err(BusError::unknown(other)),
-        }
+        self.apply_inner(cmd)
+    }
+
+    fn editing(&self) -> Option<&dyn Editing> {
+        Some(self)
     }
 
     fn describe(&self) -> Json {
@@ -418,6 +562,7 @@ impl Document for LedgerDoc {
                 let (fr, fc) = s.frozen();
                 o.set("frozen", if fr > 0 || fc > 0 { Json::obj().with("rows", fr).with("cols", fc) } else { Json::Null });
                 o.set("merged_ranges", s.merges.len());
+                o.set("auto_filter", s.auto_filter.map(|r| r.to_string()));
                 o.set("active_cell", s.active_cell.map(|(r, c)| cell_name(r, c)));
                 o.set(
                     "view",
@@ -445,6 +590,9 @@ impl Document for LedgerDoc {
     }
 
     fn read(&self, what: &Json) -> Result<Json, BusError> {
+        if what.get("csv").and_then(Json::as_bool) == Some(true) {
+            return self.read_csv(what);
+        }
         let si = self.sheet_index("read", what.get("sheet"))?;
         let sheet = &self.sheets[si];
         let text = what.get("range").or_else(|| what.get("cell")).and_then(Json::as_str);
@@ -492,18 +640,7 @@ impl Document for LedgerDoc {
     }
 
     fn commands(&self) -> Vec<CommandSpec> {
-        vec![
-            CommandSpec::new(
-                "ledger.set_cell",
-                "Set one cell to a number, text, a boolean, or clear it with null (the cell keeps its format)",
-                r#"{ "sheet"?: name|index, "cell": "B2", "value": number|string|boolean|null }"#,
-            ),
-            CommandSpec::new(
-                "ledger.scroll_to",
-                "Show a sheet from this cell at the top-left (optionally with a new viewport size in points)",
-                r#"{ "sheet"?: name|index, "cell": "A1", "width"?: points, "height"?: points }"#,
-            ),
-        ]
+        command_specs()
     }
 
     fn resources(&self) -> Option<&Resources> {
@@ -514,6 +651,18 @@ impl Document for LedgerDoc {
 const NS_MAIN: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n";
+
+/// The default `styles.xml` of a new workbook.
+pub fn blank_styles() -> String {
+    format!(
+        "{DECL}<styleSheet xmlns=\"{NS_MAIN}\"><fonts count=\"1\"><font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/>\
+<family val=\"2\"/><scheme val=\"minor\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill>\
+<fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>\
+<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>\
+<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>\
+<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>"
+    )
+}
 
 /// The bytes of a blank workbook: one empty sheet, the default styles.
 pub fn blank_xlsx() -> Vec<u8> {
@@ -549,14 +698,7 @@ pub fn blank_xlsx() -> Vec<u8> {
 <sheetViews><sheetView tabSelected=\"1\" workbookViewId=\"0\"/></sheetViews><sheetFormatPr defaultRowHeight=\"15\"/>\
 <sheetData/><pageMargins left=\"0.7\" right=\"0.7\" top=\"0.75\" bottom=\"0.75\" header=\"0.3\" footer=\"0.3\"/></worksheet>"
     );
-    let styles = format!(
-        "{DECL}<styleSheet xmlns=\"{NS_MAIN}\"><fonts count=\"1\"><font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/>\
-<family val=\"2\"/><scheme val=\"minor\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill>\
-<fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>\
-<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>\
-<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>\
-<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>"
-    );
+    let styles = blank_styles();
     let mut z = ZipWriter::new();
     let parts: [(&str, &str); 6] = [
         ("[Content_Types].xml", &content_types),
@@ -570,4 +712,60 @@ pub fn blank_xlsx() -> Vec<u8> {
         z.add(name, body.as_bytes(), Method::Deflated(6)).expect("zip entry");
     }
     z.finish()
+}
+
+/// Every command Ledger takes (the AI's door lists these). Commands that act on cells take the
+/// page's selection as `"sel"`, or a `"range"`/`"cell"` (and `"sheet"`) from the companion.
+pub fn command_specs() -> Vec<CommandSpec> {
+    const T: &str = r#""sel"?: selection | "sheet"?: name|index, "range"?: "A1:C9""#;
+    let s = |name: &str, summary: &str, args: String| CommandSpec::new(name, summary, args);
+    vec![
+        s("ledger.set_cell", "Set one cell: a raw \"value\" (number, text, boolean, null clears; the cell keeps its format), or an \"input\" read as if typed (\"=A1*2\" is a formula, \"10%\" a percentage, \"2026-11-26\" a date)", r#"{ "sheet"?: name|index, "cell": "B2", "value"?: number|string|boolean|null, "input"?: string }"#.into()),
+        s("ledger.set_cells", "Fill a block from its top-left cell with rows of values; strings are read as typed (formulas, dates, percentages), numbers and booleans as they are", r#"{ "sheet"?: name|index, "cell": "A1", "values": [[..], [..]] }"#.into()),
+        s("ledger.scroll_to", "Show a sheet from this cell at the top-left (optionally with a new viewport size in points)", r#"{ "sheet"?: name|index, "cell": "A1", "width"?: points, "height"?: points }"#.into()),
+        s("ledger.move", "Move the active cell (arrows; word_left/right go to the edge of the data, line_start/end along the row, doc_start/end to A1 and the last cell); changes nothing", r#"{ "sel", "motion": "left"|"right"|"up"|"down"|"word_left"|"word_right"|"line_start"|"line_end"|"doc_start"|"doc_end", "extend"?: bool }"#.into()),
+        s("ledger.enter", "Enter: move down (up with shift); with ctrl, put the active cell's content into every selected cell", r#"{ "sel", "shift"?: bool, "ctrl"?: bool }"#.into()),
+        s("ledger.tab", "Tab: move right (left with back)", r#"{ "sel", "back"?: bool }"#.into()),
+        s("ledger.select_all", "Select the data region, then the whole sheet", r#"{ "sel" }"#.into()),
+        s("ledger.insert_text", "Type into the active cell (the typed text so far is read as an entry)", r#"{ "sel", "text": string }"#.into()),
+        s("ledger.backspace", "Take the last typed character back (or empty the cell and start typing)", r#"{ "sel" }"#.into()),
+        s("ledger.clear", "Clear the cells' contents, formats or both", format!("{{ {T}, \"what\"?: \"contents\"|\"formats\"|\"all\" }}")),
+        s("ledger.fill", "Fill down, right, up or left: the edge row or column copied across the range (formulas move as copies)", format!("{{ {T}, \"direction\": \"down\"|\"right\"|\"up\"|\"left\" }}")),
+        s("ledger.autofill", "AutoFill the source range out to \"to\": number and date series continue, \"Item 1\" counts on, formulas are copied; \"series\": true makes a single number count up", format!("{{ {T}, \"to\": \"A1:A20\", \"series\"?: bool }}")),
+        s("ledger.cut", "Mark the cells to move on the next paste", format!("{{ {T} }}")),
+        s("ledger.paste", "Paste at the selection: our own copy (\"rich\") keeps formats and moves formulas; text from outside is tab-separated and read as typed; \"mode\" pastes values, formats or formulas only", format!("{{ {T}, \"text\"?: string, \"rich\"?: object, \"mode\"?: \"all\"|\"values\"|\"formats\"|\"formulas\" }}")),
+        s("ledger.move_range", "Move cells to a new top-left; formulas that point at them follow", r#"{ "sheet"?: name|index, "from": "A1:B5", "to": "D1" }"#.into()),
+        s("ledger.autosum", "AutoSum: a SUM (or AVERAGE, COUNT, MAX, MIN) of the numbers above or left of the active cell, or below each column of a selected block", format!("{{ {T}, \"fn\"?: \"SUM\"|\"AVERAGE\"|\"COUNT\"|\"MAX\"|\"MIN\" }}")),
+        s("ledger.format", "Format cells: font family and size (size_delta grows or shrinks a step), bold, italic, underline, strike, font colour, fill colour (null: none), horizontal and vertical alignment, wrap, indent, number format (general, number, currency, accounting, date, long_date, time, percent, fraction, scientific, text, comma, or a format code) and decimals (+1 / -1)", format!("{{ {T}, \"family\"?: string, \"size\"?: points, \"size_delta\"?: 1|-1, \"bold\"?: bool, \"italic\"?: bool, \"underline\"?: bool, \"strike\"?: bool, \"color\"?: \"#RRGGBB\"|null, \"fill\"?: \"#RRGGBB\"|null, \"h_align\"?: \"general\"|\"left\"|\"center\"|\"right\"|\"justify\", \"v_align\"?: \"top\"|\"middle\"|\"bottom\", \"wrap\"?: bool, \"indent\"?: n, \"number_format\"?: name|code, \"decimals\"?: 1|-1 }}")),
+        s("ledger.toggle", "Switch bold, italic, underline, strike or wrap on or off (by the active cell)", format!("{{ {T}, \"what\": \"bold\"|\"italic\"|\"underline\"|\"strike\"|\"wrap\" }}")),
+        s("ledger.borders", "Borders: all, outside, thick_box, inside, top, bottom, left, right, top_bottom, bottom_double or none", format!("{{ {T}, \"preset\": string, \"style\"?: \"thin\"|\"medium\"|\"thick\"|\"double\"|\"dashed\"|\"dotted\", \"color\"?: \"#RRGGBB\" }}")),
+        s("ledger.format_painter", "Format Painter: the first press takes the selection's formats, the next press paints them onto the selection", format!("{{ {T} }}")),
+        s("ledger.copy_format", "Copy the formats of \"from\" onto the cells (tiled)", format!("{{ {T}, \"from\": \"A1:B2\", \"from_sheet\"?: name|index }}")),
+        s("ledger.merge", "Merge the cells (center: merge and centre; across: one merge per row); only the top-left value stays", format!("{{ {T}, \"mode\"?: \"center\"|\"across\"|\"merge\" }}")),
+        s("ledger.unmerge", "Unmerge every merged area in the range", format!("{{ {T} }}")),
+        s("ledger.insert", "Insert rows or columns (as many as selected, or \"count\"), or cells shifting down or right; every formula, merge, name and conditional format follows", format!("{{ {T}, \"what\": \"rows\"|\"cols\"|\"cells_down\"|\"cells_right\", \"count\"?: n }}")),
+        s("ledger.delete", "Delete rows or columns, or cells shifting up or left; references into deleted cells become #REF!", format!("{{ {T}, \"what\": \"rows\"|\"cols\"|\"cells_up\"|\"cells_left\", \"count\"?: n }}")),
+        s("ledger.row_height", "Set the rows' height in points (null: default), or fit it to the contents (auto)", format!("{{ {T}, \"height\"?: points|null, \"auto\"?: bool }}")),
+        s("ledger.col_width", "Set the columns' width in characters (null: default), or fit it to the contents (auto)", format!("{{ {T}, \"width\"?: chars|null, \"auto\"?: bool }}")),
+        s("ledger.hide", "Hide or unhide rows or columns", format!("{{ {T}, \"what\": \"rows\"|\"cols\", \"hidden\": bool }}")),
+        s("ledger.sort", "Sort the selected block (or the data around the active cell) by a column, ascending or descending; a header row is found or told", format!("{{ {T}, \"by\"?: \"B\", \"descending\"?: bool, \"header\"?: bool }}")),
+        s("ledger.filter", "AutoFilter: set it on the data (the button again takes it off), or show only the rows whose column holds one of \"values\"", format!("{{ {T}, \"column\"?: \"B\", \"values\"?: [string] }}")),
+        s("ledger.clear_filter", "Clear the AutoFilter's criteria and show every row", r#"{ "sel"? | "sheet"? }"#.into()),
+        s("ledger.remove_filter", "Take the AutoFilter off", r#"{ "sel"? | "sheet"? }"#.into()),
+        s("ledger.find", "Find text (in formulas, or in shown values with \"in\": \"values\"); the selection goes to the next (or previous) match", r#"{ "sel", "query": string, "next": bool, "in"?: "formulas"|"values", "match_case"?: bool, "whole"?: bool }"#.into()),
+        s("ledger.replace", "Replace in the active cell (then go to the next match) or everywhere on the sheet (\"all\"; \"workbook\": every sheet)", r#"{ "sel", "query": string, "with": string, "all": bool, "workbook"?: bool, "in"?: "formulas"|"values", "match_case"?: bool, "whole"?: bool }"#.into()),
+        s("ledger.freeze", "Freeze panes: the rows above and the columns left of the active cell, or \"rows\" and \"cols\" (0, 0 unfreezes)", format!("{{ {T}, \"rows\"?: n, \"cols\"?: n }}")),
+        s("ledger.unfreeze", "Unfreeze the panes", r#"{ "sel"? | "sheet"? }"#.into()),
+        s("ledger.add_sheet", "Add a sheet (named, at a place)", r#"{ "name"?: string, "at"?: index }"#.into()),
+        s("ledger.rename_sheet", "Rename a sheet; formulas that name it follow", r#"{ "sheet": name|index, "name": string }"#.into()),
+        s("ledger.delete_sheet", "Delete a sheet; formulas that name it become #REF!", r#"{ "sheet": name|index }"#.into()),
+        s("ledger.move_sheet", "Move a sheet to another place among the tabs", r#"{ "sheet": name|index, "to": index }"#.into()),
+        s("ledger.import_csv", "Put CSV text into a sheet from a cell (the separator is found; leading zeros and long codes stay text)", r#"{ "text": string, "sheet"?: name|index, "cell"?: "A1", "separator"?: "," | ";" | "tab" }"#.into()),
+    ]
+}
+
+/// A place in a workbook as the editing ground's pos.
+pub fn pos(sheet: usize, cell: &str) -> Option<crate::ground::edit::Pos> {
+    let (r, c) = parse_cell(cell)?;
+    Some(Place::new(sheet, r, c).pos())
 }
