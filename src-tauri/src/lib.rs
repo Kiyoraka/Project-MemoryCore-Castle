@@ -507,6 +507,7 @@ pub fn run() {
             scriptorium_host::scriptorium_prepare,
             scriptorium_host::scriptorium_close,
             scriptorium_host::scriptorium_new,
+            scriptorium_host::scriptorium_close_doc,
             scriptorium_host::scriptorium_display,
             scriptorium_host::scriptorium_glyphs,
             scriptorium_host::scriptorium_image,

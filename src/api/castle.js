@@ -124,6 +124,8 @@ export const scriptoriumPrepare = () => invoke('scriptorium_prepare')
 export const scriptoriumClose = () => invoke('scriptorium_close')
 // kind: 'scroll' | 'ledger' | 'stage' | 'folio' -> the new document's id
 export const scriptoriumNew = (kind) => invoke('scriptorium_new', { kind })
+// the page let a document go (another took its editor's place)
+export const scriptoriumCloseDoc = (doc) => invoke('scriptorium_close_doc', { doc })
 export const scriptoriumDisplay = (doc, page = 0) => invoke('scriptorium_display', { doc, page })
 export const scriptoriumGlyphs = (doc, font, gids) => invoke('scriptorium_glyphs', { doc, font, gids: Array.from(gids ?? []) })
 export const scriptoriumImage = (doc, id) => invoke('scriptorium_image', { doc, id })
@@ -135,9 +137,10 @@ export const scriptoriumDoor = (doc, verb, args = {}) => invoke('scriptorium_doo
 // -> a path, or null when the picker was closed
 export const scriptoriumOpenDialog = () => invoke('scriptorium_open_dialog')
 export const scriptoriumSaveDialog = (name) => invoke('scriptorium_save_dialog', { name: name ?? null })
-// -> { doc, editor } (files arrive in the next milestone: until then it answers why not)
+// .docx/.docm, .xlsx/.xlsm, .pptx/.pptm, .pdf -> { doc, editor, pages, title, path } (opened off the window's thread)
 export const scriptoriumOpen = (path) => invoke('scriptorium_open', { path })
-export const scriptoriumSave = (doc, path) => invoke('scriptorium_save', { doc, path })
+// path null: back to the file it came from -> the path it was saved to
+export const scriptoriumSave = (doc, path = null) => invoke('scriptorium_save', { doc, path: path ?? null })
 // -> [{ path, name, editor, openedAt }], newest first
 export const scriptoriumRecent = () => invoke('scriptorium_recent')
 // { doc }: the companion changed a document through the door

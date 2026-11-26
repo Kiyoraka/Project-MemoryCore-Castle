@@ -28,6 +28,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 20. [Finance](#20-finance)
 21. [The browser](#21-the-browser)
 22. [Worldsmith](#22-worldsmith)
+23. [Scriptorium](#23-scriptorium)
 
 ---
 
@@ -1321,6 +1322,85 @@ program, and only reads the one picture it is given.
   your own permissions.
 - Closing the room, switching it off, or the game ending lets the game go, and every held value stops.
 - Screenshots stay on your computer, except what your own companion reads.
+
+## 23. Scriptorium
+
+**SCRIPTORIUM** (in APPS, under Work) is your own office: documents, sheets, slides and PDFs, with
+your companion in a chat beside the page. Everything in it is ours, written for Castle from the ground
+up - the file readers, the page layout, the drawing and the PDF writer - with no outside office
+program behind it. It has four editors:
+
+- **Scroll** - documents (.docx, and .docm)
+- **Ledger** - sheets (.xlsx, and .xlsm)
+- **Stage** - slides (.pptx, and .pptm)
+- **Folio** - PDFs (.pdf)
+
+### Switching it on
+
+SCRIPTORIUM is off to begin with: switch it on in **Settings > Rooms** (Work). It is early - the badge
+in its title bar says **Early - open and see**: files open, show and save, and editing by hand grows
+with each step. Switching it off ends its chat session and closes its documents.
+
+### Two layouts
+
+The chevron beside SCRIPTORIUM in **Settings > Rooms** opens its **Layout**:
+
+- **Classic** (the default) - a ribbon over the page and the chat on the right. **Open** has a small
+  **▾** beside it with your recent files.
+- **Studio** - an icon rail of the editors, your recent files on the left, an inspector on the right
+  and the chat along the bottom.
+
+In both, the editor buttons (Scroll, Ledger, Stage, Folio) switch editors. Each editor keeps its own
+document, so switching back finds it as you left it; an editor you have not used yet starts with a
+new blank one.
+
+### Opening and saving
+
+- **Open** (or **Ctrl+O**) shows the picker; a file opens in its own editor (a sheet in Ledger, a PDF in
+  Folio). A recent file opens with one press. Big files open without freezing the room; files up to
+  300 MB open.
+- **Save** (or **Ctrl+S**) writes back to the file it came from. **Save as** (or **Ctrl+Shift+S**)
+  asks where; a new document's first Save asks too. A document keeps its type: a .docm stays a .docm.
+- Saving over a file keeps the version before it beside it as **name.bak** (one, replaced at the next
+  save). The file is written whole first and only then put in place, so a failed save never leaves a
+  half-written file.
+- **Nothing SCRIPTORIUM does not understand yet is lost on save.** Every part of the file it did not
+  change is written back exactly as it was; a file you only looked at saves byte for byte the same.
+- **PDFs save as an appended update**: the original PDF stays exactly as it was, and the changes are
+  added after it, the way PDF intends.
+- A dot after the file's name in the title bar means unsaved changes. New or Open over a document with
+  unsaved changes asks for a second press first.
+
+Moving around: Ledger shows a tab for each sheet above the grid; Stage shows a strip of the slides on
+the left; Scroll and Folio show **Page N of M** with **‹ ›** (or **Page Up** / **Page Down**).
+
+### What your companion can do now
+
+Ask in the chat beside the page. Your companion can **describe** the open document (its pages,
+headings, sheets or slides), **read** it, look at a page, and make the first changes:
+
+- **Scroll** - set the document's title, or replace a paragraph's text.
+- **Ledger** - set a cell to a number, text, true/false, or clear it.
+- **Stage** - replace the text of a shape on a slide, or a slide's speaker notes.
+- **Folio** - set the PDF's title, or add a sticky note on a page.
+
+**Every AI change has an undo**: it appears under the page as "*companion*'s change" with an **Undo**
+beside it, and **Ctrl+Z** takes it back like your own steps. Words inside a document are only data
+to your companion, never orders.
+
+### Not there yet
+
+- Formulas show the value saved in the file; they calculate in a later step.
+- Editing by hand (typing on the page, formatting buttons) grows with the next milestone; the ribbon's
+  formatting buttons are placeholders until then.
+- The older Office 97-2003 files (.doc, .xls, .ppt) open in a later milestone: save them as .docx,
+  .xlsx or .pptx in Office first. Password-protected files do not open yet.
+- Slides in Stage's strip show their number; drawn thumbnails come later.
+
+### Privacy
+
+Your documents stay on your computer. Nothing is uploaded anywhere; the only place a document's
+words go is your own AI, when your companion reads it to help you.
 
 ## Alerts
 

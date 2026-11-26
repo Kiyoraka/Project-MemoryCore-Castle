@@ -10,8 +10,8 @@ export const EDITORS = [
 
 export const LAYOUTS = ['classic', 'studio']
 
-// Every editor opens a blank page until files open (the next milestone).
-export const EARLY_BADGE = 'Early - opening files first'
+// M1: files open, show and save; editing by hand grows with the next milestone.
+export const EARLY_BADGE = 'Early - open and see'
 
 // The ribbon's tab names, per editor; their buttons are placeholders until each editor lands.
 export const RIBBON_TABS = {
@@ -31,9 +31,10 @@ export function layoutOf(value) {
   return LAYOUTS.includes(value) ? value : 'classic'
 }
 
-/** The title bar's words: "Scriptorium · Scroll". */
-export function titleFor(editor) {
-  return `Scriptorium · ${editorOf(editor).label}`
+/** The title bar's words: "Scriptorium · Scroll", with the file's name after when there is one. */
+export function titleFor(editor, file = '') {
+  const name = String(file ?? '').trim()
+  return `Scriptorium · ${editorOf(editor).label}${name ? ` · ${name}` : ''}`
 }
 
 /** The ribbon's tabs for an editor. */
@@ -106,16 +107,27 @@ export function isTypingTarget(el) {
   return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true
 }
 
-/** 'undo', 'redo' or null for a key press (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y). */
+/** What a key press asks for: 'undo', 'redo', 'open', 'save', 'saveAs' or null (Ctrl/Cmd+Z,
+ * Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S). */
 export function shortcutOf(e) {
   if (!e || !(e.ctrlKey || e.metaKey) || e.altKey) return null
   const key = String(e.key ?? '').toLowerCase()
   if (key === 'z') return e.shiftKey ? 'redo' : 'undo'
   if (key === 'y' && !e.shiftKey) return 'redo'
+  if (key === 'o' && !e.shiftKey) return 'open'
+  if (key === 's') return e.shiftKey ? 'saveAs' : 'save'
   return null
 }
 
-/** A recent file's editor and short name, for the Studio list. */
+/** -1, +1 or 0 for a key that turns the page (PageUp / PageDown without Ctrl, Alt or Cmd). */
+export function pageKeyOf(e) {
+  if (!e || e.ctrlKey || e.metaKey || e.altKey) return 0
+  if (e.key === 'PageUp') return -1
+  if (e.key === 'PageDown') return 1
+  return 0
+}
+
+/** A recent file's editor and short name, for Studio's list and Classic's menu. */
 export function recentRows(list) {
   return (Array.isArray(list) ? list : [])
     .filter((f) => f && typeof f.path === 'string' && f.path)
@@ -125,4 +137,86 @@ export function recentRows(list) {
 /** A file name to offer in the save picker for an editor's document. */
 export function saveName(editor, name = 'Untitled') {
   return `${String(name || 'Untitled').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Untitled'}.${editorOf(editor).ext}`
+}
+
+// The types each editor opens, each saved back as its own type (a .docm stays a .docm).
+const TYPES = { scroll: ['docx', 'docm'], ledger: ['xlsx', 'xlsm'], stage: ['pptx', 'pptm'], folio: ['pdf'] }
+
+/** The Save as picker's name: the document's own name and type when it has one, else Untitled. */
+export function saveAsName(editor, title) {
+  const kind = editorOf(editor).id
+  const name = String(title ?? '').trim()
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+  if (TYPES[kind].includes(ext)) return saveName(kind, name.slice(0, dot)).replace(/\.[a-z]+$/, `.${ext}`)
+  return saveName(kind, name || 'Untitled')
+}
+
+/** A whole number from 0 below `count` (0 when there are none). */
+export function clampPage(page, count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0))
+  const p = Math.floor(Number(page) || 0)
+  return n === 0 ? 0 : Math.min(Math.max(p, 0), n - 1)
+}
+
+/** The page after moving `delta` pages, kept inside the document. */
+export function stepPage(page, delta, count) {
+  return clampPage(clampPage(page, count) + (Number(delta) || 0), count)
+}
+
+/** "Page 2 of 14" (or "Slide 2 of 14"). */
+export function pageLabel(page, count, word = 'Page') {
+  const n = Math.max(0, Math.floor(Number(count) || 0))
+  return n ? `${word} ${clampPage(page, n) + 1} of ${n}` : `No ${word.toLowerCase()}s`
+}
+
+/** How the page area moves between pages, read from the editor and its describe:
+ *   Ledger  { kind: 'sheets', count, tabs: [{ index, name }] }   a hidden sheet keeps its place, no tab
+ *   Stage   { kind: 'slides', count, aspect }                    the thumbnail strip
+ *   Scroll, Folio (and the rest)  { kind: 'pages', count }       page up and down, "Page N of M" */
+export function pageNav(editor, describe) {
+  const d = parseJson(describe) ?? {}
+  const kind = editorOf(editor).id
+  const whole = (v) => Math.max(0, Math.floor(Number(v) || 0))
+  const known = (v) => v !== null && v !== undefined && Number.isFinite(Number(v))
+  if (kind === 'ledger' && Array.isArray(d.sheets)) {
+    const tabs = d.sheets
+      .map((s, i) => ({ index: known(s?.index) ? Number(s.index) : i, name: String(s?.name ?? `Sheet${i + 1}`), state: String(s?.state ?? 'visible') }))
+      .filter((s) => s.state === 'visible')
+      .map(({ index, name }) => ({ index, name }))
+    return { kind: 'sheets', count: d.sheets.length, tabs }
+  }
+  if (kind === 'stage') {
+    const w = Number(d.slide_width_pt)
+    const h = Number(d.slide_height_pt)
+    const count = known(d.slide_count) ? whole(d.slide_count) : Array.isArray(d.slides) ? d.slides.length : 1
+    return { kind: 'slides', count, aspect: w > 0 && h > 0 ? `${w} / ${h}` : '16 / 9' }
+  }
+  // Folio says page_count (its pages list stops at 500); Scroll says pages; M0's page has one
+  const count = known(d.page_count) ? whole(d.page_count) : known(d.pages) ? whole(d.pages) : 1
+  return { kind: 'pages', count }
+}
+
+/** The id of the newest step still done (null when there is none): the mark an open or a save leaves. */
+export function newestDone(history) {
+  const done = (history ?? []).filter((s) => !s.undone)
+  return done.length ? done.at(-1).id : null
+}
+
+/** True when the document changed since its mark. */
+export function isDirty(history, mark) {
+  return newestDone(history) !== (mark ?? null)
+}
+
+/** The editor a file opens in, by its name's extension (null for anything SCRIPTORIUM does not open). */
+export function editorForPath(path) {
+  const name = String(path ?? '').split(/[\\/]/).pop()
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+  return Object.keys(TYPES).find((k) => TYPES[k].includes(ext)) ?? null
+}
+
+/** A path's file name. */
+export function fileNameOf(path) {
+  return String(path ?? '').split(/[\\/]/).pop()
 }

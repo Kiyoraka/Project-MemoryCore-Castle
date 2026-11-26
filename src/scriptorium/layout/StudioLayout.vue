@@ -8,6 +8,8 @@ import { icon } from '../icons.js'
 
 const props = defineProps({
   title: { type: String, required: true },
+  // the document's file name ("Report.docx", "Untitled"; a dot after it while unsaved)
+  file: { type: String, default: '' },
   editor: { type: String, required: true },
   badge: { type: String, default: '' },
   canUndo: { type: Boolean, default: false },
@@ -17,7 +19,7 @@ const props = defineProps({
   // [{ path, name, editor }]
   recent: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['editor', 'new', 'open', 'save', 'undo', 'redo', 'recent'])
+const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent'])
 
 const current = computed(() => editorOf(props.editor))
 const inspectorTabs = [
@@ -42,11 +44,12 @@ const SECTIONS = [
     <header class="titlebar">
       <span class="mark" v-html="icon('spark', 20)"></span>
       <strong class="name">{{ title.split(' · ')[0] }}</strong>
-      <span class="centre"><span v-html="icon(current.id, 18)"></span>{{ current.label }}</span>
+      <span class="centre"><span v-html="icon(current.id, 18)"></span>{{ current.label }}<span v-if="file" class="file" :title="file">{{ file }}</span></span>
       <span class="actions">
         <button title="Undo (Ctrl+Z)" :disabled="busy || !canUndo" @click="emit('undo')" v-html="icon('undo', 18)"></button>
         <button title="Redo (Ctrl+Y)" :disabled="busy || !canRedo" @click="emit('redo')" v-html="icon('redo', 18)"></button>
-        <button title="Save" :disabled="busy" @click="emit('save')" v-html="icon('save', 18)"></button>
+        <button title="Save (Ctrl+S)" :disabled="busy" @click="emit('save')" v-html="icon('save', 18)"></button>
+        <button title="Save as (Ctrl+Shift+S)" :disabled="busy" @click="emit('saveAs')" v-html="icon('saveAs', 18)"></button>
         <span v-if="badge" class="badge">{{ badge }}</span>
       </span>
     </header>
@@ -59,12 +62,12 @@ const SECTIONS = [
       <aside class="files" aria-label="Files">
         <div class="file-actions">
           <button :disabled="busy" @click="emit('new')"><span v-html="icon('new', 16)"></span>New</button>
-          <button :disabled="busy" @click="emit('open')"><span v-html="icon('open', 16)"></span>Open…</button>
+          <button :disabled="busy" title="Open (Ctrl+O)" @click="emit('open')"><span v-html="icon('open', 16)"></span>Open…</button>
         </div>
         <h3><span v-html="icon('clock', 16)"></span>Recent</h3>
         <ul v-if="recent.length" class="recent">
           <li v-for="f in recent" :key="f.path">
-            <button :title="f.path" @click="emit('recent', f.path)"><span v-html="icon(f.editor, 16)"></span><span class="file-name">{{ f.name }}</span></button>
+            <button :title="f.path" :disabled="busy" @click="emit('recent', f.path)"><span v-html="icon(f.editor, 16)"></span><span class="file-name">{{ f.name }}</span></button>
           </li>
         </ul>
         <p v-else class="empty">No recent files yet.</p>
@@ -132,6 +135,15 @@ const SECTIONS = [
 }
 .centre > span {
   display: inline-flex;
+}
+.centre > .file {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--scr-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .actions {
   display: inline-flex;

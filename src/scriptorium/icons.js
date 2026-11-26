@@ -5,6 +5,7 @@ const P = {
   new: '<path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v4h4"/>',
   open: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
   save: '<path d="M5 4h11l3 3v13H5Z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+  saveAs: '<path d="M13 20H5V4h11l3 3v5"/><path d="M8 4v5h7V4M8 20v-6h5"/><path d="M15 21l1-3 4-4 2 2-4 4Z"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7Zm0 7h7a3.5 3.5 0 0 1 0 7H7Z"/>',

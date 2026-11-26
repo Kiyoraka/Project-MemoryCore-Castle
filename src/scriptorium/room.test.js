@@ -1,6 +1,34 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { EARLY_BADGE, EDITORS, aiPills, editorOf, isTypingTarget, layoutOf, parseJson, plainError, readDone, readHistory, readList, recentRows, ribbonTabs, saveName, shortcutOf, titleFor, undoState } from './room.js'
+import {
+  EARLY_BADGE,
+  EDITORS,
+  aiPills,
+  clampPage,
+  editorForPath,
+  editorOf,
+  fileNameOf,
+  isDirty,
+  isTypingTarget,
+  layoutOf,
+  newestDone,
+  pageKeyOf,
+  pageLabel,
+  pageNav,
+  parseJson,
+  plainError,
+  readDone,
+  readHistory,
+  readList,
+  recentRows,
+  ribbonTabs,
+  saveAsName,
+  saveName,
+  shortcutOf,
+  stepPage,
+  titleFor,
+  undoState,
+} from './room.js'
 
 describe('the editors and the layouts', () => {
   it('has the four editors in order, each with its file type', () => {
@@ -8,11 +36,13 @@ describe('the editors and the layouts', () => {
     expect(EDITORS.map((e) => e.ext)).toEqual(['docx', 'xlsx', 'pptx', 'pdf'])
     expect(editorOf('ledger').label).toBe('Ledger')
     expect(editorOf('word').id).toBe('scroll')
-    expect(EARLY_BADGE).toBe('Early - opening files first')
+    expect(EARLY_BADGE).toBe('Early - open and see')
   })
   it('names the title bar and the ribbon by the editor', () => {
     expect(titleFor('scroll')).toBe('Scriptorium · Scroll')
     expect(titleFor('folio')).toBe('Scriptorium · Folio')
+    expect(titleFor('ledger', 'Budget.xlsx')).toBe('Scriptorium · Ledger · Budget.xlsx')
+    expect(titleFor('ledger', '  ')).toBe('Scriptorium · Ledger')
     expect(ribbonTabs('scroll')[0]).toBe('Home')
     expect(ribbonTabs('ledger')).toContain('Formulas')
     expect(ribbonTabs('nothing')).toEqual(ribbonTabs('scroll'))
@@ -27,6 +57,15 @@ describe('the editors and the layouts', () => {
     expect(saveName('scroll')).toBe('Untitled.docx')
     expect(saveName('stage', 'Talk: v2/final')).toBe('Talk  v2 final.pptx')
     expect(saveName('folio', '   ')).toBe('Untitled.pdf')
+  })
+  it("offers Save as the document's own name and type, a macro file staying one", () => {
+    expect(saveAsName('scroll', 'Report.docx')).toBe('Report.docx')
+    expect(saveAsName('scroll', 'Macro.DOCM')).toBe('Macro.docm')
+    expect(saveAsName('ledger', 'Q3 budget.xlsm')).toBe('Q3 budget.xlsm')
+    expect(saveAsName('ledger', 'Untitled')).toBe('Untitled.xlsx')
+    expect(saveAsName('stage', 'notes.txt')).toBe('notes.txt.pptx')
+    expect(saveAsName('folio', '')).toBe('Untitled.pdf')
+    expect(saveAsName('folio', 'scan.pdf')).toBe('scan.pdf')
   })
 })
 
@@ -83,6 +122,20 @@ describe('the AI\'s changes', () => {
 })
 
 describe('the shortcuts', () => {
+  it('knows open, save and save as', () => {
+    expect(shortcutOf({ ctrlKey: true, key: 'o' })).toBe('open')
+    expect(shortcutOf({ ctrlKey: true, key: 'O', shiftKey: true })).toBe(null)
+    expect(shortcutOf({ ctrlKey: true, key: 's' })).toBe('save')
+    expect(shortcutOf({ metaKey: true, key: 'S', shiftKey: true })).toBe('saveAs')
+    expect(shortcutOf({ key: 's' })).toBe(null)
+  })
+  it('turns the page with Page Up and Page Down only', () => {
+    expect(pageKeyOf({ key: 'PageDown' })).toBe(1)
+    expect(pageKeyOf({ key: 'PageUp' })).toBe(-1)
+    expect(pageKeyOf({ key: 'PageDown', ctrlKey: true })).toBe(0)
+    expect(pageKeyOf({ key: 'ArrowDown' })).toBe(0)
+    expect(pageKeyOf(null)).toBe(0)
+  })
   it('knows undo and redo, on Windows and macOS', () => {
     expect(shortcutOf({ ctrlKey: true, key: 'z' })).toBe('undo')
     expect(shortcutOf({ metaKey: true, key: 'Z', shiftKey: true })).toBe('redo')
@@ -106,6 +159,65 @@ describe('recent files', () => {
       { path: 'D:/sheets/Budget.xlsx', name: 'Budget.xlsx', editor: 'ledger' },
     ])
     expect(recentRows(null)).toEqual([])
+  })
+  it("knows a file's editor and name by its path", () => {
+    expect(editorForPath('C:\\docs\\Report.DOCX')).toBe('scroll')
+    expect(editorForPath('D:/m/Macro.docm')).toBe('scroll')
+    expect(editorForPath('Budget.xlsm')).toBe('ledger')
+    expect(editorForPath('talk.pptx')).toBe('stage')
+    expect(editorForPath('scan.pdf')).toBe('folio')
+    expect(editorForPath('old.doc')).toBe(null)
+    expect(editorForPath('pdf')).toBe(null)
+    expect(editorForPath(null)).toBe(null)
+    expect(fileNameOf('C:\\docs\\Report.docx')).toBe('Report.docx')
+    expect(fileNameOf('D:/a/b.pdf')).toBe('b.pdf')
+  })
+})
+
+describe('page navigation', () => {
+  it('keeps a page inside the document', () => {
+    expect(clampPage(5, 3)).toBe(2)
+    expect(clampPage(-1, 3)).toBe(0)
+    expect(clampPage(1.7, 3)).toBe(1)
+    expect(clampPage(4, 0)).toBe(0)
+    expect(clampPage('x', 3)).toBe(0)
+    expect(stepPage(0, -1, 5)).toBe(0)
+    expect(stepPage(3, 1, 5)).toBe(4)
+    expect(stepPage(4, 1, 5)).toBe(4)
+    expect(stepPage(9, -1, 5)).toBe(3)
+  })
+  it('says which page of how many', () => {
+    expect(pageLabel(1, 14)).toBe('Page 2 of 14')
+    expect(pageLabel(20, 3, 'Slide')).toBe('Slide 3 of 3')
+    expect(pageLabel(0, 0)).toBe('No pages')
+  })
+  it('gives Ledger its sheet tabs from describe, hidden sheets keeping their place without a tab', () => {
+    const described = JSON.stringify({ sheets: [{ index: 0, name: 'Budget', state: 'visible' }, { index: 1, name: 'Secret', state: 'hidden' }, { index: 2, name: 'Costs', state: 'visible' }], active_sheet: 2 })
+    expect(pageNav('ledger', described)).toEqual({ kind: 'sheets', count: 3, tabs: [{ index: 0, name: 'Budget' }, { index: 2, name: 'Costs' }] })
+    expect(pageNav('ledger', { sheets: [{ name: 'Only' }] })).toEqual({ kind: 'sheets', count: 1, tabs: [{ index: 0, name: 'Only' }] })
+  })
+  it('gives Stage its strip from the slide count and the slide shape', () => {
+    expect(pageNav('stage', { slide_count: 12, slide_width_pt: 960, slide_height_pt: 540 })).toEqual({ kind: 'slides', count: 12, aspect: '960 / 540' })
+    expect(pageNav('stage', { slides: [{}, {}] })).toEqual({ kind: 'slides', count: 2, aspect: '16 / 9' })
+  })
+  it('gives Scroll and Folio page up and down from their page count', () => {
+    expect(pageNav('scroll', { pages: 7, paragraphs: 40 })).toEqual({ kind: 'pages', count: 7 })
+    expect(pageNav('folio', { page_count: 900, pages: new Array(500).fill({}) })).toEqual({ kind: 'pages', count: 900 })
+    expect(pageNav('folio', null)).toEqual({ kind: 'pages', count: 1 })
+    expect(pageNav('scroll', 'not json')).toEqual({ kind: 'pages', count: 1 })
+  })
+})
+
+describe('unsaved changes', () => {
+  const step = (id, undone = false) => ({ id, origin: 'user', label: '', undone })
+  it('marks the newest done step and sees a change after it', () => {
+    expect(newestDone([])).toBe(null)
+    expect(newestDone([step(1), step(2), step(3, true)])).toBe(2)
+    expect(isDirty([], null)).toBe(false)
+    expect(isDirty([step(1)], null)).toBe(true)
+    expect(isDirty([step(1), step(2)], 2)).toBe(false)
+    expect(isDirty([step(1), step(2, true)], 2)).toBe(true)
+    expect(isDirty([step(1), step(2, true)], 1)).toBe(false)
   })
 })
 

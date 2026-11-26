@@ -4,19 +4,46 @@
 // over its own edge to the `scriptorium` crate, and its chat panel in the #chat slot.
 //
 //   api.newDoc(kind)              -> doc id                 kind: 'scroll' | 'ledger' | 'stage' | 'folio'
+//   api.closeDoc(doc)             -> anything               (optional) the page let it go
+//   api.describe(doc)             -> describe JSON          (optional) the pages, sheets or slides
 //   api.display(doc, page)        -> display list JSON      (DisplayList::to_json)
 //   api.glyphs(doc, font, gids)   -> glyphs JSON            api.image(doc, id) -> image JSON
 //   api.command(doc, name, args)  -> { ok, step, pages }    the member's own command (one undo step)
 //   api.undo(doc), api.redo(doc)  -> { ok, step, pages }    api.history(doc) -> [{ id, origin, label, undone }]
-//   api.open(path?)               -> { doc, editor } | null (no path: the host's picker)
-//   api.save(doc, name)           -> anything | null        (the host's picker, then the file)
+//   api.pick()                    -> path | null            the host's open picker
+//   api.open(path)                -> { doc, editor, pages, title, path }
+//   api.pickSave(name)            -> path | null            the host's save picker
+//   api.save(doc, path | null)    -> the path saved to      (null: back to the file it came from)
 //   api.recent()                  -> [{ path, name, editor }]
 //   api.onChanged(handler)        -> stop function          (optional) handler({ doc }) when the AI changed one
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
 import ClassicLayout from './layout/ClassicLayout.vue'
 import StudioLayout from './layout/StudioLayout.vue'
+import PageNav from './PageNav.vue'
 import ScriptoriumPage from './ScriptoriumPage.vue'
-import { EARLY_BADGE, aiPills, editorOf, isTypingTarget, layoutOf, plainError, readHistory, readList, recentRows, saveName, shortcutOf, titleFor, undoState } from './room.js'
+import {
+  EARLY_BADGE,
+  aiPills,
+  clampPage,
+  editorForPath,
+  editorOf,
+  fileNameOf,
+  isDirty,
+  isTypingTarget,
+  layoutOf,
+  newestDone,
+  pageKeyOf,
+  pageNav,
+  parseJson,
+  plainError,
+  readHistory,
+  readList,
+  recentRows,
+  saveAsName,
+  shortcutOf,
+  titleFor,
+  undoState,
+} from './room.js'
 import { icon } from './icons.js'
 
 const props = defineProps({
@@ -29,19 +56,29 @@ const props = defineProps({
 const editor = ref('scroll')
 // each editor's open document, so switching back finds it as it was
 const docs = reactive({})
+// per document: { title, path, mark (the newest done step when opened or saved), dirty, page }
+const files = reactive({})
 const doc = ref(null)
+const page = ref(0)
+const nav = shallowRef({ kind: 'pages', count: 1 })
 const list = shallowRef(null)
 const history = ref([])
 const recent = ref([])
 const status = ref('')
 const busy = ref(false)
 const zoom = ref(1)
+// an action waiting for its second press (it would let unsaved changes go): { action, path }
+const armed = ref(null)
 let stopChanged = null
 
 const Layout = computed(() => (layoutOf(props.layout) === 'studio' ? StudioLayout : ClassicLayout))
 const undo = computed(() => undoState(history.value))
 const pills = computed(() => aiPills(history.value))
-const title = computed(() => titleFor(editor.value))
+const file = computed(() => {
+  const f = files[doc.value]
+  return f ? `${f.title}${f.dirty ? ' •' : ''}` : ''
+})
+const title = computed(() => titleFor(editor.value, file.value))
 // the painter asks for outlines and pixels of the document on the page
 const loadGlyphs = computed(() => {
   const d = doc.value
@@ -63,20 +100,78 @@ async function step(work) {
   }
 }
 
-async function refresh() {
+async function describe(d) {
+  if (typeof props.api.describe !== 'function') return null
+  return parseJson(await props.api.describe(d).catch(() => null))
+}
+
+async function paint() {
   if (doc.value === null) return
   const d = doc.value
-  const [shown, steps] = await Promise.all([props.api.display(d, 0), props.api.history(d)])
+  const shown = await props.api.display(d, page.value)
   if (d !== doc.value) return
   const next = readList(shown)
   list.value = next ? markRaw(next) : null
+}
+
+// the document on the page read again: its pages, its history and the page shown
+async function refresh() {
+  if (doc.value === null) return
+  const d = doc.value
+  const [described, steps] = await Promise.all([describe(d), props.api.history(d)])
+  if (d !== doc.value) return
+  nav.value = pageNav(editor.value, described)
+  const f = files[d]
+  // a workbook opens on the sheet it was saved on
+  const first = f && f.page === undefined && editor.value === 'ledger' ? Number(described?.active_sheet) || 0 : f?.page ?? 0
+  page.value = clampPage(first, nav.value.count)
+  if (f) f.page = page.value
   history.value = readHistory(steps)
+  if (f) f.dirty = isDirty(history.value, f.mark)
+  await paint()
+}
+
+const turn = (p) => step(async () => {
+  if (doc.value === null) return
+  const next = clampPage(p, nav.value.count)
+  if (next === page.value) return
+  page.value = next
+  if (files[doc.value]) files[doc.value].page = next
+  await paint()
+})
+
+// a new or opened document takes its editor's place; the one before is let go
+function place(kind, id, info) {
+  const old = docs[kind]
+  if (old !== undefined && old !== id) {
+    delete files[old]
+    if (typeof props.api.closeDoc === 'function') Promise.resolve(props.api.closeDoc(old)).catch(() => {})
+  }
+  docs[kind] = id
+  files[id] = { title: info.title || 'Untitled', path: info.path ?? null, mark: null, dirty: false, page: undefined }
+  editor.value = kind
+  doc.value = id
+}
+
+// true when the action may go on: nothing unsaved would be lost, or this is its second press
+function mayLeave(kind, action, path = null) {
+  const id = docs[kind]
+  const f = id === undefined ? null : files[id]
+  const again = armed.value && armed.value.action === action && armed.value.path === path
+  if (!f || !f.dirty || again) {
+    armed.value = null
+    return true
+  }
+  armed.value = { action, path }
+  const what = action === 'new' ? 'New' : path ? `Open ${fileNameOf(path)}` : 'Open'
+  status.value = `${f.title} has unsaved changes. Save it first, or press ${what} again to let them go.`
+  return false
 }
 
 async function show(id) {
   const kind = editorOf(id).id
   editor.value = kind
-  if (docs[kind] === undefined) docs[kind] = await props.api.newDoc(kind)
+  if (docs[kind] === undefined) place(kind, await props.api.newDoc(kind), { title: 'Untitled' })
   doc.value = docs[kind]
   await refresh()
 }
@@ -87,28 +182,57 @@ const switchEditor = (id) => step(async () => {
 })
 
 const newDoc = () => step(async () => {
+  const kind = editor.value
+  if (!mayLeave(kind, 'new')) return
   status.value = ''
-  docs[editor.value] = await props.api.newDoc(editor.value)
-  doc.value = docs[editor.value]
+  place(kind, await props.api.newDoc(kind), { title: 'Untitled' })
   await refresh()
 })
 
+// Open: the host's picker (no path) or a recent file; the file goes to its own editor
 const open = (path) => step(async () => {
+  let target = path ?? (armed.value?.action === 'open' ? armed.value.path : null)
+  if (!target) {
+    if (typeof props.api.pick !== 'function') return
+    target = await props.api.pick()
+    if (!target) return
+  }
+  const kind = editorForPath(target)
+  if (kind && !mayLeave(kind, 'open', target)) return
+  status.value = `Opening ${fileNameOf(target)}…`
+  const opened = await props.api.open(target)
   status.value = ''
-  const opened = await props.api.open(path)
   if (!opened) return
-  const kind = editorOf(opened.editor).id
-  docs[kind] = opened.doc
-  editor.value = kind
-  doc.value = opened.doc
+  place(editorOf(opened.editor).id, opened.doc, { title: opened.title || fileNameOf(opened.path ?? target), path: opened.path ?? target })
   await refresh()
   await loadRecent()
 })
 
-const save = () => step(async () => {
-  status.value = ''
+// Save goes back to the file it came from; Save as (and a new document's first save) asks where
+const save = (as = false) => step(async () => {
   if (doc.value === null) return
-  await props.api.save(doc.value, saveName(editor.value))
+  armed.value = null
+  const d = doc.value
+  const f = files[d]
+  let target = null
+  if (as || !f?.path) {
+    if (typeof props.api.pickSave !== 'function') return
+    target = await props.api.pickSave(saveAsName(editor.value, f?.title))
+    if (!target) return
+  }
+  status.value = 'Saving…'
+  const saved = await props.api.save(d, target)
+  const where = typeof saved === 'string' && saved ? saved : target ?? f?.path
+  if (f) {
+    if (where) {
+      f.path = where
+      f.title = fileNameOf(where)
+    }
+    f.mark = newestDone(history.value)
+    f.dirty = false
+  }
+  status.value = `Saved ${f?.title ?? ''}.`.replace(' .', '.')
+  await loadRecent()
 })
 
 const undoStep = () => step(async () => {
@@ -130,13 +254,21 @@ async function loadRecent() {
   recent.value = recentRows(await props.api.recent().catch(() => []))
 }
 
+const SHORTCUTS = { undo: () => undoStep(), redo: () => redoStep(), open: () => open(), save: () => save(false), saveAs: () => save(true) }
+
 function onKey(e) {
   if (isTypingTarget(e.target)) return
   const what = shortcutOf(e)
-  if (!what) return
-  e.preventDefault()
-  if (what === 'undo') undoStep()
-  else redoStep()
+  if (what) {
+    e.preventDefault()
+    if (!busy.value) SHORTCUTS[what]()
+    return
+  }
+  const delta = pageKeyOf(e)
+  if (delta && !busy.value && nav.value.count > 1) {
+    e.preventDefault()
+    turn(page.value + delta)
+  }
 }
 
 onMounted(async () => {
@@ -153,7 +285,7 @@ onBeforeUnmount(() => {
   if (typeof stopChanged === 'function') stopChanged()
 })
 
-defineExpose({ refresh, show: switchEditor })
+defineExpose({ refresh, show: switchEditor, open })
 </script>
 
 <template>
@@ -161,6 +293,7 @@ defineExpose({ refresh, show: switchEditor })
     <component
       :is="Layout"
       :title="title"
+      :file="file"
       :editor="editor"
       :badge="EARLY_BADGE"
       :can-undo="undo.canUndo"
@@ -171,15 +304,18 @@ defineExpose({ refresh, show: switchEditor })
       @editor="switchEditor"
       @new="newDoc"
       @open="open()"
-      @save="save"
+      @save="save(false)"
+      @save-as="save(true)"
       @undo="undoStep"
       @redo="redoStep"
       @recent="open"
     >
       <template #page>
-        <div class="page-focus" tabindex="0" aria-label="The page">
-          <ScriptoriumPage v-model:zoom="zoom" :list="list" :load-glyphs="loadGlyphs" :load-image="loadImage" />
-        </div>
+        <PageNav :nav="nav" :page="page" :busy="busy" @page="turn">
+          <div class="page-focus" tabindex="0" aria-label="The page">
+            <ScriptoriumPage v-model:zoom="zoom" :list="list" :load-glyphs="loadGlyphs" :load-image="loadImage" />
+          </div>
+        </PageNav>
       </template>
       <template #strip>
         <div v-if="pills.length" class="ai-strip" role="list" :aria-label="`${aiName}'s changes`">

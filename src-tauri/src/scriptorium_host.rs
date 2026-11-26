@@ -3,9 +3,11 @@
 //! Castle; this file hands the page the crate's display lists, its command bus and its undo, and gives
 //! the room's companion the AI's door.
 //!
-//! - The open documents live in [`ScriptoriumState`], each behind its own [`Bus`]. M0 has one kind,
-//!   [`BlankDocument`] (one A4 page, `blank.note`), which proves the bus, undo and the door end to end;
-//!   real files (.docx, .xlsx, .pptx, .pdf) open in the next milestone.
+//! - The open documents live in [`ScriptoriumState`], each behind its own [`Bus`] as an [`AnyDoc`]:
+//!   Scroll (.docx/.docm), Ledger (.xlsx/.xlsm), Stage (.pptx/.pptm) and Folio (.pdf), plus M0's
+//!   [`BlankDocument`] (one A4 page of `blank.note`s) kept for the bus's own checks. Files open off
+//!   the window's thread (reading a big file or indexing the fonts never freezes the room) and save
+//!   whole: a `.part` renamed into place, the version before kept as `<name>.bak`.
 //! - The companion's door is `castle-memory scriptorium describe|read|do|shot`. The door runs in its
 //!   own short CLI process without the app's state, so it speaks to the running Castle through a small
 //!   file inbox in the room's folder:
@@ -25,7 +27,14 @@
 use crate::settings::SettingsStore;
 use scriptorium::ground::bus::json::{self, Json};
 use scriptorium::ground::bus::{Bus, BusError, Change, Command, CommandSpec, Document, Origin, DOOR_VERBS};
+use scriptorium::folio::FolioDoc;
 use scriptorium::ground::display::{Color, DisplayList, Item, Paint, PathOp, Resources, Stroke};
+use scriptorium::ground::font::FontIndex;
+use scriptorium::ground::pdfw::{PageResources, PdfWriter};
+use scriptorium::ground::text::FontCache;
+use scriptorium::ledger::LedgerDoc;
+use scriptorium::scroll::ScrollDoc;
+use scriptorium::stage::StageDoc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -36,13 +45,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The room's id (Settings > Rooms, the launcher, `rooms::need`).
 pub const ROOM: &str = "scriptorium";
-/// The editors the page can ask for. In M0 each opens a blank page.
+/// The editors the page can ask for.
 pub const EDITORS: [&str; 4] = ["scroll", "ledger", "stage", "folio"];
 /// The event the page hears when the companion changed a document through the door.
 pub const CHANGED_EVENT: &str = "scriptorium-changed";
-/// What `scriptorium_open` and `scriptorium_save` answer until files arrive.
-pub const NEXT_MILESTONE: &str = "Opening .docx/.xlsx/.pptx/.pdf arrives in the next milestone.";
-pub const SAVE_NEXT_MILESTONE: &str = "Saving .docx/.xlsx/.pptx/.pdf arrives in the next milestone.";
 /// How many recent files are remembered.
 pub const RECENT_MAX: usize = 20;
 const RECENT_FILE: &str = "scriptorium-recent.json";
@@ -165,34 +171,268 @@ impl Document for BlankDocument {
     }
 }
 
-/// Any document behind one bus type, so the state can hold every editor's documents together.
-pub struct AnyDoc(pub Box<dyn Document + Send>);
+/// Any document behind one bus type, so the state can hold every editor's documents together: the M0
+/// blank page (kept for the door's own checks) and the four editors' real documents.
+#[derive(Debug)]
+pub enum AnyDoc {
+    Blank(BlankDocument),
+    Scroll(ScrollDoc),
+    Ledger(LedgerDoc),
+    Stage(StageDoc),
+    Folio(FolioDoc),
+}
+
+/// `$body` with `$d` bound to whichever document `$doc` holds.
+macro_rules! each_doc {
+    ($doc:expr, $d:ident => $body:expr) => {
+        match $doc {
+            AnyDoc::Blank($d) => $body,
+            AnyDoc::Scroll($d) => $body,
+            AnyDoc::Ledger($d) => $body,
+            AnyDoc::Stage($d) => $body,
+            AnyDoc::Folio($d) => $body,
+        }
+    };
+}
+
+impl AnyDoc {
+    /// The file's bytes to write (`None` for the blank page, which is no file). Untouched parts keep
+    /// their exact bytes; a PDF is its original with an appended update.
+    pub fn save(&self) -> Option<Vec<u8>> {
+        match self {
+            AnyDoc::Blank(_) => None,
+            AnyDoc::Scroll(d) => Some(d.save()),
+            AnyDoc::Ledger(d) => Some(d.save()),
+            AnyDoc::Stage(d) => Some(d.save()),
+            AnyDoc::Folio(d) => Some(d.save()),
+        }
+    }
+}
 
 impl Document for AnyDoc {
     fn kind(&self) -> &'static str {
-        self.0.kind()
+        each_doc!(self, d => d.kind())
     }
     fn apply(&mut self, cmd: &Command) -> Result<Change, BusError> {
-        self.0.apply(cmd)
+        each_doc!(self, d => d.apply(cmd))
     }
     fn describe(&self) -> Json {
-        self.0.describe()
+        each_doc!(self, d => d.describe())
     }
     fn read(&self, what: &Json) -> Result<Json, BusError> {
-        self.0.read(what)
+        each_doc!(self, d => d.read(what))
     }
     fn display(&self, page: usize) -> DisplayList {
-        self.0.display(page)
+        each_doc!(self, d => d.display(page))
     }
     fn page_count(&self) -> usize {
-        self.0.page_count()
+        each_doc!(self, d => d.page_count())
     }
     fn commands(&self) -> Vec<CommandSpec> {
-        self.0.commands()
+        each_doc!(self, d => d.commands())
     }
     fn resources(&self) -> Option<&Resources> {
-        self.0.resources()
+        each_doc!(self, d => d.resources())
     }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Files: which editor, opening, a blank of each kind, saving
+// ---------------------------------------------------------------------------------------------------
+
+/// The largest file SCRIPTORIUM opens.
+pub const MAX_OPEN_BYTES: u64 = 300 * 1024 * 1024;
+pub const OPENS: &str = "SCRIPTORIUM opens .docx, .xlsx, .pptx and .pdf files.";
+pub const OLD_FORMATS: &str = "The older Office 97\u{2013}2003 formats arrive in a later milestone - save it as .docx/.xlsx/.pptx in Office first.";
+pub const PROTECTED: &str = "This file is locked with a password (or is an older Office file renamed). SCRIPTORIUM cannot open protected files yet - remove the password in Office first.";
+
+/// Where a file goes, by its extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// It opens in this editor.
+    Editor(&'static str),
+    /// An Office 97-2003 file (.doc, .xls, .ppt): later.
+    Old,
+    /// Nothing SCRIPTORIUM reads.
+    Unknown,
+}
+
+pub fn route(path: &str) -> Route {
+    match ext_of(Path::new(path)).as_str() {
+        "docx" | "docm" => Route::Editor("scroll"),
+        "xlsx" | "xlsm" => Route::Editor("ledger"),
+        "pptx" | "pptm" => Route::Editor("stage"),
+        "pdf" => Route::Editor("folio"),
+        "doc" | "xls" | "ppt" => Route::Old,
+        _ => Route::Unknown,
+    }
+}
+
+/// The editor for `path`, or why SCRIPTORIUM does not open it.
+pub fn editor_or_why(path: &str) -> Result<&'static str, String> {
+    match route(path) {
+        Route::Editor(e) => Ok(e),
+        Route::Old => Err(OLD_FORMATS.into()),
+        Route::Unknown => Err(OPENS.into()),
+    }
+}
+
+/// A file's extension in small letters ("" for none).
+fn ext_of(path: &Path) -> String {
+    path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase()
+}
+
+/// A file's own name.
+pub fn file_name(path: &Path) -> String {
+    path.file_name().and_then(|n| n.to_str()).map(str::to_string).unwrap_or_else(|| path.display().to_string())
+}
+
+/// The extension a new blank of `editor` saves as.
+pub fn blank_ext(editor: &str) -> &'static str {
+    match editor {
+        "ledger" => "xlsx",
+        "stage" => "pptx",
+        "folio" => "pdf",
+        _ => "docx",
+    }
+}
+
+/// Which fonts the editors lay out with: this machine's (the app) or none (tests: fast and the same
+/// everywhere).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fonts {
+    System,
+    #[cfg_attr(not(test), allow(dead_code))]
+    Empty,
+}
+
+fn label(editor: &str) -> &'static str {
+    match editor {
+        "ledger" => "Ledger",
+        "stage" => "Stage",
+        "folio" => "Folio",
+        _ => "Scroll",
+    }
+}
+
+/// A document of `editor` from a file's bytes.
+pub fn open_bytes(editor: &str, bytes: Vec<u8>, fonts: Fonts) -> Result<AnyDoc, String> {
+    if editor != "folio" {
+        if bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+            return Err(PROTECTED.into());
+        }
+        if !bytes.starts_with(b"PK") {
+            return Err(format!("{} could not open it: there is no Office file inside.", label(editor)));
+        }
+    }
+    let failed = |e: String| format!("{} could not open it: {e}", label(editor));
+    match editor {
+        "scroll" => {
+            let index = match fonts {
+                Fonts::System => scriptorium::scroll::system_fonts(),
+                Fonts::Empty => Arc::new(FontIndex::new()),
+            };
+            ScrollDoc::open_with_fonts(&bytes, index).map(AnyDoc::Scroll).map_err(failed)
+        }
+        "ledger" => {
+            let cache = match fonts {
+                Fonts::System => scriptorium::ledger::system_fonts(),
+                Fonts::Empty => FontCache::empty(),
+            };
+            LedgerDoc::open_with_fonts(&bytes, cache).map(AnyDoc::Ledger).map_err(failed)
+        }
+        "stage" => {
+            let cache = match fonts {
+                Fonts::System => scriptorium::stage::system_fonts(),
+                Fonts::Empty => FontCache::empty(),
+            };
+            StageDoc::open_with_fonts(&bytes, cache).map(AnyDoc::Stage).map_err(|e| failed(e.to_string()))
+        }
+        "folio" => FolioDoc::open(bytes).map(AnyDoc::Folio).map_err(|e| failed(e.to_string())),
+        other => Err(format!("SCRIPTORIUM has no editor called {other}.")),
+    }
+}
+
+/// The bytes of a blank one-page A4 PDF, written by our own PDF writer.
+pub fn blank_pdf() -> Vec<u8> {
+    let mut writer = PdfWriter::new();
+    writer.add_page(&DisplayList::new(A4.0, A4.1), &PageResources::new());
+    writer.finish()
+}
+
+/// A new, empty document of `editor`: a Letter page (Scroll), one sheet (Ledger), one title slide
+/// (Stage) or one A4 page (Folio). `blank` is the M0 page of notes (the bus's own check).
+pub fn blank_doc(editor: &str, fonts: Fonts) -> Result<AnyDoc, String> {
+    match editor {
+        "blank" => Ok(AnyDoc::Blank(BlankDocument::default())),
+        // Scroll's blank always lays out with this machine's fonts (the crate makes it so)
+        "scroll" => Ok(AnyDoc::Scroll(ScrollDoc::new_blank())),
+        "ledger" => open_bytes(editor, scriptorium::ledger::blank_xlsx(), fonts),
+        "stage" => open_bytes(editor, scriptorium::stage::blank::blank_deck(), fonts),
+        "folio" => open_bytes(editor, blank_pdf(), fonts),
+        other => Err(format!("SCRIPTORIUM has no editor called {other}. Its editors are Scroll, Ledger, Stage and Folio.")),
+    }
+}
+
+/// The editor and a new blank document for the page's `kind` (an empty kind is Scroll; `blank` is
+/// M0's page of notes, shown in Scroll).
+pub fn make_blank(kind: &str, fonts: Fonts) -> Result<(&'static str, AnyDoc), String> {
+    let kind = kind.trim().to_lowercase();
+    let kind = if kind.is_empty() { "scroll".to_string() } else { kind };
+    let editor = if kind == "blank" {
+        "scroll"
+    } else {
+        EDITORS.iter().copied().find(|e| *e == kind).ok_or_else(|| format!("SCRIPTORIUM has no editor called {kind}. Its editors are Scroll, Ledger, Stage and Folio."))?
+    };
+    Ok((editor, blank_doc(&kind, fonts)?))
+}
+
+/// Reads and opens a file the member chose: (its editor, the document). Runs off the window's thread.
+pub fn load_file(path: &Path, fonts: Fonts) -> Result<(&'static str, AnyDoc), String> {
+    let editor = editor_or_why(&path.to_string_lossy())?;
+    let meta = std::fs::metadata(path).map_err(|_| "That file is not there any more.".to_string())?;
+    if !meta.is_file() {
+        return Err("That is a folder, not a file.".into());
+    }
+    let mb = |n: u64| n / (1024 * 1024);
+    if meta.len() > MAX_OPEN_BYTES {
+        return Err(format!("{} is {} MB; SCRIPTORIUM opens files up to {} MB.", file_name(path), mb(meta.len()), mb(MAX_OPEN_BYTES)));
+    }
+    let bytes = std::fs::read(path).map_err(|_| format!("{} could not be read (is it open in another program?).", file_name(path)))?;
+    if bytes.is_empty() {
+        return Err(format!("{} is empty.", file_name(path)));
+    }
+    Ok((editor, open_bytes(editor, bytes, fonts)?))
+}
+
+/// Why `path` is not a place to save a document of type `.ext`: a document keeps its own type (a
+/// .docm stays a .docm, so a macro workbook's parts never land in a plain .xlsx).
+pub fn save_place(ext: &str, path: &Path) -> Result<(), String> {
+    if ext_of(path) != ext {
+        return Err(format!("Save it as a .{ext} file."));
+    }
+    Ok(())
+}
+
+/// Writes `bytes` to `path` whole: a `.scriptorium-part` beside it first, then renamed into place.
+/// When the member saves over a file, the version before is kept as `<name>.bak` (one, replaced by
+/// the next save).
+pub fn write_document(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let name = file_name(path);
+    let part = path.with_file_name(format!("{name}.scriptorium-part"));
+    let fail = |why: &str| format!("{name} could not be saved: {why}.");
+    if std::fs::write(&part, bytes).is_err() {
+        let _ = std::fs::remove_file(&part);
+        return Err(fail("the folder is not writable or the disk is full"));
+    }
+    if path.is_file() && std::fs::copy(path, path.with_file_name(format!("{name}.bak"))).is_err() {
+        let _ = std::fs::remove_file(&part);
+        return Err(fail("the version before could not be kept as .bak"));
+    }
+    std::fs::rename(&part, path).map_err(|_| {
+        let _ = std::fs::remove_file(&part);
+        fail("it is open in another program")
+    })
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -203,6 +443,20 @@ pub struct OpenDoc {
     /// The editor the page shows it in: scroll, ledger, stage or folio.
     pub editor: String,
     pub bus: Bus<AnyDoc>,
+    /// The file it was opened from or last saved to (None for a new document).
+    pub path: Option<PathBuf>,
+    /// The file's name, or "Untitled" for a new one.
+    pub title: String,
+    /// The type it saves as, in small letters (docx, docm, xlsx, .., pdf).
+    pub ext: String,
+}
+
+impl OpenDoc {
+    pub fn new(editor: &str, doc: AnyDoc, path: Option<PathBuf>) -> OpenDoc {
+        let title = path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
+        let ext = path.as_deref().map(ext_of).filter(|e| !e.is_empty()).unwrap_or_else(|| blank_ext(editor).into());
+        OpenDoc { editor: editor.into(), bus: Bus::new(doc), path, title, ext }
+    }
 }
 
 /// The documents open in the room, by id. `current` is the one on the page (the door's default).
@@ -231,18 +485,21 @@ fn done_json(done: &scriptorium::ground::bus::Done) -> String {
 }
 
 impl Docs {
-    /// A new blank document for `editor` (M0: every editor's page is blank); it becomes the current one.
-    pub fn new_doc(&mut self, editor: &str) -> Result<u64, String> {
-        let editor = editor.trim().to_lowercase();
-        let editor = if editor.is_empty() || editor == "blank" { "scroll".to_string() } else { editor };
-        if !EDITORS.contains(&editor.as_str()) {
-            return Err(format!("SCRIPTORIUM has no editor called {editor}. Its editors are Scroll, Ledger, Stage and Folio."));
-        }
+    /// Puts an opened document in the room; it becomes the current one (the door's default). Its id.
+    pub fn add(&mut self, open: OpenDoc) -> u64 {
         self.next += 1;
         let id = self.next;
-        self.open.insert(id, OpenDoc { editor, bus: Bus::new(AnyDoc(Box::new(BlankDocument::default()))) });
+        self.open.insert(id, open);
         self.current = Some(id);
-        Ok(id)
+        id
+    }
+
+    /// The page let a document go (another took its place).
+    pub fn close(&mut self, id: u64) {
+        self.open.remove(&id);
+        if self.current == Some(id) {
+            self.current = None;
+        }
     }
 
     pub fn get(&mut self, id: u64) -> Result<&mut OpenDoc, String> {
@@ -551,18 +808,6 @@ pub struct RecentFile {
     pub opened_at: u64,
 }
 
-/// The editor a file opens in, by its extension.
-pub fn editor_for(path: &str) -> Option<&'static str> {
-    let ext = Path::new(path).extension()?.to_str()?.to_lowercase();
-    Some(match ext.as_str() {
-        "docx" => "scroll",
-        "xlsx" => "ledger",
-        "pptx" => "stage",
-        "pdf" => "folio",
-        _ => return None,
-    })
-}
-
 /// `list` with `file` first: once per path (the same file in any case of letters), at most RECENT_MAX. Pure.
 pub fn remember(list: Vec<RecentFile>, file: RecentFile) -> Vec<RecentFile> {
     let key = |p: &str| p.replace('/', "\\").to_lowercase();
@@ -590,14 +835,6 @@ fn note_recent(store: &SettingsStore, path: &str, editor: &str) {
     }
 }
 
-/// Opens a real file as a document. M0: no format opens yet (they arrive in the next milestone).
-fn open_file(path: &Path) -> Result<OpenDoc, String> {
-    if !path.is_file() {
-        return Err("That file is not there any more.".into());
-    }
-    Err(NEXT_MILESTONE.into())
-}
-
 // ---------------------------------------------------------------------------------------------------
 // The page's commands
 // ---------------------------------------------------------------------------------------------------
@@ -609,10 +846,19 @@ fn docs<'a>(room: &'a RoomState<'_>) -> Result<std::sync::MutexGuard<'a, Docs>, 
     Ok(room.1.docs.lock().unwrap())
 }
 
-/// A new blank page for `kind` (scroll, ledger, stage or folio); its id.
+/// A new blank document of `kind` (scroll, ledger, stage or folio); its id. Made off the window's
+/// thread: the first one indexes this machine's fonts.
 #[tauri::command]
-pub fn scriptorium_new(kind: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<u64, String> {
-    docs(&(store, state))?.new_doc(&kind)
+pub async fn scriptorium_new(kind: String, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<u64, String> {
+    crate::rooms::need(&store, ROOM)?;
+    let (editor, doc) = tauri::async_runtime::spawn_blocking(move || make_blank(&kind, Fonts::System)).await.map_err(|_| "The new document could not be made.".to_string())??;
+    Ok(state.docs.lock().unwrap().add(OpenDoc::new(editor, doc, None)))
+}
+
+/// The page let a document go (a new or opened one took its place in its editor).
+#[tauri::command]
+pub fn scriptorium_close_doc(doc: u64, state: State<ScriptoriumState>) {
+    state.docs.lock().unwrap().close(doc);
 }
 
 /// One page's display list as JSON (`DisplayList::to_json`); the page shows this document now.
@@ -686,7 +932,8 @@ pub async fn scriptorium_open_dialog(app: AppHandle) -> Option<String> {
         app.dialog()
             .file()
             .set_title("Open a document")
-            .add_filter("Documents, sheets, slides and PDFs", &["docx", "xlsx", "pptx", "pdf"])
+            .add_filter("Documents, sheets, slides and PDFs", &["docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "pdf"])
+            .add_filter("Older Office files (later)", &["doc", "xls", "ppt"])
             .blocking_pick_file()
             .and_then(|file| file.into_path().ok())
             .map(|path| path.display().to_string())
@@ -702,11 +949,12 @@ pub async fn scriptorium_save_dialog(app: AppHandle, name: Option<String>) -> Op
     use tauri_plugin_dialog::DialogExt;
     tauri::async_runtime::spawn_blocking(move || {
         let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Untitled.docx".into());
+        let (what, ext) = save_filter(&name);
         app.dialog()
             .file()
             .set_title("Save the document")
             .set_file_name(&name)
-            .add_filter("Documents, sheets, slides and PDFs", &["docx", "xlsx", "pptx", "pdf"])
+            .add_filter(what, &[ext.as_str()])
             .blocking_save_file()
             .and_then(|file| file.into_path().ok())
             .map(|path| path.display().to_string())
@@ -716,36 +964,74 @@ pub async fn scriptorium_save_dialog(app: AppHandle, name: Option<String>) -> Op
     .flatten()
 }
 
-#[derive(Serialize)]
+/// The save picker's filter for a file name: its kind in words and its extension.
+pub fn save_filter(name: &str) -> (&'static str, String) {
+    let ext = ext_of(Path::new(name));
+    let what = match route(name) {
+        Route::Editor("ledger") => "Sheet",
+        Route::Editor("stage") => "Slides",
+        Route::Editor("folio") => "PDF",
+        Route::Editor(_) => "Document",
+        _ => return ("Document", "docx".into()),
+    };
+    (what, ext)
+}
+
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Opened {
     pub doc: u64,
     pub editor: String,
+    pub pages: usize,
+    pub title: String,
+    pub path: String,
 }
 
-/// Opens a file the member chose; it joins the recent files once it opened.
+/// Opens a file the member chose (off the window's thread); it becomes the current document and joins
+/// the recent files. `{doc, editor, pages, title, path}`.
 #[tauri::command]
-pub fn scriptorium_open(path: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<Opened, String> {
+pub async fn scriptorium_open(path: String, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<Opened, String> {
     crate::rooms::need(&store, ROOM)?;
-    let editor = editor_for(&path).ok_or("SCRIPTORIUM opens .docx, .xlsx, .pptx and .pdf files.")?;
-    let open = open_file(Path::new(&path))?;
-    let mut docs = state.docs.lock().unwrap();
-    docs.next += 1;
-    let doc = docs.next;
-    let editor_name = open.editor.clone();
-    docs.open.insert(doc, open);
-    docs.current = Some(doc);
-    note_recent(&store, &path, editor);
-    Ok(Opened { doc, editor: editor_name })
+    let file = PathBuf::from(path.trim());
+    let (editor, doc) = {
+        let file = file.clone();
+        tauri::async_runtime::spawn_blocking(move || load_file(&file, Fonts::System)).await.map_err(|_| "The file could not be opened.".to_string())??
+    };
+    let open = OpenDoc::new(editor, doc, Some(file.clone()));
+    let (pages, title) = (open.bus.doc().page_count(), open.title.clone());
+    let doc = state.docs.lock().unwrap().add(open);
+    let shown = file.display().to_string();
+    note_recent(&store, &shown, editor);
+    Ok(Opened { doc, editor: editor.into(), pages, title, path: shown })
 }
 
-/// Saves a document to a file. M0: not yet.
+/// Saves a document: to `path` when given (Save as), else to the file it came from. Its bytes are
+/// written whole off the window's thread; answers the path it was saved to.
 #[tauri::command]
-pub fn scriptorium_save(doc: u64, path: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<(), String> {
-    let room = (store, state);
-    docs(&room)?.get(doc)?;
-    editor_for(&path).ok_or("SCRIPTORIUM saves .docx, .xlsx, .pptx and .pdf files.")?;
-    Err(SAVE_NEXT_MILESTONE.into())
+pub async fn scriptorium_save(doc: u64, path: Option<String>, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<String, String> {
+    crate::rooms::need(&store, ROOM)?;
+    let (target, bytes, editor) = {
+        let mut docs = state.docs.lock().unwrap();
+        let open = docs.get(doc)?;
+        let target = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) => PathBuf::from(p),
+            None => open.path.clone().ok_or("Choose where to save it first (Save as).")?,
+        };
+        save_place(&open.ext, &target)?;
+        let bytes = open.bus.doc().save().ok_or("This page is not a file; there is nothing to save.")?;
+        (target, bytes, open.editor.clone())
+    };
+    {
+        let target = target.clone();
+        tauri::async_runtime::spawn_blocking(move || write_document(&target, &bytes)).await.map_err(|_| "The file could not be saved.".to_string())??;
+    }
+    if let Ok(open) = state.docs.lock().unwrap().get(doc) {
+        open.title = file_name(&target);
+        open.path = Some(target.clone());
+    }
+    let shown = target.display().to_string();
+    note_recent(&store, &shown, &editor);
+    Ok(shown)
 }
 
 /// The recent files, newest first.
@@ -827,7 +1113,7 @@ mod tests {
         let mut docs = Docs::default();
         let (none, _) = docs.door(None, "describe", "");
         assert!(none.contains("\"ok\":false") && none.contains("No document is open"));
-        let id = docs.new_doc("ledger").unwrap();
+        let id = docs.add(OpenDoc::new("ledger", AnyDoc::Blank(BlankDocument::default()), None));
         let (described, changed) = docs.door(None, "describe", "");
         assert_eq!(changed, None);
         assert!(described.contains("\"kind\":\"blank\"") && described.contains("blank.note") && described.contains("\"editor\":\"ledger\""));
@@ -848,7 +1134,7 @@ mod tests {
         let (bad, _) = docs.door(Some(id), "erase", "");
         assert!(bad.contains("unknown verb"));
         assert!(docs.door(Some(99), "describe", "").0.contains("not open"));
-        assert!(docs.new_doc("spreadsheet").is_err());
+        assert!(make_blank("spreadsheet", Fonts::Empty).is_err());
     }
 
     #[test]
@@ -858,7 +1144,8 @@ mod tests {
             let dir = dir.clone();
             std::thread::spawn(move || {
                 let mut docs = Docs::default();
-                docs.new_doc("scroll").unwrap();
+                let (editor, page) = make_blank("blank", Fonts::Empty).unwrap();
+                docs.add(OpenDoc::new(editor, page, None));
                 for _ in 0..100 {
                     if answer_waiting(&dir, SystemTime::now(), |req| docs.door(req.doc, &req.verb, &req.args).0) > 0 {
                         return docs;
@@ -942,22 +1229,215 @@ mod tests {
         assert_eq!(list.len(), RECENT_MAX);
         assert_eq!(list.iter().filter(|f| f.path.to_lowercase().replace('\\', "/") == "c:/docs/10.docx").count(), 1);
         assert_eq!(list[0].opened_at, 99);
-        assert_eq!(editor_for("a.DOCX"), Some("scroll"));
-        assert_eq!(editor_for("b.xlsx"), Some("ledger"));
-        assert_eq!(editor_for("c.pptx"), Some("stage"));
-        assert_eq!(editor_for("d.pdf"), Some("folio"));
-        assert_eq!(editor_for("e.txt"), None);
+        assert_eq!(route("a.DOCX"), Route::Editor("scroll"));
+        assert_eq!(route("b.xlsx"), Route::Editor("ledger"));
+        assert_eq!(route("c.pptx"), Route::Editor("stage"));
+        assert_eq!(route("d.pdf"), Route::Editor("folio"));
+        assert_eq!(route("e.txt"), Route::Unknown);
         let text = serde_json::to_string(&list[0]).unwrap();
         assert!(text.contains("\"openedAt\":99"));
     }
 
+    // --- real files (M1) ---------------------------------------------------------------------------
+
+    use scriptorium::ground::zip::{Method, ZipWriter};
+
+    fn zip(parts: &[(&str, &str)]) -> Vec<u8> {
+        let mut w = ZipWriter::new();
+        for (name, text) in parts {
+            w.add(name, text.as_bytes(), Method::Deflated(6)).unwrap();
+        }
+        w.finish()
+    }
+
+    const RELS: &str = "application/vnd.openxmlformats-package.relationships+xml";
+
+    /// A tiny .docx made here: two paragraphs, nothing else.
+    fn invented_docx() -> Vec<u8> {
+        zip(&[
+            (
+                "[Content_Types].xml",
+                &format!(r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="{RELS}"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#),
+            ),
+            ("_rels/.rels", r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#),
+            ("word/document.xml", r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Dear Rin</w:t></w:r></w:p><w:p><w:r><w:t>The second line</w:t></w:r></w:p></w:body></w:document>"#),
+        ])
+    }
+
+    /// A tiny .xlsx made here: two sheets, a number in Sheet1!B2.
+    fn invented_xlsx() -> Vec<u8> {
+        let ws = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+        let sheet = |body: &str| format!(r#"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{body}</sheetData></worksheet>"#);
+        zip(&[
+            (
+                "[Content_Types].xml",
+                &format!(r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="{RELS}"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="{ws}"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="{ws}"/></Types>"#),
+            ),
+            ("_rels/.rels", r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#),
+            ("xl/workbook.xml", r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Budget" sheetId="1" r:id="rId1"/><sheet name="Costs" sheetId="2" r:id="rId2"/></sheets></workbook>"#),
+            ("xl/_rels/workbook.xml.rels", r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>"#),
+            ("xl/worksheets/sheet1.xml", &sheet(r#"<row r="2"><c r="B2"><v>42</v></c></row>"#)),
+            ("xl/worksheets/sheet2.xml", &sheet("")),
+        ])
+    }
+
+    /// A tiny .pdf made by our own writer: two pages, a title.
+    fn invented_pdf() -> Vec<u8> {
+        let mut w = PdfWriter::new();
+        w.set_info("Field notes", "", "", "", "", "");
+        w.set_date(1_700_000_000);
+        w.add_page(&DisplayList::new(400.0, 300.0), &PageResources::new());
+        w.add_page(&DisplayList::new(400.0, 300.0), &PageResources::new());
+        w.finish()
+    }
+
+    fn reopen(editor: &str, doc: &AnyDoc) -> AnyDoc {
+        open_bytes(editor, doc.save().expect("a real document saves"), Fonts::Empty).unwrap()
+    }
+
     #[test]
-    fn opening_a_real_file_waits_for_the_next_milestone() {
-        let dir = temp("open");
-        let file = dir.join("letter.docx");
-        std::fs::write(&file, b"PK").unwrap();
-        assert_eq!(open_file(&file).err().as_deref(), Some(NEXT_MILESTONE));
-        assert!(open_file(&dir.join("gone.docx")).is_err());
+    fn files_go_to_their_editor_by_extension_and_the_rest_are_told_why() {
+        assert_eq!(route("C:/a/Letter.DOCX"), Route::Editor("scroll"));
+        assert_eq!(route("macro.docm"), Route::Editor("scroll"));
+        assert_eq!(route("Budget.xlsm"), Route::Editor("ledger"));
+        assert_eq!(route("deck.pptm"), Route::Editor("stage"));
+        assert_eq!(route("scan.Pdf"), Route::Editor("folio"));
+        for old in ["old.doc", "old.XLS", "old.ppt"] {
+            assert_eq!(route(old), Route::Old);
+            assert_eq!(editor_or_why(old).unwrap_err(), OLD_FORMATS);
+        }
+        assert!(OLD_FORMATS.contains("97\u{2013}2003") && OLD_FORMATS.contains("save it as .docx/.xlsx/.pptx in Office first"));
+        assert_eq!(editor_or_why("notes.txt").unwrap_err(), OPENS);
+        assert_eq!(editor_or_why("no-extension").unwrap_err(), OPENS);
+        assert_eq!(save_filter("Budget.xlsx"), ("Sheet", "xlsx".to_string()));
+        assert_eq!(save_filter("Talk.pptm"), ("Slides", "pptm".to_string()));
+        assert_eq!(save_filter("odd.txt"), ("Document", "docx".to_string()));
+    }
+
+    #[test]
+    fn invented_files_of_each_kind_open_through_anydoc() {
+        let scroll = open_bytes("scroll", invented_docx(), Fonts::Empty).unwrap();
+        assert_eq!(scroll.kind(), "scroll");
+        assert!(scroll.page_count() >= 1 && scroll.resources().is_some());
+        assert_eq!(scroll.read(&Json::obj().with("paragraph", 1)).unwrap().get("text").and_then(Json::as_str), Some("The second line"));
+        assert!(scroll.commands().iter().any(|c| c.to_json().to_string().contains("scroll.set_paragraph_text")));
+
+        let ledger = open_bytes("ledger", invented_xlsx(), Fonts::Empty).unwrap();
+        assert_eq!(ledger.kind(), "ledger");
+        assert_eq!(ledger.page_count(), 2, "a page per sheet");
+        let described = ledger.describe().to_string();
+        assert!(described.contains("\"name\":\"Budget\"") && described.contains("\"name\":\"Costs\""));
+        assert!(ledger.read(&Json::obj().with("cell", "B2")).unwrap().to_string().contains("42"));
+
+        let stage = open_bytes("stage", scriptorium::stage::blank::blank_deck(), Fonts::Empty).unwrap();
+        assert_eq!((stage.kind(), stage.page_count()), ("stage", 1));
+        assert!(stage.describe().get("slide_count").is_some());
+
+        let folio = open_bytes("folio", invented_pdf(), Fonts::Empty).unwrap();
+        assert_eq!((folio.kind(), folio.page_count()), ("folio", 2));
+        let dl = folio.display(1);
+        assert_eq!((dl.width, dl.height), (400.0, 300.0));
+        assert!(folio.describe().to_string().contains("Field notes"));
+        assert!(folio.resources().is_some());
+        assert_eq!(folio.save().unwrap(), invented_pdf(), "an untouched PDF saves as it came");
+    }
+
+    #[test]
+    fn what_is_not_a_document_is_refused_in_plain_words() {
+        assert_eq!(open_bytes("scroll", vec![0xD0, 0xCF, 0x11, 0xE0, 0, 0], Fonts::Empty).err().as_deref(), Some(PROTECTED));
+        assert!(open_bytes("ledger", b"hello".to_vec(), Fonts::Empty).unwrap_err().starts_with("Ledger could not open it"));
+        assert!(open_bytes("stage", invented_docx(), Fonts::Empty).unwrap_err().starts_with("Stage could not open it"));
+        assert!(open_bytes("folio", b"not a pdf".to_vec(), Fonts::Empty).unwrap_err().starts_with("Folio could not open it"));
+        let dir = temp("refuse");
+        assert_eq!(load_file(&dir.join("gone.docx"), Fonts::Empty).err().as_deref(), Some("That file is not there any more."));
+        std::fs::write(dir.join("empty.xlsx"), b"").unwrap();
+        assert!(load_file(&dir.join("empty.xlsx"), Fonts::Empty).unwrap_err().contains("is empty"));
+        std::fs::write(dir.join("old.doc"), b"x").unwrap();
+        assert_eq!(load_file(&dir.join("old.doc"), Fonts::Empty).err().as_deref(), Some(OLD_FORMATS));
+        std::fs::write(dir.join("letter.docx"), invented_docx()).unwrap();
+        let (editor, doc) = load_file(&dir.join("letter.docx"), Fonts::Empty).unwrap();
+        assert_eq!((editor, doc.kind()), ("scroll", "scroll"));
+        assert_eq!(MAX_OPEN_BYTES, 300 * 1024 * 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_blank_of_each_editor_is_real_and_saves_and_reopens() {
+        for kind in ["ledger", "stage", "folio"] {
+            let (editor, doc) = make_blank(kind, Fonts::Empty).unwrap();
+            assert_eq!((editor, doc.kind()), (kind, kind));
+            assert_eq!(doc.page_count(), 1, "{kind}");
+            let again = reopen(kind, &doc);
+            assert_eq!(again.page_count(), 1, "{kind} reopens");
+        }
+        let (_, pdf) = make_blank("folio", Fonts::Empty).unwrap();
+        assert_eq!((pdf.display(0).width, pdf.display(0).height), A4);
+        let (editor, page) = make_blank("blank", Fonts::Empty).unwrap();
+        assert_eq!((editor, page.kind()), ("scroll", "blank"));
+        assert!(page.save().is_none(), "the M0 page is no file");
+        assert!(make_blank("spreadsheet", Fonts::Empty).unwrap_err().contains("no editor called spreadsheet"));
+        assert_eq!(blank_ext("stage"), "pptx");
+    }
+
+    #[test]
+    fn scrolls_blank_is_a_real_docx() {
+        let (editor, doc) = make_blank("", Fonts::System).unwrap();
+        assert_eq!((editor, doc.kind()), ("scroll", "scroll"), "an empty kind is Scroll");
+        let again = reopen("scroll", &doc);
+        assert!(again.page_count() >= 1);
+        assert!(doc.save().unwrap().starts_with(b"PK"));
+    }
+
+    #[test]
+    fn the_companions_first_commands_go_through_the_bus_and_survive_a_save() {
+        let mut docs = Docs::default();
+        let ledger = docs.add(OpenDoc::new("ledger", open_bytes("ledger", invented_xlsx(), Fonts::Empty).unwrap(), Some(PathBuf::from("C:/x/Budget.xlsx"))));
+        assert_eq!(docs.get(ledger).unwrap().title, "Budget.xlsx");
+        let (done, changed) = docs.door(None, "do", r#"{"commands":[{"name":"ledger.set_cell","args":{"sheet":"Costs","cell":"A1","value":7}}],"label":"Seven"}"#);
+        assert!(done.contains("\"ok\":true"), "{done}");
+        assert_eq!(changed, Some(ledger));
+        let saved = reopen("ledger", docs.get(ledger).unwrap().bus.doc());
+        assert!(saved.read(&Json::obj().with("sheet", "Costs").with("cell", "A1")).unwrap().to_string().contains('7'));
+        docs.get(ledger).unwrap().bus.undo().unwrap();
+
+        let scroll = docs.add(OpenDoc::new("scroll", open_bytes("scroll", invented_docx(), Fonts::Empty).unwrap(), None));
+        assert_eq!(docs.get(scroll).unwrap().ext, "docx");
+        docs.door(Some(scroll), "do", r#"{"commands":[{"name":"scroll.set_paragraph_text","args":{"index":0,"text":"Dear Lyra"}}]}"#);
+        let saved = reopen("scroll", docs.get(scroll).unwrap().bus.doc());
+        assert_eq!(saved.read(&Json::obj().with("paragraph", 0)).unwrap().get("text").and_then(Json::as_str), Some("Dear Lyra"));
+
+        let original = invented_pdf();
+        let folio = docs.add(OpenDoc::new("folio", open_bytes("folio", original.clone(), Fonts::Empty).unwrap(), Some(PathBuf::from("notes.pdf"))));
+        let (done, _) = docs.door(Some(folio), "do", r#"{"commands":[{"name":"folio.set_title","args":{"title":"Kept notes"}},{"name":"folio.add_note","args":{"page":0,"x":20,"y":20,"text":"Look here"}}]}"#);
+        assert!(done.contains("\"ok\":true"), "{done}");
+        let bytes = docs.get(folio).unwrap().bus.doc().save().unwrap();
+        assert!(bytes.len() > original.len() && bytes.starts_with(&original), "a PDF saves as an appended update");
+        let saved = open_bytes("folio", bytes, Fonts::Empty).unwrap();
+        assert!(saved.describe().to_string().contains("Kept notes"));
+        assert!(docs.history(folio).unwrap().contains("\"origin\":\"ai\""));
+
+        docs.close(folio);
+        assert!(docs.get(folio).is_err());
+        assert!(docs.door(None, "describe", "").0.contains("No document is open"), "the closed one was current");
+    }
+
+    #[test]
+    fn saving_writes_the_file_whole_and_keeps_the_version_before() {
+        let dir = temp("save");
+        let file = dir.join("Report.docx");
+        assert!(save_place("docx", &file).is_ok());
+        assert_eq!(save_place("docm", &file).unwrap_err(), "Save it as a .docm file.");
+        assert_eq!(save_place("pdf", &dir.join("Report")).unwrap_err(), "Save it as a .pdf file.");
+        write_document(&file, b"first").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"first");
+        assert!(!dir.join("Report.docx.bak").exists(), "nothing was there before");
+        write_document(&file, b"second").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"second");
+        assert_eq!(std::fs::read(dir.join("Report.docx.bak")).unwrap(), b"first", "saving over a file keeps the one before");
+        assert!(!dir.join("Report.docx.scriptorium-part").exists());
+        assert!(write_document(&dir.join("no-folder").join("x.docx"), b"x").unwrap_err().contains("could not be saved"));
+        let opened = OpenDoc::new("folio", make_blank("folio", Fonts::Empty).unwrap().1, None);
+        assert_eq!((opened.title.as_str(), opened.ext.as_str(), opened.path.is_none()), ("Untitled", "pdf", true));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

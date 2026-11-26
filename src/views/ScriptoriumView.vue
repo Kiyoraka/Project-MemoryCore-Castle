@@ -9,8 +9,10 @@ import ScriptoriumRoom from '../scriptorium/ScriptoriumRoom.vue'
 import {
   onScriptoriumChanged,
   scriptoriumClose,
+  scriptoriumCloseDoc,
   scriptoriumCommand,
   scriptoriumDisplay,
+  scriptoriumDoor,
   scriptoriumGlyphs,
   scriptoriumHistory,
   scriptoriumImage,
@@ -39,6 +41,8 @@ const problem = ref('')
 // the room shell's api: the Castle's edge to the scriptorium crate
 const api = {
   newDoc: scriptoriumNew,
+  closeDoc: scriptoriumCloseDoc,
+  describe: (doc) => scriptoriumDoor(doc, 'describe'),
   display: scriptoriumDisplay,
   glyphs: scriptoriumGlyphs,
   image: scriptoriumImage,
@@ -46,14 +50,10 @@ const api = {
   undo: scriptoriumUndo,
   redo: scriptoriumRedo,
   history: scriptoriumHistory,
-  open: async (path) => {
-    const file = path ?? (await scriptoriumOpenDialog())
-    return file ? scriptoriumOpen(file) : null
-  },
-  save: async (doc, name) => {
-    const file = await scriptoriumSaveDialog(name)
-    return file ? scriptoriumSave(doc, file) : null
-  },
+  pick: scriptoriumOpenDialog,
+  open: scriptoriumOpen,
+  pickSave: scriptoriumSaveDialog,
+  save: scriptoriumSave,
   recent: scriptoriumRecent,
   onChanged: onScriptoriumChanged,
 }

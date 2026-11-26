@@ -15,8 +15,8 @@ The door talks to the document open in the room. On Windows PowerShell call it a
 ```
 & "$env:CASTLE_TOOLS\castle-memory.cmd" scriptorium describe
 & "$env:CASTLE_TOOLS\castle-memory.cmd" scriptorium read
-Set-Content -Encoding utf8 "$env:TEMP\scriptorium-do.json" '{"commands":[{"name":"blank.note","args":{"text":"Hello"}}]}'
-& "$env:CASTLE_TOOLS\castle-memory.cmd" scriptorium do --label "Add a note" --file "$env:TEMP\scriptorium-do.json"
+Set-Content -Encoding utf8 "$env:TEMP\scriptorium-do.json" '{"commands":[{"name":"scroll.set_paragraph_text","args":{"index":0,"text":"Hello"}}]}'
+& "$env:CASTLE_TOOLS\castle-memory.cmd" scriptorium do --label "New first line" --file "$env:TEMP\scriptorium-do.json"
 & "$env:CASTLE_TOOLS\castle-memory.cmd" scriptorium shot --page 0
 ```
 
@@ -36,5 +36,5 @@ JSON arguments always go in a file passed with `--file <path.json>` (quotes on t
 4. `shot` to look at the page after a change when the look matters.
 5. Say in one short line what you changed. If {{USER_NAME}} undoes it, do not do it again unless they ask.
 
-SCRIPTORIUM is early: files open in the next milestone, and for now each editor is a blank page. Be honest about what is not there yet.
+SCRIPTORIUM is early - open and see: {{USER_NAME}} opens and saves .docx, .xlsx, .pptx and .pdf files, and each editor takes only its first few commands (describe lists them; a command not in the list is refused). Formulas do not calculate yet, and older .doc/.xls/.ppt files do not open yet. Be honest about what is not there yet.
 <!-- castle:scriptorium:end -->

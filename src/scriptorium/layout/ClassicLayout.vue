@@ -1,23 +1,36 @@
 <script setup>
 // Classic: the title bar ("Scriptorium · <editor>"), a ribbon of tab names and icon buttons, the page in
 // the middle and the chat on the right (the pick scriptorium-scroll-1). The formatting buttons are
-// placeholders until each editor lands; New, Open, Save, Undo and Redo work now.
+// placeholders until each editor lands; New, Open (with the recent files beside it), Save, Save as, Undo
+// and Redo work now.
 import { ref, watch } from 'vue'
 import { EDITORS, ribbonTabs } from '../room.js'
 import { icon } from '../icons.js'
 
 const props = defineProps({
   title: { type: String, required: true },
+  // the document's file name ("Report.docx", "Untitled"; a dot after it while unsaved)
+  file: { type: String, default: '' },
   editor: { type: String, required: true },
   badge: { type: String, default: '' },
   canUndo: { type: Boolean, default: false },
   canRedo: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   status: { type: String, default: '' },
-  // the recent files: Studio lists them; Classic opens them from Open
+  // the recent files: Studio lists them; Classic opens them from the menu beside Open
   recent: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['editor', 'new', 'open', 'save', 'undo', 'redo', 'recent'])
+const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent'])
+
+// the recent files' small menu
+const menu = ref(false)
+function pick(path) {
+  menu.value = false
+  emit('recent', path)
+}
+function leaveMenu(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) menu.value = false
+}
 
 const tab = ref('Home')
 watch(
@@ -56,6 +69,7 @@ const FORMAT = [
       <strong class="name">{{ title.split(' · ')[0] }}</strong>
       <span class="sep" aria-hidden="true"></span>
       <span class="editor-name">{{ title.split(' · ')[1] }}</span>
+      <span v-if="file" class="file" :title="file">{{ file }}</span>
       <nav class="editors" aria-label="Editors">
         <button v-for="e in EDITORS" :key="e.id" :class="{ on: e.id === editor }" :aria-pressed="e.id === editor" :title="e.what" @click="emit('editor', e.id)">{{ e.label }}</button>
       </nav>
@@ -69,8 +83,18 @@ const FORMAT = [
     <div class="ribbon" role="toolbar" :aria-label="`${tab} tools`">
       <div class="group">
         <button title="New" :disabled="busy" @click="emit('new')" v-html="icon('new', 20)"></button>
-        <button title="Open" :disabled="busy" @click="emit('open')" v-html="icon('open', 20)"></button>
-        <button title="Save" :disabled="busy" @click="emit('save')" v-html="icon('save', 20)"></button>
+        <button title="Open (Ctrl+O)" :disabled="busy" @click="emit('open')" v-html="icon('open', 20)"></button>
+        <span class="recent-menu" @focusout="leaveMenu" @keydown.esc.stop="menu = false">
+          <button class="narrow" title="Recent files" aria-haspopup="menu" :aria-expanded="menu" :disabled="busy" @click="menu = !menu">▾</button>
+          <ul v-if="menu" class="menu" role="menu" aria-label="Recent files">
+            <li v-for="f in recent.slice(0, 10)" :key="f.path" role="none">
+              <button role="menuitem" :title="f.path" @click="pick(f.path)"><span v-html="icon(f.editor, 16)"></span><span class="menu-name">{{ f.name }}</span></button>
+            </li>
+            <li v-if="!recent.length" class="menu-empty" role="none">No recent files yet.</li>
+          </ul>
+        </span>
+        <button title="Save (Ctrl+S)" :disabled="busy" @click="emit('save')" v-html="icon('save', 20)"></button>
+        <button title="Save as (Ctrl+Shift+S)" :disabled="busy" @click="emit('saveAs')" v-html="icon('saveAs', 20)"></button>
       </div>
       <div class="group">
         <button title="Undo (Ctrl+Z)" :disabled="busy || !canUndo" @click="emit('undo')" v-html="icon('undo', 20)"></button>
@@ -132,6 +156,63 @@ const FORMAT = [
 }
 .editor-name {
   color: var(--scr-muted);
+}
+.file {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.recent-menu {
+  position: relative;
+  display: inline-flex;
+}
+.ribbon button.narrow {
+  width: 18px;
+  margin-left: -2px;
+  font-size: 11px;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -40px;
+  z-index: 20;
+  min-width: 240px;
+  max-width: 360px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--scr-line);
+  border-radius: 12px;
+  background: rgba(16, 13, 44, 0.96);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  list-style: none;
+}
+.ribbon .menu button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.menu button > span:first-child {
+  display: inline-flex;
+  color: var(--scr-muted);
+}
+.menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-empty {
+  padding: 8px;
+  color: var(--scr-muted);
+  font-size: 13px;
 }
 .editors {
   display: flex;
