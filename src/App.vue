@@ -188,6 +188,14 @@ const roomFile = ref('')
 const memoryStamp = ref(0)
 // rooms the member switched off in Settings are not available (never removed)
 const rooms = ref({})
+// The top bar shows a room even while it is switched off, so its page may open (and be refused) before
+// the switch: a room switched on starts its kept-alive page afresh, which prepares its session again.
+const roomKeys = ref({})
+watch(rooms, (now, before) => {
+  for (const id of Object.keys(now ?? {})) {
+    if (now[id] !== false && (before ?? {})[id] === false) roomKeys.value = { ...roomKeys.value, [id]: (roomKeys.value[id] ?? 0) + 1 }
+  }
+})
 const barClock = ref({ enabled: false, format: '24h' })
 const usageCard = ref(true)
 // HOME's widgets as the member arranged them (WIDGETS): on or off, size, and places per theme
@@ -812,13 +820,13 @@ watch(settingsStamp, () => {
       <BrowserWindow v-if="browserOpens === 'castle' && browserOpened" v-show="active === 'browser'" embedded :visible="active === 'browser' && !settingsOpen && !sentinelOpen && !backupOpen" />
       <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" @settings="openSettings" @setup="openSetup" />
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
-      <StoryView v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />
-      <WorldsmithView v-show="active === 'worldsmith'" v-if="worldsmithOpened" :companion="companion" :cli="cli" :visible="active === 'worldsmith'" />
-      <ScriptoriumView v-show="active === 'scriptorium'" v-if="scriptoriumOpened" :layout="scriptoriumLayout" :companion="companion" :cli="cli" :visible="active === 'scriptorium'" />
+      <StoryView :key="`story-${roomKeys.story ?? 0}`" v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />
+      <WorldsmithView :key="`worldsmith-${roomKeys.worldsmith ?? 0}`" v-show="active === 'worldsmith'" v-if="worldsmithOpened" :companion="companion" :cli="cli" :visible="active === 'worldsmith'" />
+      <ScriptoriumView :key="`scriptorium-${roomKeys.scriptorium ?? 0}`" v-show="active === 'scriptorium'" v-if="scriptoriumOpened" :layout="scriptoriumLayout" :companion="companion" :cli="cli" :visible="active === 'scriptorium'" />
       <AppearanceView v-if="active === 'appearance'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
-      <StudioView v-show="active === 'studio'" v-if="studioOpened" :companion="companion" :stamp="memoryStamp" :visible="active === 'studio'" @keys="openKeys" />
-      <PhotoView v-show="active === 'photo'" v-if="photoOpened" :companion="companion" :cli="cli" :visible="active === 'photo'" />
-      <MusicStudioView v-show="active === 'music'" v-if="musicOpened" :companion="companion" :cli="cli" :visible="active === 'music'" @keys="openKeys" />
+      <StudioView :key="`studio-${roomKeys.studio ?? 0}`" v-show="active === 'studio'" v-if="studioOpened" :companion="companion" :stamp="memoryStamp" :visible="active === 'studio'" @keys="openKeys" />
+      <PhotoView :key="`photo-${roomKeys.photo ?? 0}`" v-show="active === 'photo'" v-if="photoOpened" :companion="companion" :cli="cli" :visible="active === 'photo'" />
+      <MusicStudioView :key="`music-${roomKeys.music ?? 0}`" v-show="active === 'music'" v-if="musicOpened" :companion="companion" :cli="cli" :visible="active === 'music'" @keys="openKeys" />
       <ThemeView v-if="active === 'theme'" :companion="companion" @changed="themeChanged" @show-chat="active = 'home'" />
       <MemoryRoom v-if="['diary', 'projects'].includes(active)" :room="active" :stamp="memoryStamp" :open-file="roomFile" />
       <LibraryView v-if="active === 'library'" :companion="companion" :stamp="memoryStamp" />
