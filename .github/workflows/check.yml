@@ -30,3 +30,6 @@ jobs:
       - run: npm run build
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: node src-tauri/resources/tools/test-helpers.mjs
+      # the WORLDSMITH memory helper is its own crate and Windows only
+      - if: runner.os == 'Windows'
+        run: cargo test --manifest-path worldsmith-helper/Cargo.toml

@@ -1,0 +1,39 @@
+# A worldsmith-helper-v* tag tests and builds the WORLDSMITH memory helper on Windows and publishes
+# worldsmith-helper.exe with its SHA-256 as a GitHub release (Castle and the Alice Keep fetch it).
+name: Worldsmith helper
+
+on:
+  push:
+    tags: ['worldsmith-helper-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: worldsmith-helper
+      - run: cargo test --manifest-path worldsmith-helper/Cargo.toml
+      - run: cargo build --release --manifest-path worldsmith-helper/Cargo.toml
+      - name: SHA-256
+        shell: pwsh
+        run: |
+          Copy-Item worldsmith-helper/target/release/worldsmith-helper.exe worldsmith-helper.exe
+          $hash = (Get-FileHash worldsmith-helper.exe -Algorithm SHA256).Hash.ToLower()
+          # lowercase hex, two spaces, the file name (the sha256sum format); no BOM, one LF
+          [System.IO.File]::WriteAllText("$PWD/worldsmith-helper.exe.sha256", "$hash  worldsmith-helper.exe`n")
+          Get-Content worldsmith-helper.exe.sha256
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release create "$tag" worldsmith-helper.exe worldsmith-helper.exe.sha256 `
+            --title "Worldsmith helper $tag" `
+            --notes "The memory helper for WORLDSMITH (your own offline single-player games). Fetched by MemoryCore Castle and the Alice Keep on first use; check its SHA-256."
