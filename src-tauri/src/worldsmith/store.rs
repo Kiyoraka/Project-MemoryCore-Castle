@@ -1,6 +1,7 @@
 //! WORLDSMITH's memory of each game, in the member's own database (migration 034): the games, the
 //! values found in them (how to find them again, where they sit on the screenshot), the recipes the
-//! companion proposed (each waits for the member's Keep) and a short line per search.
+//! companion proposed (each waits for the member's Keep), a short line per search, and (migration 035)
+//! the lines Translate read in each game, so its names stay the same.
 
 use mysql::prelude::Queryable;
 use mysql::Conn;
@@ -104,6 +105,47 @@ pub fn session(c: &mut Conn, game: u64, steps: &str) -> Result<(), String> {
     c.exec_drop("INSERT INTO worldsmith_sessions (game_id, steps) VALUES (?, ?)", (game, steps)).map_err(sql)
 }
 
+/// The game remembered for this exe (the newest when it was patched), without remembering it. Read only.
+pub fn game_id_by_exe(c: &mut Conn, exe: &str) -> Result<Option<u64>, String> {
+    c.exec_first("SELECT id FROM worldsmith_games WHERE exe = ? ORDER BY last_played DESC, id DESC LIMIT 1", (exe,)).map_err(sql)
+}
+
+/// The most text and translation a remembered line keeps (the table's own widths).
+pub const LINE_SOURCE_MAX: usize = 300;
+pub const LINE_TRANSLATED_MAX: usize = 400;
+
+/// A line as it is kept: trimmed and cut to its width; None when either side is empty. Pure.
+pub fn line_kept(source: &str, translated: &str) -> Option<(String, String)> {
+    let source: String = source.trim().chars().take(LINE_SOURCE_MAX).collect();
+    let translated: String = translated.trim().chars().take(LINE_TRANSLATED_MAX).collect();
+    (!source.is_empty() && !translated.is_empty()).then_some((source, translated))
+}
+
+/// The lines Translate read in this game before, newest first, so names stay the same next time.
+pub fn remembered_lines(c: &mut Conn, game: u64, lang: &str, limit: usize) -> Result<Vec<(String, String)>, String> {
+    c.exec_map(
+        "SELECT source, translated FROM worldsmith_lines WHERE game_id = ? AND lang = ? ORDER BY seen_at DESC, id DESC LIMIT ?",
+        (game, lang, limit as u64),
+        |(source, translated): (String, String)| (source, translated),
+    )
+    .map_err(sql)
+}
+
+/// The lines just read, kept for the game (a line read again takes its newest translation).
+pub fn remember_lines(c: &mut Conn, game: u64, lang: &str, lines: &[(String, String)]) -> Result<(), String> {
+    let lang: String = lang.trim().chars().take(10).collect();
+    let rows: Vec<(String, String)> = lines.iter().filter_map(|(s, t)| line_kept(s, t)).collect();
+    if rows.is_empty() {
+        return Ok(());
+    }
+    c.exec_batch(
+        "INSERT INTO worldsmith_lines (game_id, source, translated, lang) VALUES (?, ?, ?, ?) \
+         ON DUPLICATE KEY UPDATE translated = VALUES(translated), seen_at = CURRENT_TIMESTAMP",
+        rows.iter().map(|(s, t)| (game, s, t, &lang)),
+    )
+    .map_err(sql)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameRow {
@@ -184,5 +226,14 @@ mod tests {
         assert!(check_share("1.2").is_err() && check_share("NaN").is_err() && check_share("-0.1").is_err());
         assert_eq!(check_one("freeze", &ACTIONS, "--action").unwrap(), "freeze");
         assert_eq!(check_one("x9", &TRANSFORMS, "--transform").unwrap_err(), "--transform is one of: x10, x100, neg.");
+    }
+
+    #[test]
+    fn a_remembered_line_fits_its_columns_and_is_never_empty() {
+        assert_eq!(line_kept("  Shop ", " Kedai "), Some(("Shop".into(), "Kedai".into())));
+        assert_eq!(line_kept("", "x"), None);
+        assert_eq!(line_kept("x", "  "), None);
+        let (s, t) = line_kept(&"あ".repeat(400), &"b".repeat(500)).unwrap();
+        assert_eq!((s.chars().count(), t.chars().count()), (LINE_SOURCE_MAX, LINE_TRANSLATED_MAX));
     }
 }

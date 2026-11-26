@@ -163,7 +163,7 @@ async fn apply(app: &AppHandle, entries: &[WorldScreen]) -> Result<(), String> {
 
 /// A window made for another screen has no start-up screen: this marks the page, before it first
 /// paints, so index.html's CSS keeps the screen from flashing there.
-const NO_START_SCREEN: &str = "(function(){var m=function(){var d=document.documentElement;if(d){d.setAttribute('data-castle-bare','');}};m();new MutationObserver(m).observe(document,{childList:true});})();";
+pub const NO_START_SCREEN: &str = "(function(){var m=function(){var d=document.documentElement;if(d){d.setAttribute('data-castle-bare','');}};m();new MutationObserver(m).observe(document,{childList:true});})();";
 
 /// The WORLD room's whole list of screens: saved, then every window made to match.
 #[tauri::command]

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What Castle's windows may ask of its core: the main desktop and the world windows on other screens",
-  "windows": ["main", "world-*"],
+  "description": "What Castle's windows may ask of its core: the main desktop, the world windows on other screens and WORLDSMITH's Translate overlay",
+  "windows": ["main", "world-*", "worldsmith-overlay"],
   "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

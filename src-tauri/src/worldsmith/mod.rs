@@ -7,16 +7,21 @@
 //! - `pipe`: the helper's life (its `serve` starts only while the room is open and ends with the room,
 //!   its switch or Castle) and the page's own calls (games, attach, a lock), through the same client
 //!   verbs the Alice Keep uses.
+//! - `translate` and `overlay`: Translate, a Lens that only looks at the screen - the game's on-screen
+//!   words read from its picture by Claude Code and laid over the game in a click-through window (F10,
+//!   or Auto each time the picture holds still after moving).
 //!
 //! The helper refuses anti-cheat and online games at attach; Castle only passes on its one line.
 
 pub mod companion;
 pub mod helper;
 pub mod keys;
+pub mod overlay;
 pub mod page;
 pub mod pipe;
 pub mod room;
 pub mod store;
+pub mod translate;
 
 /// The room's id (Settings > Rooms, the launcher, `rooms::need`).
 pub const ROOM: &str = "worldsmith";

@@ -19,7 +19,7 @@ pub const HOST: &str = "127.0.0.1";
 pub const ENV_KEYS: [&str; 5] = ["MEMORY_DB_HOST", "MEMORY_DB_PORT", "MEMORY_DB_NAME", "MEMORY_DB_USER", "MEMORY_DB_PASSWORD"];
 
 /// The migrations, in order. A released file is never edited; a change is a new entry.
-pub const MIGRATIONS: [(&str, &str); 34] = [
+pub const MIGRATIONS: [(&str, &str); 35] = [
     ("001_core", include_str!("../resources/schema/001_core.sql")),
     ("002_imported_files", include_str!("../resources/schema/002_imported_files.sql")),
     ("003_memory_skills", include_str!("../resources/schema/003_memory_skills.sql")),
@@ -54,6 +54,7 @@ pub const MIGRATIONS: [(&str, &str); 34] = [
     ("032_browser_import", include_str!("../resources/schema/032_browser_import.sql")),
     ("033_browser_searches", include_str!("../resources/schema/033_browser_searches.sql")),
     ("034_worldsmith", include_str!("../resources/schema/034_worldsmith.sql")),
+    ("035_worldsmith_lines", include_str!("../resources/schema/035_worldsmith_lines.sql")),
 ];
 
 /// How to reach one database.
@@ -331,6 +332,9 @@ mod tests {
         assert!(MIGRATIONS[33].0 == "034_worldsmith" && MIGRATIONS[33].1.starts_with("CREATE TABLE worldsmith_games"), "no comment before the first statement");
         assert_eq!(statements(MIGRATIONS[33].1).len(), 4, "games, values, recipes, sessions");
         assert!(MIGRATIONS[33].1.contains("UNIQUE KEY ux_worldsmith_values_game_label (game_id, label)"), "one value per label per game");
+        assert!(MIGRATIONS[34].0 == "035_worldsmith_lines" && MIGRATIONS[34].1.starts_with("CREATE TABLE worldsmith_lines"), "no comment before the first statement");
+        assert_eq!(statements(MIGRATIONS[34].1).len(), 1, "one statement; its comment comes after and is dropped");
+        assert!(MIGRATIONS[34].1.contains("UNIQUE KEY ux_worldsmith_lines_game_source_lang (game_id, source, lang)"), "one translation per line per game and language");
     }
 
     #[test]

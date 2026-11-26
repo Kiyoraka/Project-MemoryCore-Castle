@@ -5,6 +5,7 @@
 
 use super::helper;
 use crate::settings::SettingsStore;
+use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -13,14 +14,16 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
 /// The verbs the page itself may send; the room's session calls the helper on its own.
-pub const VERBS: [&str; 7] = ["games", "attach", "detach", "state", "freeze", "unfreeze", "shot"];
+pub const VERBS: [&str; 9] = ["games", "attach", "detach", "state", "freeze", "unfreeze", "shot", "caps", "thumb"];
 const TYPES: [&str; 4] = ["i32", "i64", "f32", "f64"];
 
-/// The helper's `serve` while the room is open, and whether F9 is held (only while a game is attached).
+/// The helper's `serve` while the room is open, and whether F9 and F10 are held (only while a game is
+/// attached).
 #[derive(Default)]
 pub struct Serve {
     child: Mutex<Option<Child>>,
     pub f9_held: AtomicBool,
+    pub f10_held: AtomicBool,
 }
 
 fn is_addr(s: &str) -> bool {
@@ -38,7 +41,7 @@ pub fn call_args(verb: &str, args: &[String]) -> Result<Vec<String>, String> {
     }
     let a: Vec<&str> = args.iter().map(|s| s.trim()).collect();
     let ok = match (verb, a.as_slice()) {
-        ("games" | "detach" | "state" | "shot", []) => true,
+        ("games" | "detach" | "state" | "shot" | "caps" | "thumb", []) => true,
         ("attach", [pid]) => !pid.is_empty() && pid.len() <= 10 && pid.chars().all(|c| c.is_ascii_digit()),
         ("freeze", [addr, kind, value]) => is_addr(addr) && TYPES.contains(kind) && is_number(value),
         ("unfreeze", [addr]) => is_addr(addr),
@@ -90,8 +93,9 @@ pub fn running(serve: &Serve) -> bool {
 }
 
 /// The room closed, its switch went off, or Castle ends: the game is let go (every frozen value stops),
-/// F9 is released and `serve` ends.
+/// F9 and F10 are released, Translate's Auto stops and its overlay goes, and `serve` ends.
 pub fn stop(app: &AppHandle) {
+    super::translate::stop(app);
     let serve = app.state::<Serve>();
     let child = serve.child.lock().unwrap().take();
     if let Some(mut child) = child {
@@ -153,7 +157,10 @@ pub async fn worldsmith_call(app: AppHandle, verb: String, args: Vec<String>) ->
                 answer["note"] = Value::String(note);
             }
         }
-        "detach" => super::keys::release_f9(&app),
+        "detach" => {
+            super::keys::release_f9(&app);
+            super::translate::stop(&app);
+        }
         _ => {}
     }
     Ok(answer)
@@ -171,15 +178,57 @@ pub fn in_shots(path: &Path, folder: &Path) -> bool {
     path.starts_with(&format!("{}\\", folder.trim_end_matches('\\'))) && path.ends_with(".png") && !path.contains("..")
 }
 
-/// The game's picture now (F9 or the page's Screenshot button): its path, for the canvas and the chat.
-/// The page may show it (the asset scope allows that one file).
-pub fn shot(app: &AppHandle) -> Result<String, String> {
+/// One call the helper takes with no arguments (`state`, `thumb`, `caps`), from Castle itself.
+pub fn ask(verb: &str) -> Result<Value, String> {
+    let args = call_args(verb, &[])?;
+    run(&helper::ready()?, &args)
+}
+
+/// Where the game's window sits on the screen, in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// The `rect` of the helper's answer, when it gave one that makes sense. Pure.
+pub fn rect_of(answer: &Value) -> Option<Rect> {
+    let r = answer.get("rect")?;
+    let n = |k: &str| r.get(k).and_then(Value::as_f64).filter(|v| v.is_finite()).map(f64::round);
+    let (x, y, w, h) = (n("x")?, n("y")?, n("w")?, n("h")?);
+    let fits = |v: f64| v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX);
+    if !fits(x) || !fits(y) || !(1.0..=65_535.0).contains(&w) || !(1.0..=65_535.0).contains(&h) {
+        return None;
+    }
+    Some(Rect { x: x as i32, y: y as i32, w: w as u32, h: h as u32 })
+}
+
+/// The game's picture as the helper saved it: its path (always in the shots folder), how it was taken
+/// and where the window sits (None from an older helper that does not say).
+pub struct Placed {
+    pub path: String,
+    pub via: String,
+    pub rect: Option<Rect>,
+}
+
+/// The helper takes the game's picture; only one in its own shots folder is ever taken further.
+pub fn shot_placed() -> Result<Placed, String> {
     let file = helper::ready()?;
     let answer = run(&file, &["shot".to_string()])?;
     let path = answer.get("path").and_then(Value::as_str).map(str::to_string).ok_or_else(|| "The Worldsmith helper gave no picture.".to_string())?;
     if !in_shots(Path::new(&path), &shots_folder()) {
         return Err("The Worldsmith helper saved its picture somewhere else, so it was not shown.".into());
     }
+    let via = answer.get("via").and_then(Value::as_str).unwrap_or("").chars().take(40).collect();
+    Ok(Placed { path, via, rect: rect_of(&answer) })
+}
+
+/// The game's picture now (F9 or the page's Screenshot button): its path, for the canvas and the chat.
+/// The page may show it (the asset scope allows that one file).
+pub fn shot(app: &AppHandle) -> Result<String, String> {
+    let path = shot_placed()?.path;
     let _ = app.asset_protocol_scope().allow_file(&path);
     Ok(path)
 }
@@ -204,6 +253,20 @@ mod tests {
         assert!(call_args("freeze", &s(&["0x1A2F40", "u8", "1"])).is_err());
         assert!(call_args("freeze", &s(&["0x1A2F40", "f32", "NaN"])).is_err());
         assert!(call_args("games", &s(&["extra"])).is_err());
+        assert_eq!(call_args("caps", &[]).unwrap(), s(&["caps"]), "what the helper can capture, no game needed");
+        assert_eq!(call_args("thumb", &[]).unwrap(), s(&["thumb"]));
+        assert!(call_args("thumb", &s(&["64"])).is_err() && call_args("caps", &s(&["x"])).is_err());
+    }
+
+    #[test]
+    fn the_games_place_is_read_only_when_it_makes_sense() {
+        let rect = |v: Value| rect_of(&serde_json::json!({ "ok": true, "rect": v }));
+        assert_eq!(rect(serde_json::json!({"x": -8, "y": 30, "w": 1920, "h": 1080})), Some(Rect { x: -8, y: 30, w: 1920, h: 1080 }));
+        assert_eq!(rect(serde_json::json!({"x": 10.4, "y": 0, "w": 800.6, "h": 600})), Some(Rect { x: 10, y: 0, w: 801, h: 600 }));
+        assert_eq!(rect(serde_json::json!({"x": 0, "y": 0, "w": 0, "h": 600})), None, "a window with no width is nowhere");
+        assert_eq!(rect(serde_json::json!({"x": 0, "y": 0, "w": 800})), None);
+        assert_eq!(rect(serde_json::json!({"x": "0", "y": 0, "w": 800, "h": 600})), None);
+        assert_eq!(rect_of(&serde_json::json!({ "ok": true, "path": "a.png" })), None, "an older helper does not say");
     }
 
     #[test]

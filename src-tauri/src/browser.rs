@@ -1342,7 +1342,7 @@ mod tests {
             let cap: serde_json::Value = serde_json::from_str(file).unwrap();
             let named: Vec<&str> = ["windows", "webviews"].iter().flat_map(|k| cap[k].as_array().into_iter().flatten()).filter_map(|v| v.as_str()).collect();
             for label in named {
-                let known = ["main", "world-*", UI, "browser-out-*", "browser-ghost-*"];
+                let known = ["main", "world-*", UI, "browser-out-*", "browser-ghost-*", crate::worldsmith::overlay::LABEL];
                 assert!(known.contains(&label), "a capability names {label}: a page or pop-up could reach Castle's core");
                 assert!(!label.starts_with("browser-tab") && !label.starts_with("browser-popup"));
             }
