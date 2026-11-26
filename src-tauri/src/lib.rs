@@ -865,6 +865,8 @@ pub fn run() {
                 });
             }
             app.manage(store);
+            // BROWSER's tabs as the member left them wait for the browser to come up (S-1126-4)
+            browser_session::start(app.handle());
             // the browser's downloads list, from the settings folder
             downloads::start(app.handle(), config.clone());
             let at_sign_in = startup::is_sign_in_launch(std::env::args());
@@ -961,8 +963,14 @@ pub fn run() {
                 api.prevent_exit();
                 tray::quit(app);
             }
+            // Castle is really leaving: the windows closing on the way out never change the tabs that
+            // come back (a code None on macOS was turned into the question above, not an exit)
+            if let RunEvent::ExitRequested { code: Some(_), .. } = &event {
+                browser_session::leave();
+            }
             // The companion's sessions belong to Castle: when Castle ends, so do they.
             if let RunEvent::Exit = event {
+                browser_session::leave();
                 session::end_all(app);
                 dev::end_all(app);
                 db::stop_with_castle(app);

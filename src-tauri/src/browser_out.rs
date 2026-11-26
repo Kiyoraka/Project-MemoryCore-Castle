@@ -317,8 +317,9 @@ fn watch(app: &AppHandle, window: &WebviewWindow) {
 /// again (the phone layout is for three or four side by side at home). Returns the window's label.
 fn pop_out(app: &AppHandle, ids: &[u32], at_cursor: bool) -> Result<String, String> {
     let now = browser::tabs(app);
-    // only tabs with a page move: a new tab's page is Castle's own and stays at home
-    let ids: Vec<u32> = movable(&now.list, ids, HOME).into_iter().filter(|id| app.get_webview(&tab_label(*id)).is_some()).collect();
+    // only tabs with a page move: a new tab's page is Castle's own and stays at home (a tab brought
+    // back after a restart gets its page now)
+    let ids: Vec<u32> = movable(&now.list, ids, HOME).into_iter().filter(|id| browser::ensure_page(app, *id).is_some()).collect();
     if ids.is_empty() {
         return Err("That tab has no page to move - open a page in it first.".into());
     }
@@ -638,8 +639,8 @@ pub async fn browser_drag_start(app: AppHandle, ids: Vec<u32>, from: String) -> 
         return Err("That is not a browser window.".into());
     }
     let now = browser::tabs(&app);
-    // only tabs with a page can move: a new tab's page is Castle's own
-    let ids: Vec<u32> = movable(&now.list, &ids, &from).into_iter().filter(|id| app.get_webview(&tab_label(*id)).is_some()).collect();
+    // only tabs with a page can move: a new tab's page is Castle's own (a tab brought back gets its page now)
+    let ids: Vec<u32> = movable(&now.list, &ids, &from).into_iter().filter(|id| browser::ensure_page(&app, *id).is_some()).collect();
     let moving: Vec<&Tab> = ids.iter().filter_map(|id| now.list.iter().find(|t| t.id == *id)).collect();
     let Some(first) = moving.first() else { return Err("That tab has no page to move - open a page in it first.".into()) };
     let round = DRAG_ROUND.fetch_add(1, Ordering::Relaxed) + 1;

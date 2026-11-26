@@ -84,6 +84,7 @@ pub fn quit(app: &AppHandle) {
             .room_on("automations"),
         active,
     ) else {
+        crate::browser_session::leave();
         app.exit(0);
         return;
     };
@@ -99,6 +100,7 @@ pub fn quit(app: &AppHandle) {
         ))
         .show(move |quit| {
             if quit {
+                crate::browser_session::leave();
                 handle.exit(0);
             }
         });

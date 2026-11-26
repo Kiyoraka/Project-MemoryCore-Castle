@@ -153,7 +153,9 @@ pub fn leave() {
     LEAVING.store(true, Ordering::SeqCst);
 }
 
-/// Castle stays after all (an update that failed to start): keeping goes on.
+/// Castle stays after all (an update that failed to start): keeping goes on. Only the official build
+/// updates itself, so a member's own build never calls it.
+#[cfg_attr(not(feature = "official"), allow(dead_code))]
 pub fn stay() {
     LEAVING.store(false, Ordering::SeqCst);
 }

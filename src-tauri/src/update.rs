@@ -169,10 +169,12 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
 async fn install(app: &AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|_| "Updates could not be started.".to_string())?;
     let update = updater.check().await.map_err(|_| "Updates could not be checked.".to_string())?.ok_or("Castle is already up to date.")?;
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|_| "The update could not be installed. Castle stays as it is.".to_string())?;
+    // the installer may end Castle before any exit event: the tabs are kept as they stand now
+    crate::browser_session::leave();
+    if update.download_and_install(|_, _| {}, || {}).await.is_err() {
+        crate::browser_session::stay();
+        return Err("The update could not be installed. Castle stays as it is.".to_string());
+    }
     app.restart();
 }
 

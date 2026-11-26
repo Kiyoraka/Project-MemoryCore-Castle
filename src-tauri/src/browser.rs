@@ -379,6 +379,8 @@ pub(crate) fn tell(app: &AppHandle) {
     let now = tabs(app);
     tell_unread(app, browser_tabs::unread_summary(&now));
     crate::browser_out::retitle(app, &now.list);
+    // the tabs kept as they change (S-1126-4), so a close, a crash or an update brings them back
+    crate::browser_session::keep(app, &now);
     emit_browsers(app, STATE_EVENT, now);
 }
 
@@ -400,6 +402,10 @@ fn tell_unread(app: &AppHandle, summary: (u32, String)) {
 /// fitted again).
 fn window(app: &AppHandle) -> Result<Window, String> {
     start_once(app);
+    // the tabs the member left (a restart, the window closed, Browser opens changed) come back first
+    if crate::browser_session::resume(app) {
+        tell(app);
+    }
     if in_castle(app) {
         // the room inside Castle: Castle comes forward and turns to BROWSER
         let main = app.get_window("main").ok_or("Castle's window is not open.")?;
@@ -455,6 +461,8 @@ fn window(app: &AppHandle) -> Result<Window, String> {
         WindowEvent::Destroyed => {
             // the home's pages went with the window; tabs in windows of their own stay open
             if !in_castle(&events) {
+                // the member closed the window, not the tabs: they come back when it opens again
+                crate::browser_session::pause(&events, crate::browser_session::Pause::Home);
                 let gone = events.state::<Browser>().0.lock().unwrap().keep_out_only();
                 for id in gone {
                     crate::browser_native::forget(&tab_label(id));
@@ -595,7 +603,9 @@ fn layout_window(app: &AppHandle, window: &str) {
 /// Each page shown at its box or hidden, as `show_plan` says.
 fn apply_plan(app: &AppHandle, plan: Vec<(u32, Option<(f64, f64, f64, f64)>)>) {
     for (id, rect) in plan {
-        let Some(view) = app.get_webview(&tab_label(id)) else { continue };
+        // a tab brought back gets its page the first time it is shown, never all at once
+        let view = if rect.is_some() { ensure_page(app, id) } else { app.get_webview(&tab_label(id)) };
+        let Some(view) = view else { continue };
         match rect {
             Some((x, y, pw, ph)) => {
                 let _ = view.set_bounds(Rect { position: LogicalPosition::new(x, y).into(), size: LogicalSize::new(pw, ph).into() });
@@ -666,6 +676,20 @@ fn phone_layouts(app: &AppHandle, tabs: &Tabs) {
         }
     }
     tell(app);
+}
+
+/// The page of tab `id`, made now when the tab has an address but no page yet: a tab brought back after
+/// a restart or a closed window (browser_session.rs) loads only when it is first shown or used. None
+/// for a tab with no address (Castle's own new-tab page) or one whose window is not open.
+pub(crate) fn ensure_page(app: &AppHandle, id: u32) -> Option<tauri::Webview> {
+    if let Some(view) = app.get_webview(&tab_label(id)) {
+        return Some(view);
+    }
+    let tab = tabs(app).list.into_iter().find(|t| t.id == id)?;
+    let url = tab.url.filter(|u| !u.is_empty() && tab.danger.is_none())?;
+    let window = if crate::browser_out::is_out(&tab.window) { app.get_window(&tab.window)? } else { host(app)? };
+    add_page(app, &window, id, &url).ok()?;
+    app.get_webview(&tab_label(id))
 }
 
 /// The web page for tab `id`, made the first time the tab gets an address.
@@ -934,7 +958,9 @@ pub async fn browser_open(app: AppHandle, url: Option<String>, private: Option<b
 }
 
 #[tauri::command]
-pub fn browser_state(state: State<'_, Browser>) -> Tabs {
+pub fn browser_state(app: AppHandle, state: State<'_, Browser>) -> Tabs {
+    // the toolbar's first look: the tabs paused at start-up or by a closed window come back first
+    crate::browser_session::resume(&app);
     state.0.lock().unwrap().clone()
 }
 
@@ -1039,7 +1065,7 @@ pub async fn browser_step(app: AppHandle, step: String, id: Option<u32>) -> Resu
         id.filter(|i| kept.list.iter().any(|t| t.id == *i)).or_else(|| kept.current().map(|t| t.id))
     };
     let Some(id) = chosen else { return Ok(()) };
-    let Some(view) = app.get_webview(&tab_label(id)) else { return Ok(()) };
+    let Some(view) = ensure_page(&app, id) else { return Ok(()) };
     let done = match step.as_str() {
         "back" => view.eval("history.back()"),
         "forward" => view.eval("history.forward()"),
@@ -1125,6 +1151,8 @@ pub async fn browser_show(app: AppHandle, placed: Vec<Placed>, window: Option<St
 /// Browser opens changed, and the pages move to their new home at the next open.
 #[tauri::command]
 pub async fn browser_close_all(app: AppHandle) -> Result<(), String> {
+    // the pages move to their new home, the tabs are not forgotten: they come back at the next open
+    crate::browser_session::pause(&app, crate::browser_session::Pause::All);
     let done = app.clone();
     tauri::async_runtime::spawn_blocking(move || keep_sign_ins(&done)).await.ok();
     let ids: Vec<u32> = tabs(&app).list.iter().map(|t| t.id).collect();
