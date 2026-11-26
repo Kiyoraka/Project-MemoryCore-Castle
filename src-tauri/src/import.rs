@@ -69,6 +69,8 @@ pub struct Bundle {
     pub traits: Option<String>,
     /// MY PROFILE's readings (profile/readings.json), by path
     pub profile: Option<String>,
+    /// the approved plans written out by moving back to files (plans/*.md with the header), by path
+    pub plans: Vec<String>,
 }
 
 /// What the member is shown before and after moving in.
@@ -83,6 +85,8 @@ pub struct Counts {
     pub memory: usize,
     /// skills kept in the database (their files stay on disk too)
     pub skills: usize,
+    /// approved project plans
+    pub plans: usize,
     pub skipped: Vec<String>,
 }
 
@@ -95,6 +99,7 @@ impl Bundle {
             projects: self.projects.len(),
             memory: self.memory.len() + usize::from(self.session.is_some()),
             skills: 0,
+            plans: self.plans.len(),
             skipped: self.skipped.clone(),
         }
     }
@@ -362,12 +367,30 @@ fn collect_memory(folder: &Path, bundle: &mut Bundle) {
     }
 }
 
+/// The approved plans "Move back to files" wrote: `plans/*.md` that open with the castle-plan
+/// header and still hold a box to walk. Any other file there is the member's own, never taken.
+fn collect_plans(folder: &Path, bundle: &mut Bundle) {
+    let mut files: Vec<PathBuf> = sorted(&folder.join("plans")).into_iter().filter(|p| is_md(p)).collect();
+    // in the order they were kept (the id before the title), so they are kept in it again
+    files.sort_by_key(|p| stem(p).split('-').next().and_then(|n| n.parse::<u64>().ok()).unwrap_or(u64::MAX));
+    for path in files {
+        let headed = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| crate::plans::read_plan_header(&text).map(|(_, rest)| crate::plans::parse_plan(rest).boxes() > 0))
+            .unwrap_or(false);
+        if headed && bundle.take(folder, &path) {
+            bundle.plans.push(relative(folder, &path));
+        }
+    }
+}
+
 pub fn collect(folder: &Path) -> Bundle {
     let mut bundle = Bundle::default();
     collect_diary(folder, &mut bundle);
     collect_memory(folder, &mut bundle);
     collect_reminders(folder, &mut bundle);
     collect_projects(folder, &mut bundle);
+    collect_plans(folder, &mut bundle);
     let traits = folder.join(crate::traits::MARKDOWN_FILE);
     if traits.is_file() && bundle.take(folder, &traits) {
         bundle.traits = Some(crate::traits::MARKDOWN_FILE.to_string());
@@ -463,6 +486,19 @@ pub fn load(conn: &mut Conn, bundle: &Bundle) -> Result<(), String> {
     if let Some(path) = &bundle.profile {
         for reading in crate::profile::from_json(bundle.body_of(path).unwrap_or_default()) {
             crate::profile::save_in(&mut tx, &reading).map_err(|_| "Your profile readings could not be kept, so nothing was changed.".to_string())?;
+        }
+    }
+    // each plan copied in again as it was approved, then its boxes, status and times put back
+    for path in &bundle.plans {
+        let Some((meta, rendered)) = bundle.body_of(path).and_then(crate::plans::read_plan_header) else {
+            continue;
+        };
+        let refused = |e: String| format!("The plan {path} could not be kept ({}), so nothing was changed.", e.trim_end_matches('.'));
+        let text = crate::plans::approved_text(rendered, &meta);
+        let (id, _, duplicate) = crate::plans::copy_plan_in(&mut tx, &meta.folder, &text, meta.source.as_deref()).map_err(refused)?;
+        // a plan the database already holds keeps its own progress
+        if !duplicate {
+            crate::plans::restore_states(&mut tx, id, &crate::plans::states_from_file(rendered, &meta), &meta.status, &meta.approved).map_err(refused)?;
         }
     }
     let diary_there: Option<u64> = tx.query_first("SELECT COUNT(*) FROM diary_entries WHERE source_file IS NOT NULL").map_err(sql("Counting the diary"))?;
@@ -727,6 +763,105 @@ mod tests {
         // APPEARANCE's notes are taken in by move_in (appearance_db::take_in), never by this
         assert!(root.join("appearance/companion.md").is_file());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn only_plan_files_that_carry_the_header_are_collected() {
+        let root = rich("plans");
+        let meta = crate::plans::PlanMeta { folder: "D:/Work/Castle".into(), status: "open".into(), approved: "2026-11-19 22:01:05".into(), ..Default::default() };
+        let small = crate::plans::plan_file(meta.clone(), "# Small\n- [ ] one\n- [x] two\n");
+        let w = |rel: &str, text: &str| std::fs::write(root.join(rel), text).unwrap();
+        std::fs::create_dir_all(root.join("plans")).unwrap();
+        w("plans/10-small.md", &small);
+        w("plans/2-first.md", &crate::plans::plan_file(meta.clone(), "# First\n- [ ] a\n"));
+        // a headed file with no box left to walk, and the member's own notes: never taken
+        w("plans/3-words-only.md", &crate::plans::plan_file(meta, "# Words only\n"));
+        w("plans/notes.md", "# My notes\n- [ ] not a kept plan\n");
+        let bundle = collect(&root);
+        // in the order they were kept: the id before the title
+        assert_eq!(bundle.plans, vec!["plans/2-first.md", "plans/10-small.md"]);
+        assert_eq!(bundle.counts().plans, 2);
+        assert_eq!(bundle.body_of("plans/10-small.md"), Some(small.as_str()));
+        assert!(bundle.body_of("plans/notes.md").is_none() && bundle.body_of("plans/3-words-only.md").is_none());
+        assert!(!bundle.skipped.iter().any(|s| s.starts_with("plans/")));
+        // the plans go with the rest after moving in; the member's own files stay
+        delete_originals(&root, &bundle).unwrap();
+        assert!(!root.join("plans/10-small.md").exists() && !root.join("plans/2-first.md").exists());
+        assert!(root.join("plans/notes.md").is_file() && root.join("plans/3-words-only.md").is_file());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Against a real server, on demand (CASTLE_TEST_DB="<port>:<admin>:<password>"): approved
+    /// plans moved back to files and in again keep their text, ticks, flags, notes, times and
+    /// status. Uses and drops its own database.
+    #[test]
+    #[ignore]
+    fn live_plans_move_out_and_back_in() {
+        use crate::plans::{copy_plan, mark, Which};
+        let spec = std::env::var("CASTLE_TEST_DB").expect("set CASTLE_TEST_DB");
+        let mut parts = spec.splitn(3, ':');
+        let port: u16 = parts.next().unwrap().parse().unwrap();
+        let (admin, admin_pw) = (parts.next().unwrap().to_string(), parts.next().unwrap_or("").to_string());
+        let access = crate::memdb::provision(port, &admin, &admin_pw, &format!("Plans Move Test {}", std::process::id())).unwrap();
+        let mut conn = crate::memdb::open(&access).unwrap();
+        crate::memdb::migrate(&mut conn).unwrap();
+        let root = std::env::temp_dir().join(format!("castle-import-plans-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let folder = "D:/Work/Castle";
+        let body = "# Small plan\n## Phase 1: Start\n- [ ] Task 1.1 One\n  - detail\n- [ ] Seal\n- [x] Task 1.2 Two\n- [ ] Task 1.3 Three\n```\n- [ ] example\n```\n";
+        let (id, ..) = copy_plan(&mut conn, folder, body, Some("C:/plans/small.md")).unwrap();
+        mark(&mut conn, folder, Some(id), Which::Ordinal(2), "done", Some("went well")).unwrap();
+        mark(&mut conn, folder, Some(id), Which::Ordinal(4), "carried", Some("later")).unwrap();
+        mark(&mut conn, folder, Some(id), Which::Ordinal(5), "flagged", Some("needs the key --> soon")).unwrap();
+        conn.exec_drop("UPDATE project_plan_items SET done_at = '2026-11-20 09:15:00' WHERE plan_id = ? AND ordinal = 2", (id,)).unwrap();
+        conn.exec_drop("UPDATE project_plans SET approved_at = '2026-11-19 22:01:05' WHERE id = ?", (id,)).unwrap();
+        let (old, ..) = copy_plan(&mut conn, "D:/Work/Old", "# Old plan\n- [x] done long ago\n", None).unwrap();
+        conn.exec_drop("UPDATE project_plans SET status = 'archived' WHERE id = ?", (old,)).unwrap();
+
+        type PlanRow = (String, String, Option<String>, String, String, String, String, Option<String>);
+        type ItemRow = (String, u32, String, String, String, Option<String>, Option<String>);
+        let snapshot = |conn: &mut Conn| -> (Vec<PlanRow>, Vec<ItemRow>) {
+            let plans = conn
+                .query("SELECT folder, title, phase, status, DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s'), body, plan_key, source_file FROM project_plans ORDER BY approved_at, title")
+                .unwrap();
+            let items = conn
+                .query(
+                    "SELECT p.title, i.ordinal, i.kind, i.text, i.state, i.note, DATE_FORMAT(i.done_at, '%Y-%m-%d %H:%i:%s') \
+                     FROM project_plan_items i JOIN project_plans p ON p.id = i.plan_id ORDER BY p.title, i.ordinal",
+                )
+                .unwrap();
+            (plans, items)
+        };
+        let before = snapshot(&mut conn);
+        assert_eq!(before.0.len(), 2);
+
+        crate::memdb::write_env(&root, &access).unwrap();
+        let line = move_out(&mut conn, &root).unwrap();
+        assert!(line.starts_with("MOVED OUT ") && line.contains(", 2 plan(s) -> "), "{line}");
+        let file = std::fs::read_to_string(root.join(format!("plans/{id}-small-plan.md"))).unwrap();
+        assert!(file.starts_with("<!-- castle-plan {") && file.contains("\n# Small plan\n## Phase 1: Start\n- [x] Task 1.1 One\n"), "{file}");
+        assert!(file.contains("- [ ] Task 1.2 Two\n") && file.contains("```\n- [ ] example\n```\n"));
+        assert!(root.join(format!("plans/{old}-old-plan.md")).is_file());
+        let left: Vec<String> = conn.query("SHOW TABLES").unwrap();
+        assert!(left.is_empty());
+
+        crate::memdb::migrate(&mut conn).unwrap();
+        let counts = move_in(&mut conn, &root, || Ok(())).unwrap();
+        assert_eq!(counts.plans, 2);
+        assert!(!root.join("plans").exists(), "the plan files are in the database now");
+        assert_eq!(snapshot(&mut conn), before);
+
+        let _ = std::fs::remove_dir_all(&root);
+        let mut root_conn = mysql::Conn::new(mysql::Opts::from(
+            mysql::OptsBuilder::new().ip_or_hostname(Some("127.0.0.1")).tcp_port(port).user(Some(admin)).pass(Some(admin_pw)).prefer_socket(false),
+        ))
+        .unwrap();
+        root_conn.query_drop(format!("DROP DATABASE `{}`", access.name)).unwrap();
+        for host in ["localhost", "127.0.0.1"] {
+            root_conn.query_drop(format!("DROP USER '{}'@'{host}'", access.user)).unwrap();
+        }
     }
 
     /// Against a real server, on demand (CASTLE_TEST_DB="<port>:<admin>:<password>"): the whole

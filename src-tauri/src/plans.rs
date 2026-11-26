@@ -16,7 +16,8 @@
 
 use mysql::prelude::Queryable;
 use mysql::{Conn, TxOpts};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The states `mark` may give a box.
@@ -121,13 +122,20 @@ fn flagged(words: &str) -> bool {
 /// Reads a plan's markdown into its title, its phases and its rows, in the order written.
 pub fn parse_plan(markdown: &str) -> ParsedPlan {
     let text = markdown.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+    walk(&text).0
+}
+
+/// The walk `parse_plan` makes, with the line (of `text.lines()`) each box came from; a phase
+/// row has no line of its own to tick.
+fn walk(text: &str) -> (ParsedPlan, Vec<Option<usize>>) {
     let mut plan = ParsedPlan::default();
+    let mut lines_of: Vec<Option<usize>> = Vec::new();
     let mut fenced = false;
     // the level of the "Carried ..." heading the lines are under, while they are
     let mut carried_at: Option<usize> = None;
     // the box that indented lines below it belong to
     let mut last: Option<usize> = None;
-    for line in text.lines() {
+    for (at_line, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             fenced = !fenced;
@@ -155,6 +163,7 @@ pub fn parse_plan(markdown: &str) -> ParsedPlan {
                         plan.phases.push(number);
                     }
                     plan.items.push(ParsedItem { kind: "phase", text: words.to_string(), state: "open" });
+                    lines_of.push(None);
                 }
             }
             continue;
@@ -170,6 +179,7 @@ pub fn parse_plan(markdown: &str) -> ParsedPlan {
                 "open"
             };
             plan.items.push(ParsedItem { kind: kind_of(words), text: words.to_string(), state });
+            lines_of.push(Some(at_line));
             last = Some(plan.items.len() - 1);
             continue;
         }
@@ -183,7 +193,123 @@ pub fn parse_plan(markdown: &str) -> ParsedPlan {
             _ => last = None,
         }
     }
-    plan
+    (plan, lines_of)
+}
+
+/// The plan's text with every box ticked from its row, by ordinal: `[x]` when the row is done,
+/// `[ ]` otherwise. A box already as its row says keeps its own mark (`[X]` too); every other
+/// byte is left as it was, line ends included. Boxes in a ``` block are never touched.
+pub fn render_plan(body: &str, items: &[PlanItem]) -> String {
+    let text = body.trim_start_matches('\u{feff}');
+    let bom = &body[..body.len() - text.len()];
+    // text.lines() drops a "\r" before each "\n", so the walk reads it as parse_plan does
+    let (_, lines_of) = walk(text);
+    let mut tick: BTreeMap<usize, bool> = BTreeMap::new();
+    for (n, line) in lines_of.iter().enumerate() {
+        let row = items.iter().find(|i| i.ordinal as usize == n + 1);
+        if let (Some(line), Some(row)) = (line, row) {
+            tick.insert(*line, row.state == "done");
+        }
+    }
+    let mut out = String::with_capacity(body.len());
+    out.push_str(bom);
+    for (n, line) in text.split_inclusive('\n').enumerate() {
+        match (tick.get(&n), checkbox(line.trim_end_matches(['\n', '\r']))) {
+            (Some(&done), Some((ticked, _))) if done != ticked => {
+                // "- " or "* ", then the three bytes of the mark
+                out.push_str(&line[..2]);
+                out.push_str(if done { "[x]" } else { "[ ]" });
+                out.push_str(&line[5..]);
+            }
+            _ => out.push_str(line),
+        }
+    }
+    out
+}
+
+// ---------- pure: a plan as a file ----------
+
+/// The first line of a plan written out as a file: `<!-- castle-plan {json} -->`.
+const HEADER_OPEN: &str = "<!-- castle-plan ";
+const HEADER_CLOSE: &str = " -->";
+
+/// One box's state as the database held it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BoxState {
+    pub state: String,
+    pub note: Option<String>,
+    /// done_at, "YYYY-MM-DD HH:MM:SS"
+    pub done: Option<String>,
+}
+
+/// What a plan file carries besides its text, so the plan comes back as it was.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlanMeta {
+    pub folder: String,
+    pub status: String,
+    /// approved_at, "YYYY-MM-DD HH:MM:SS"
+    pub approved: String,
+    pub source: Option<String>,
+    /// every box (phase headings left out) by ordinal
+    pub states: BTreeMap<u32, BoxState>,
+    /// the boxes ticked in the text as it was approved, so that text comes back exactly
+    #[serde(default)]
+    pub ticked: Vec<u32>,
+}
+
+/// The header line (no line end).
+pub fn plan_header(meta: &PlanMeta) -> String {
+    let json = serde_json::to_string(meta).unwrap_or_else(|_| "{}".into());
+    // "-->" can only be inside a JSON string, where its ">" may be written escaped
+    format!("{HEADER_OPEN}{}{HEADER_CLOSE}", json.replace("-->", "--\\u003e"))
+}
+
+/// The header of a plan file and the text under it; None when the first line is not one.
+pub fn read_plan_header(text: &str) -> Option<(PlanMeta, &str)> {
+    let text = text.trim_start_matches('\u{feff}');
+    let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
+    let json = first.trim_end_matches('\r').strip_prefix(HEADER_OPEN)?.strip_suffix(HEADER_CLOSE)?;
+    serde_json::from_str(json).ok().map(|meta| (meta, rest))
+}
+
+/// The text a plan was approved with, from its file's text: every box ticked as `meta.ticked`
+/// says, the way the plan was before it was walked.
+pub fn approved_text(rendered: &str, meta: &PlanMeta) -> String {
+    let rows: Vec<PlanItem> = parse_plan(rendered)
+        .items
+        .iter()
+        .enumerate()
+        .map(|(n, i)| {
+            let ordinal = n as u32 + 1;
+            let state = if meta.ticked.contains(&ordinal) { "done" } else { "open" };
+            PlanItem { ordinal, kind: i.kind.to_string(), text: String::new(), state: state.into() }
+        })
+        .collect();
+    render_plan(rendered, &rows)
+}
+
+/// The states to put back: the header's, except where the file's own tick says otherwise (a
+/// box ticked or unticked by hand while the plan was a file wins).
+pub fn states_from_file(rendered: &str, meta: &PlanMeta) -> BTreeMap<u32, BoxState> {
+    let mut states = meta.states.clone();
+    for (n, item) in parse_plan(rendered).items.iter().enumerate() {
+        if item.kind == "phase" {
+            continue;
+        }
+        let ticked = item.state == "done";
+        let entry = states.entry(n as u32 + 1).or_insert_with(|| BoxState { state: item.state.to_string(), note: None, done: None });
+        if ticked != (entry.state == "done") {
+            entry.state = if ticked { "done".into() } else { item.state.to_string() };
+            entry.done = None;
+        }
+    }
+    states
+}
+
+/// "YYYY-MM-DD HH:MM:SS" when the text is one, else None.
+fn datetime(text: Option<&str>) -> Option<String> {
+    let text = text?.trim();
+    chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").ok().map(|_| text.to_string())
 }
 
 /// A project folder made comparable: no trailing slash, and on Windows one kind of slash and
@@ -219,6 +345,14 @@ fn sql(what: &'static str) -> impl Fn(mysql::Error) -> String {
 /// Keeps an approved plan for a folder: (plan id, boxes, duplicate). The same text copied again
 /// into the same folder is not kept twice; its first copy's id comes back with `duplicate` true.
 pub fn copy_plan(conn: &mut Conn, folder: impl AsRef<Path>, markdown: &str, source_file: Option<&str>) -> Result<(u64, usize, bool), String> {
+    let mut tx = conn.start_transaction(TxOpts::default()).map_err(sql("Opening the database"))?;
+    let kept = copy_plan_in(&mut tx, folder, markdown, source_file)?;
+    tx.commit().map_err(sql("Keeping the plan"))?;
+    Ok(kept)
+}
+
+/// `copy_plan` inside a transaction the caller holds (moving in keeps every plan in its own).
+pub fn copy_plan_in(tx: &mut impl Queryable, folder: impl AsRef<Path>, markdown: &str, source_file: Option<&str>) -> Result<(u64, usize, bool), String> {
     let body = markdown.trim_start_matches('\u{feff}').replace("\r\n", "\n");
     let parsed = parse_plan(&body);
     if parsed.boxes() == 0 {
@@ -229,7 +363,7 @@ pub fn copy_plan(conn: &mut Conn, folder: impl AsRef<Path>, markdown: &str, sour
     let shown = if shown.is_empty() { folder.trim() } else { shown };
     let key = folder_key(&folder);
     let plan_key = crate::db::sha256_hex(format!("{key}\n{}", body.trim()).as_bytes());
-    let there: Option<u64> = conn.exec_first("SELECT id FROM project_plans WHERE plan_key = ?", (&plan_key,)).map_err(sql("Reading the plans"))?;
+    let there: Option<u64> = tx.exec_first("SELECT id FROM project_plans WHERE plan_key = ?", (&plan_key,)).map_err(sql("Reading the plans"))?;
     if let Some(id) = there {
         return Ok((id, parsed.boxes(), true));
     }
@@ -243,13 +377,12 @@ pub fn copy_plan(conn: &mut Conn, folder: impl AsRef<Path>, markdown: &str, sour
     };
     // a plan copied with every box already ticked is done from the start
     let status = if parsed.items.iter().all(|i| i.kind == "phase" || i.state == "done") { "done" } else { "open" };
-    let mut tx = conn.start_transaction(TxOpts::default()).map_err(sql("Opening the database"))?;
     tx.exec_drop(
         "INSERT INTO project_plans (folder, folder_key, title, phase, status, body, plan_key, source_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (clip(shown, 500), clip(&key, 500), clip(&title, 500), parsed.phase().map(|p| clip(&p, 100)), status, &body, &plan_key, source_file.map(|f| clip(f, 500))),
     )
     .map_err(sql("Keeping the plan"))?;
-    let id = tx.last_insert_id().ok_or("Keeping the plan did not work.")?;
+    let id: u64 = tx.query_first("SELECT LAST_INSERT_ID()").map_err(sql("Keeping the plan"))?.filter(|id| *id > 0).ok_or("Keeping the plan did not work.")?;
     for (n, item) in parsed.items.iter().enumerate() {
         tx.exec_drop(
             "INSERT INTO project_plan_items (plan_id, ordinal, kind, text, state, done_at) VALUES (?, ?, ?, ?, ?, IF(? = 'done', NOW(), NULL))",
@@ -257,8 +390,74 @@ pub fn copy_plan(conn: &mut Conn, folder: impl AsRef<Path>, markdown: &str, sour
         )
         .map_err(sql("Keeping the plan's boxes"))?;
     }
-    tx.commit().map_err(sql("Keeping the plan"))?;
     Ok((id, parsed.boxes(), false))
+}
+
+/// Puts a plan's states back after it was copied in again: each box's state, note and done
+/// time by ordinal, then the plan's status and approval time. A state, status or time that is
+/// not one Castle writes is passed by, and the copy's own stays.
+pub fn restore_states(tx: &mut impl Queryable, plan_id: u64, states: &BTreeMap<u32, BoxState>, status: &str, approved: &str) -> Result<(), String> {
+    for (ordinal, kept) in states {
+        if !["open", "done", "carried", "flagged"].contains(&kept.state.as_str()) {
+            continue;
+        }
+        tx.exec_drop(
+            "UPDATE project_plan_items SET state = ?, note = ?, done_at = IF(? = 'done', COALESCE(?, done_at, NOW()), NULL) \
+             WHERE plan_id = ? AND ordinal = ? AND kind <> 'phase'",
+            (&kept.state, kept.note.as_deref().map(|n| clip(n, 500)), &kept.state, datetime(kept.done.as_deref()), plan_id, ordinal),
+        )
+        .map_err(sql("Putting the plan's boxes back"))?;
+    }
+    let status = ["open", "done", "archived"].contains(&status).then_some(status);
+    tx.exec_drop(
+        "UPDATE project_plans SET status = COALESCE(?, status), approved_at = COALESCE(?, approved_at) WHERE id = ?",
+        (status, datetime(Some(approved)), plan_id),
+    )
+    .map_err(sql("Putting the plan back"))?;
+    Ok(())
+}
+
+/// A plan's file: the header, then its text with every box ticked from its row. `meta.ticked`
+/// is filled here from the text as it was approved.
+pub fn plan_file(mut meta: PlanMeta, body: &str) -> String {
+    meta.ticked = parse_plan(body).items.iter().enumerate().filter(|(_, i)| i.state == "done").map(|(n, _)| n as u32 + 1).collect();
+    let rows: Vec<PlanItem> = meta
+        .states
+        .iter()
+        .map(|(ordinal, kept)| PlanItem { ordinal: *ordinal, kind: "task".into(), text: String::new(), state: kept.state.clone() })
+        .collect();
+    format!("{}\n{}", plan_header(&meta), render_plan(body, &rows))
+}
+
+/// Every plan the database keeps, whatever its status, as (id, title, file text). None at all
+/// when the database has no plans table yet.
+pub fn plan_files(conn: &mut Conn) -> Result<Vec<(u64, String, String)>, String> {
+    let table: Option<u64> = conn
+        .query_first("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'project_plans'")
+        .map_err(sql("Reading the plans"))?;
+    if table.unwrap_or(0) == 0 {
+        return Ok(Vec::new());
+    }
+    let plans: Vec<(u64, String, String, String, Option<String>, String, Option<String>)> = conn
+        .query("SELECT id, folder, title, status, DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s'), body, source_file FROM project_plans ORDER BY id")
+        .map_err(sql("Reading the plans"))?;
+    let mut out = Vec::with_capacity(plans.len());
+    for (id, folder, title, status, approved, body, source) in plans {
+        let rows: Vec<(u32, String, String, Option<String>, Option<String>)> = conn
+            .exec(
+                "SELECT ordinal, kind, state, note, DATE_FORMAT(done_at, '%Y-%m-%d %H:%i:%s') FROM project_plan_items WHERE plan_id = ? ORDER BY ordinal",
+                (id,),
+            )
+            .map_err(sql("Reading the plan's boxes"))?;
+        let states = rows
+            .into_iter()
+            .filter(|(_, kind, ..)| kind != "phase")
+            .map(|(ordinal, _, state, note, done)| (ordinal, BoxState { state, note, done }))
+            .collect();
+        let meta = PlanMeta { folder, status, approved: approved.unwrap_or_default(), source, states, ticked: Vec::new() };
+        out.push((id, title, plan_file(meta, &body)));
+    }
+    Ok(out)
 }
 
 fn items_of(conn: &mut Conn, plan_id: u64) -> Result<Vec<PlanItem>, String> {
@@ -540,6 +739,91 @@ mod tests {
             serde_json::to_string(&view).unwrap(),
             r#"{"id":3,"title":"T","phase":null,"status":"open","items":[{"ordinal":1,"kind":"task","text":"x","state":"open"}]}"#
         );
+    }
+
+    fn rows_of(plan: &ParsedPlan) -> Vec<PlanItem> {
+        plan.items
+            .iter()
+            .enumerate()
+            .map(|(n, i)| PlanItem { ordinal: n as u32 + 1, kind: i.kind.into(), text: i.text.clone(), state: i.state.into() })
+            .collect()
+    }
+
+    #[test]
+    fn a_plan_is_written_back_with_its_boxes_ticked_from_the_rows() {
+        let parsed = parse_plan(PLAN);
+        // rows as they were: not one byte changes, line ends and the BOM included
+        assert_eq!(render_plan(PLAN, &rows_of(&parsed)), PLAN);
+
+        let mut rows = rows_of(&parsed);
+        rows[1].state = "done".into(); // Task 45.1
+        rows[3].state = "carried".into(); // Task 45.2, ticked when approved
+        rows[9].state = "done".into(); // cargo test passes
+        let rendered = render_plan(PLAN, &rows);
+        let again = parse_plan(&rendered);
+        let words = |p: &ParsedPlan| p.items.iter().map(|i| (i.kind, i.text.clone())).collect::<Vec<_>>();
+        assert_eq!(words(&again), words(&parsed));
+        let done: Vec<usize> = again.items.iter().enumerate().filter(|(_, i)| i.state == "done").map(|(n, _)| n + 1).collect();
+        assert_eq!(done, vec![2, 5, 10]);
+        assert!(rendered.contains("- [x] Task 45.1 The button\r\n") && rendered.contains("- [ ] Task 45.2 The link\r\n"));
+        // the example in the code block and the nested box stay as written
+        assert!(rendered.contains("```md\r\n- [ ] an example inside a code block\r\n```"));
+        assert!(rendered.contains("  - [ ] a nested box is part of the task\r\n"));
+        assert_eq!(rendered.len(), PLAN.len());
+        // a box already as its row says keeps its own mark
+        assert_eq!(render_plan("- [X] one\n- [ ] two\n", &[PlanItem { ordinal: 1, kind: "task".into(), text: String::new(), state: "done".into() }]), "- [X] one\n- [ ] two\n");
+    }
+
+    fn meta() -> PlanMeta {
+        let mut states = BTreeMap::new();
+        states.insert(2, BoxState { state: "done".into(), note: Some("went well --> next 💜\nline two".into()), done: Some("2026-11-20 09:15:00".into()) });
+        states.insert(3, BoxState { state: "flagged".into(), note: None, done: None });
+        PlanMeta { folder: "D:/Work/Castle".into(), status: "archived".into(), approved: "2026-11-19 22:01:05".into(), source: None, states, ticked: vec![4] }
+    }
+
+    #[test]
+    fn a_plan_header_is_one_line_and_reads_back() {
+        let header = plan_header(&meta());
+        assert!(header.starts_with("<!-- castle-plan {") && header.ends_with("} -->") && !header.contains('\n'));
+        assert_eq!(header.matches("-->").count(), 1, "{header}");
+        let file = format!("{header}\r\n# Plan\n- [ ] x\n");
+        let (read, rest) = read_plan_header(&file).unwrap();
+        assert_eq!(read, meta());
+        assert_eq!(rest, "# Plan\n- [ ] x\n");
+        let (_, empty) = read_plan_header(&header).unwrap();
+        assert_eq!(empty, "");
+        // the source travels as null when there is none
+        assert!(header.contains("\"source\":null"));
+    }
+
+    #[test]
+    fn a_file_without_the_header_is_not_a_plan_file() {
+        assert!(read_plan_header("# Plan\n- [ ] x\n").is_none());
+        assert!(read_plan_header("").is_none());
+        assert!(read_plan_header("<!-- castle-plan not json -->\n- [ ] x\n").is_none());
+        assert!(read_plan_header("\n<!-- castle-plan {} -->\n").is_none(), "only the first line");
+    }
+
+    #[test]
+    fn a_plan_file_gives_back_the_approved_text_and_the_states() {
+        let body = "# Small\n## Phase 1: Start\n- [ ] Task 1.1 One\n- [x] Task 1.2 Two\n- [ ] Task 1.3 Three\n```\n- [ ] example\n```\n";
+        let mut states = BTreeMap::new();
+        states.insert(2, BoxState { state: "done".into(), note: Some("ok".into()), done: Some("2026-11-20 09:15:00".into()) });
+        states.insert(3, BoxState { state: "carried".into(), note: None, done: None });
+        states.insert(4, BoxState { state: "flagged".into(), note: Some("the key".into()), done: None });
+        let meta = PlanMeta { folder: "D:/Work".into(), status: "open".into(), approved: "2026-11-19 22:01:05".into(), source: Some("C:/p.md".into()), states, ticked: Vec::new() };
+        let file = plan_file(meta.clone(), body);
+        let (read, rendered) = read_plan_header(&file).unwrap();
+        assert_eq!(read.ticked, vec![3], "Task 1.2 was ticked when approved");
+        assert_eq!(rendered, "# Small\n## Phase 1: Start\n- [x] Task 1.1 One\n- [ ] Task 1.2 Two\n- [ ] Task 1.3 Three\n```\n- [ ] example\n```\n");
+        assert_eq!(approved_text(rendered, &read), body);
+        assert_eq!(states_from_file(rendered, &read), meta.states);
+        // a box ticked by hand while the plan was a file wins over the header
+        let by_hand = rendered.replace("- [ ] Task 1.3", "- [x] Task 1.3");
+        let states = states_from_file(&by_hand, &read);
+        assert_eq!(states[&4], BoxState { state: "done".into(), note: Some("the key".into()), done: None });
+        assert_eq!(states[&2], meta.states[&2]);
+        assert!(datetime(Some("2026-11-20 09:15:00")).is_some() && datetime(Some("yesterday")).is_none() && datetime(None).is_none());
     }
 
     /// Against a real server, on demand (CASTLE_TEST_DB="<port>:<admin>:<password>"): a plan copied,

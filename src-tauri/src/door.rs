@@ -894,6 +894,10 @@ fn export(conn: &mut Conn, to: &Path) -> Result<String, String> {
     // 1. every file that was moved in comes back exactly as it was
     let originals: Vec<(String, String)> = conn.query("SELECT path, body FROM imported_files ORDER BY path").map_err(sql("Reading the kept files"))?;
     for (path, body) in &originals {
+        // a plan file moved in is written again below from its rows, as they are now
+        if path.starts_with("plans/") && crate::plans::read_plan_header(body).is_some() {
+            continue;
+        }
         write(&to.join(path), body)?;
     }
 
@@ -1017,10 +1021,18 @@ fn export(conn: &mut Conn, to: &Path) -> Result<String, String> {
         }
         write(&to.join("projects").join("project-list.md"), &list)?;
     }
+
+    // 5. every approved plan, whatever its status: its text ticked from its rows, and a header
+    // line that carries the rest (folder, status, notes, done times) so it can move in again
+    let plans = crate::plans::plan_files(conn)?;
+    for (id, title, text) in &plans {
+        write(&to.join("plans").join(format!("{id}-{}.md", file_slug(title))), text)?;
+    }
     Ok(format!(
-        "EXPORT {} diary page(s), {reminders} reminder(s), {projects} project(s), {} original file(s) -> {}",
+        "EXPORT {} diary page(s), {reminders} reminder(s), {projects} project(s), {} original file(s), {} plan(s) -> {}",
         diary.unwrap_or(0),
         originals.len(),
+        plans.len(),
         to.display()
     ))
 }
