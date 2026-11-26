@@ -1,0 +1,13 @@
+[package]
+name = "scriptorium"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Scriptorium - our own word processor, spreadsheet, slides and PDF editor. Everything ours: Rust's standard library only."
+
+# Everything ours: this crate has no dependencies, and never will (the blueprint's first rule).
+[dependencies]
+
+[lib]
+name = "scriptorium"
+path = "src/lib.rs"
