@@ -334,6 +334,8 @@ pub fn run() {
     }
     #[cfg(target_os = "macos")]
     env::adopt_login_path();
+    // before any webview is made: Smooth GPU drawing off starts WebView2 without GPU compositing (#82)
+    settings::apply_gpu_choice();
     let builder = tauri::Builder::default();
     // macOS: the menu bar's Window menu carries the window sizes too
     #[cfg(target_os = "macos")]

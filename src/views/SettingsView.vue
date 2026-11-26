@@ -361,6 +361,12 @@ onMounted(async () => {
                 <SettingChoice :model-value="valueOf(settings, 'clockFormat') === '12h' ? '12h' : '24h'" :options="[{ value: '24h', label: '24-hour (14:30)' }, { value: '12h', label: '12-hour (2:30 PM)' }]" label="Clock format" :disabled="locked" @update:model-value="(f) => saveRow('clock-format', { clockFormat: f })" />
               </SettingRow>
             </SettingGroup>
+            <!-- WebView2 only (Windows): read once at start, so it says Quit and start again -->
+            <SettingGroup v-if="!isMac" id="drawing" title="Drawing">
+              <SettingRow id="gpu-compositing" label="Smooth GPU drawing" description="Turn off if the mouse cursor looks frozen inside Castle (seen on some AMD graphics cards). Takes effect after Quit and start again." tip="Quit from the tray icon, then open Castle again: opening it while it is still in the tray only wakes the running copy.">
+                <SettingSwitch :model-value="valueOf(settings, 'gpuCompositing')" label="Smooth GPU drawing" :disabled="locked" @update:model-value="(on) => saveRow('gpu-compositing', { gpuCompositing: on })" />
+              </SettingRow>
+            </SettingGroup>
           </template>
 
           <!-- ============ About ============ -->

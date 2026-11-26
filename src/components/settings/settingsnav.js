@@ -41,7 +41,7 @@ export const SETTINGS_GROUPS = [
     id: 'app',
     label: 'App',
     pages: [
-      { id: 'startup', label: 'Start-up', subtitle: 'How Castle starts, minimises and shows the time.' },
+      { id: 'startup', label: 'Start-up', subtitle: 'How Castle starts, minimises, draws and shows the time.' },
       { id: 'about', label: 'About', subtitle: 'The version, the licence and the people who made Castle.' },
     ],
   },

@@ -61,6 +61,7 @@ If the download cannot happen (no internet, for example), Castle still opens and
 - Castle lives in the system tray (bottom right of the taskbar). Click its crystal icon to show or hide it. Right-click it for **Open Castle**, **Wake companion** and **Quit**.
 - Closing the window only hides Castle. Use **Quit** in the tray to end it; if your companion's session is running, Castle asks first.
 - **Start with Windows** (Settings > Start-up) opens Castle after you sign in. Each time Castle starts, it checks that Windows' start-up and the Start menu open this Castle, and points them back at it if they open another copy.
+- **Smooth GPU drawing** (Settings > Start-up > Drawing, on to begin with): if the mouse cursor looks frozen inside Castle (seen on some AMD graphics cards), turn it off, then **Quit** from the tray and open Castle again.
 
 ### Two copies of Castle
 

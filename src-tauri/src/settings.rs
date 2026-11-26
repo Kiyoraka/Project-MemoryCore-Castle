@@ -307,6 +307,10 @@ pub struct Settings {
     /// The top bar's minus button minimises Castle to the taskbar. Off (the default), it hides
     /// Castle to the tray icon, as before.
     pub minimize_to_taskbar: bool,
+    /// Windows: WebView2 draws with GPU compositing (on, the default). Off starts it with
+    /// `--disable-gpu-compositing`, for the frozen mouse cursor some AMD cards show (issue #82);
+    /// read once at start (apply_gpu_choice), so a change needs Quit and start again.
+    pub gpu_compositing: bool,
     /// A sound, and a desktop notification, when a new line arrives in the chat room while the
     /// member is not looking at CHAT. The notification is on by default; the sound is off by default
     /// (it plays through Windows' quiet hours); each has its own switch in Settings > Rooms.
@@ -638,6 +642,7 @@ impl Default for Settings {
             start_with_windows: false,
             start_session_on_launch: true,
             minimize_to_taskbar: false,
+            gpu_compositing: true,
             alert_sound: false,
             alert_sound_name: "glass".into(),
             alert_notify: true,
@@ -913,6 +918,45 @@ pub fn test_override(name: &str) -> Option<PathBuf> {
     }
 }
 
+/// The WebView2 switch that turns GPU compositing off (Smooth GPU drawing off, issue #82).
+pub const NO_GPU_COMPOSITING: &str = "--disable-gpu-compositing";
+/// WebView2 reads extra browser switches from this variable when a webview is made.
+pub const WEBVIEW_ARGS_VAR: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+/// The main window's own switches (tauri.conf.json's additionalBrowserArgs). WebView2 lets the
+/// variable win over a window's own list, so these are carried into it when Castle sets it.
+pub const WINDOW_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+/// The app id that names Castle's settings folder (tauri.conf.json's identifier).
+const APP_ID: &str = "com.memorycore.castle";
+
+/// The value WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS should take, or None to leave it as it is: with
+/// compositing on nothing changes; off, the compositing switch is added once to what is already
+/// there (or to the window's own switches when nothing is).
+pub fn webview_args(existing: Option<&str>, compositing: bool) -> Option<String> {
+    if compositing {
+        return None;
+    }
+    let base = existing.map(str::trim).filter(|e| !e.is_empty()).unwrap_or(WINDOW_BROWSER_ARGS);
+    if base.split_whitespace().any(|arg| arg == NO_GPU_COMPOSITING) {
+        return None;
+    }
+    Some(format!("{base} {NO_GPU_COMPOSITING}"))
+}
+
+/// Runs before any webview is made: reads settings.json straight from disk (the store is not built
+/// yet) and, when Smooth GPU drawing is off, starts WebView2 without GPU compositing. Windows only.
+pub fn apply_gpu_choice() {
+    if !cfg!(windows) {
+        return;
+    }
+    let folder = test_override(TEST_CONFIG_VAR).or_else(|| std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join(APP_ID)));
+    let Some(folder) = folder else { return };
+    let (settings, _) = load(&folder.join(FILE_NAME));
+    let existing = std::env::var(WEBVIEW_ARGS_VAR).ok();
+    if let Some(args) = webview_args(existing.as_deref(), settings.gpu_compositing) {
+        std::env::set_var(WEBVIEW_ARGS_VAR, args);
+    }
+}
+
 /// One DEV project's database logins, as the member filled them in (Local may stay empty: then the
 /// project's own `.env` is read).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -999,6 +1043,38 @@ mod tests {
         assert_eq!(old.profile_look, "cards");
         let odd: Settings = serde_json::from_str(r#"{"profileLook":"spiral"}"#).unwrap();
         assert_eq!(odd.normalized().profile_look, "cards");
+    }
+
+    #[test]
+    fn smooth_gpu_drawing_is_on_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"setupDone":true}"#).unwrap();
+        assert!(old.gpu_compositing && Settings::default().gpu_compositing);
+        let off: Settings = serde_json::from_str(r#"{"gpuCompositing":false}"#).unwrap();
+        assert!(!off.normalized().gpu_compositing);
+    }
+
+    #[test]
+    fn webview_args_add_the_compositing_switch_once() {
+        // on: the variable is left alone
+        assert_eq!(webview_args(None, true), None);
+        assert_eq!(webview_args(Some("--foo"), true), None);
+        // off with nothing set: the window's own switches are kept, then the compositing switch
+        assert_eq!(webview_args(None, false), Some(format!("{WINDOW_BROWSER_ARGS} --disable-gpu-compositing")));
+        assert_eq!(webview_args(Some("  "), false), Some(format!("{WINDOW_BROWSER_ARGS} --disable-gpu-compositing")));
+        // off with the member's own switches: kept, the switch added after them
+        assert_eq!(webview_args(Some("--foo --bar=1"), false).as_deref(), Some("--foo --bar=1 --disable-gpu-compositing"));
+        // already there: never doubled
+        assert_eq!(webview_args(Some("--foo --disable-gpu-compositing"), false), None);
+        assert_eq!(webview_args(Some("--disable-gpu-compositing"), false), None);
+        // a longer switch that only starts the same is not the switch
+        assert_eq!(webview_args(Some("--disable-gpu-compositing-x"), false).as_deref(), Some("--disable-gpu-compositing-x --disable-gpu-compositing"));
+    }
+
+    #[test]
+    fn the_window_switches_and_app_id_match_tauri_conf() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"].as_str(), Some(APP_ID));
+        assert_eq!(conf["app"]["windows"][0]["additionalBrowserArgs"].as_str(), Some(WINDOW_BROWSER_ARGS));
     }
 
     #[test]
@@ -1200,6 +1276,7 @@ mod tests {
             start_with_windows: true,
             start_session_on_launch: false,
             minimize_to_taskbar: true,
+            gpu_compositing: false,
             alert_sound: true,
             alert_sound_name: "koto".into(),
             alert_notify: false,
