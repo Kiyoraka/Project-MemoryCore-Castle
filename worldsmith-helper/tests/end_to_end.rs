@@ -152,8 +152,23 @@ fn scan_narrow_write_freeze_detach() {
     ok(&games, "games");
     assert!(games["games"].is_array());
 
+    // caps needs no game
+    let caps = client(&pipe, &["caps"]);
+    ok(&caps, "caps");
+    assert_eq!(caps["version"], "1.0.0");
+    let verbs = caps["verbs"].as_array().expect("caps lists its verbs");
+    for v in ["thumb", "shot", "caps", "scan", "state"] {
+        assert!(verbs.iter().any(|x| x == v), "caps is missing {v}: {caps}");
+    }
+    assert!(caps["features"].as_array().unwrap().iter().any(|f| f == "rect"), "{caps}");
+
     // nothing attached yet
     assert_eq!(client(&pipe, &["scan", "--label", "gold", "--type", "i32", "--value", "1"])["ok"], false);
+    for verb in ["shot", "thumb"] {
+        let r = client(&pipe, &[verb]);
+        assert_eq!(r["ok"], false, "{verb}: {r}");
+        assert_eq!(r["error"], "No game is attached - attach one first.", "{verb}: {r}");
+    }
     let st = client(&pipe, &["state"]);
     assert_eq!(st["attached"], Value::Null);
 
@@ -166,6 +181,8 @@ fn scan_narrow_write_freeze_detach() {
     // no window: shot says so in one line
     let shot = client(&pipe, &["shot"]);
     assert_eq!(shot["ok"], false, "{shot}");
+    let thumb = client(&pipe, &["thumb"]);
+    assert_eq!(thumb["ok"], false, "{thumb}");
 
     // ---- known value: scan, change, next ----
     let s = client(&pipe, &["scan", "--label", "gold", "--type", "i32", "--value", "1234"]);

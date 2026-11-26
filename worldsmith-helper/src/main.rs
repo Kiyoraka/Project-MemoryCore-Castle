@@ -7,6 +7,7 @@
 mod proto;
 mod refuse;
 mod scan;
+mod thumb;
 
 #[cfg(windows)]
 mod capture;
@@ -42,8 +43,20 @@ fn pipe_name() -> String {
     )
 }
 
+/// Per-monitor DPI aware (v2): every window rect, monitor rect and capture is in physical
+/// pixels, the same pixels the picture holds. Set before any window call; a failure (old Windows,
+/// or already set) is ignored.
+#[cfg(windows)]
+fn dpi_aware() {
+    use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+}
+
 #[cfg(windows)]
 fn main() {
+    dpi_aware();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(|a| a.eq_ignore_ascii_case("serve")).unwrap_or(false) {
         serve(&args[1..]);

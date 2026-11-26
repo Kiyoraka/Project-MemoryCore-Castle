@@ -9,6 +9,18 @@ pub const NOT_RUNNING: &str = "Worldsmith isn't running - open the WORLDSMITH ro
 #[cfg_attr(windows, allow(dead_code))]
 pub const WINDOWS_ONLY: &str = "Worldsmith works on Windows only.";
 
+/// The helper's version, as `caps` reports it.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Every client verb `parse_args` knows (`serve` is not one: it starts the server).
+pub const VERBS: &[&str] = &[
+    "games", "attach", "detach", "shot", "thumb", "scan", "next", "list", "write", "freeze",
+    "unfreeze", "state", "caps",
+];
+
+/// What this helper can do beyond the first contract, as `caps` reports it.
+pub const FEATURES: &[&str] = &["rect", "thumb", "unknown-scan", "stamp"];
+
 /// One request, as sent over the pipe (one JSON line).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "verb", rename_all = "lowercase")]
@@ -41,6 +53,8 @@ pub enum Request {
     },
     Unfreeze { address: u64 },
     State,
+    Caps,
+    Thumb,
 }
 
 /// `0x` + uppercase hex.
@@ -196,7 +210,7 @@ fn positional(args: &[String], n: usize, usage: &str) -> Result<(), String> {
 /// argv (without the program name) -> Request. `serve` is handled before this.
 pub fn parse_args(args: &[String]) -> Result<Request, String> {
     let Some(verb) = args.first() else {
-        return Err("No verb given (games, attach, detach, shot, scan, next, list, write, freeze, unfreeze, state).".into());
+        return Err(format!("No verb given ({}).", VERBS.join(", ")));
     };
     let rest = &args[1..];
     match verb.to_ascii_lowercase().as_str() {
@@ -204,6 +218,8 @@ pub fn parse_args(args: &[String]) -> Result<Request, String> {
         "detach" => positional(rest, 0, "detach").map(|_| Request::Detach),
         "shot" => positional(rest, 0, "shot").map(|_| Request::Shot),
         "state" => positional(rest, 0, "state").map(|_| Request::State),
+        "caps" => positional(rest, 0, "caps").map(|_| Request::Caps),
+        "thumb" => positional(rest, 0, "thumb").map(|_| Request::Thumb),
         "attach" => {
             positional(rest, 1, "attach <pid>")?;
             let pid: u32 = rest[0]
@@ -333,6 +349,32 @@ mod tests {
         assert!(parse_args(&argv("games extra")).is_err());
         assert!(parse_args(&argv("dance")).unwrap_err().contains("Unknown verb"));
         assert!(parse_args(&[]).is_err());
+        assert_eq!(parse_args(&argv("caps")).unwrap(), Request::Caps);
+        assert_eq!(parse_args(&argv("thumb")).unwrap(), Request::Thumb);
+        assert_eq!(parse_args(&argv("shot")).unwrap(), Request::Shot);
+        assert!(parse_args(&argv("caps extra")).is_err());
+        assert!(parse_args(&argv("thumb 1")).is_err());
+    }
+
+    #[test]
+    fn verbs_lists_every_verb() {
+        // every verb parse_args knows, spelled out once here: adding a verb means adding it to
+        // VERBS too, or this fails
+        let known = [
+            "games", "attach", "detach", "shot", "thumb", "scan", "next", "list", "write", "freeze",
+            "unfreeze", "state", "caps",
+        ];
+        for v in known {
+            assert!(VERBS.contains(&v), "VERBS is missing {v}");
+        }
+        assert_eq!(VERBS.len(), known.len(), "VERBS has a verb parse_args doesn't know");
+        for v in VERBS {
+            let e = parse_args(&[v.to_string()]).err().unwrap_or_default();
+            assert!(!e.contains("Unknown verb"), "{v} isn't a parse_args verb");
+        }
+        assert!(parse_args(&[]).unwrap_err().contains("caps"));
+        assert_eq!(VERSION, "1.0.0");
+        assert!(FEATURES.contains(&"rect") && FEATURES.contains(&"thumb"));
     }
 
     #[test]
@@ -416,6 +458,8 @@ mod tests {
             "state",
             "detach",
             "shot",
+            "thumb",
+            "caps",
         ] {
             let r = parse_args(&argv(line)).unwrap();
             let j = serde_json::to_string(&r).unwrap();

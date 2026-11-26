@@ -127,10 +127,12 @@ impl Server {
                 ok()
             }
             Request::State => self.state(t),
+            Request::Caps => caps(),
             req => {
                 let Some(t) = t else { return not_attached() };
                 match req {
                     Request::Shot => shot(&t),
+                    Request::Thumb => thumb(&t),
                     Request::Scan { label, ty, value, transform } => {
                         self.scan(&t, label, ty, value, transform)
                     }
@@ -348,9 +350,32 @@ fn shot(t: &Attached) -> Value {
         return err("The game has no window to capture.");
     };
     match capture::shot(w.hwnd) {
-        Ok((path, via)) => ok_with(json!({ "path": path, "via": via })),
+        Ok(s) => ok_with(json!({
+            "path": s.path,
+            "via": s.via,
+            "rect": { "x": s.rect.x, "y": s.rect.y, "w": s.rect.w, "h": s.rect.h },
+        })),
         Err(e) => err(&e),
     }
+}
+
+fn thumb(t: &Attached) -> Value {
+    let Some(w) = process::main_window(t.proc.pid) else {
+        return err("The game has no window to capture.");
+    };
+    match capture::thumb(w.hwnd) {
+        Ok((hex, via)) => ok_with(json!({
+            "thumb": hex,
+            "w": crate::thumb::W,
+            "h": crate::thumb::H,
+            "via": via,
+        })),
+        Err(e) => err(&e),
+    }
+}
+
+fn caps() -> Value {
+    ok_with(json!({ "version": proto::VERSION, "verbs": proto::VERBS, "features": proto::FEATURES }))
 }
 
 fn write(t: &Attached, address: u64, ty: ValueType, value: &str) -> Value {

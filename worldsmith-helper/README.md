@@ -33,7 +33,8 @@ Addresses are `0x` + uppercase hex. With no server running, the reply is
 | `games` | `games: [{pid, exe, title, stamp, refused, reason}]` (windowed processes; `stamp` = exe `<size>-<mtime>`) |
 | `attach <pid>` | `{pid, exe, title}` or the refusal |
 | `detach` | stops freezes, drops the handle and every label |
-| `shot` | `{path}` - a PNG of the game's window in `%TEMP%\worldsmith-shots\shot-<unix ms>.png` |
+| `shot` | `{path, via, rect: {x, y, w, h}}` - a PNG of the game's window in `%TEMP%\worldsmith-shots\shot-<unix ms>.png`; `rect` is the screen area the picture shows (see below) |
+| `thumb` | `{thumb, w: 32, h: 18, via}` - the window captured like `shot` but never saved: 576 hex characters, one 4-bit grey level per cell, row-major |
 | `scan --label L --type i32\|i64\|f32\|f64\|auto --value V [--transform x10\|x100\|neg]` | `{label, matches, steps}` (+ `top` when 20 or fewer) |
 | `scan --label L --type i32\|i64\|f32\|f64 --unknown` | the same; every aligned value of that type is a candidate |
 | `next --label L --value V \| --changed \| --unchanged \| --increased \| --decreased` | `{label, matches, steps, top?}` |
@@ -41,6 +42,11 @@ Addresses are `0x` + uppercase hex. With no server running, the reply is
 | `write <addr> <type> <value>` | `{}` |
 | `freeze <addr> <type> <value>` / `unfreeze <addr>` | `{}` (frozen values are rewritten every 50 ms) |
 | `state` | `{attached, labels: [{label, steps, top}], freezes: [{address, type, value}]}` |
+| `caps` | `{version, verbs, features}` - needs no game, e.g. `{"version":"1.0.0","verbs":["games",...,"caps"],"features":["rect","thumb","unknown-scan","stamp"]}` |
+
+Callers should check `caps` before relying on anything newer than the first contract: a helper
+older than 1.0.0 answers `Unknown verb "caps"` (an older helper also has no `rect`, no `thumb` and
+reports `via:"gdi"` for the screen fallback). New fields and verbs are only ever added.
 
 ## Decisions
 
@@ -58,7 +64,20 @@ Addresses are `0x` + uppercase hex. With no server running, the reply is
   `next` compares against the copy from the previous step. Once a list is smaller than the copy,
   the label becomes an ordinary candidate list.
 - `shot` uses Windows.Graphics.Capture, and falls back to GDI (`PrintWindow`, then a screen copy of
-  the window's monitor) when that fails. The reply also says which one was used (`"via"`).
+  the window's monitor) when that fails. The reply says which one was used: `"via"` is
+  `graphics-capture`, `gdi` (PrintWindow) or `screen` (the whole monitor - the game's window is
+  somewhere inside the picture, not the whole of it).
+- `rect` is in **physical screen pixels** (the helper is per-monitor DPI aware v2) and covers
+  exactly what the picture shows, so the PNG's width and height equal `rect.w` and `rect.h`:
+  - `graphics-capture`: the window's visible frame, placed at DWM's extended frame bounds
+    (`GetWindowRect` when DWM can't say); `w`/`h` are the frame's own size if it differs slightly.
+  - `gdi`: the PrintWindow picture cropped from the window rect to the same visible frame (the
+    invisible resize borders and shadow are left out).
+  - `screen`: the monitor's `rcMonitor`.
+  A point at picture pixel `(px, py)` is at screen pixel `(rect.x + px, rect.y + py)`.
+- `thumb` averages each of 32x18 boxes of the picture by luma `(77R + 150G + 29B) >> 8` and keeps
+  the top 4 bits (`0` black .. `f` white). Two thumbs a few nibbles apart show the same screen; it
+  is a cheap "did the screen change" check, not a picture to show.
 
 ## Build and test
 

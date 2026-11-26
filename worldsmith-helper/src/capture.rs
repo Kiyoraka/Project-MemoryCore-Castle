@@ -1,10 +1,13 @@
-//! `shot`: the attached game's window as a PNG in %TEMP%\worldsmith-shots.
+//! `shot`: the attached game's window as a PNG in %TEMP%\worldsmith-shots; `thumb`: the same
+//! picture as a 32x18 greyscale fingerprint, never saved.
 //! Windows.Graphics.Capture first (works for DirectX games and hidden-behind windows); when that
 //! fails (old Windows, minimised window, no GPU device) a GDI PrintWindow, then a BitBlt of the
-//! window's monitor.
+//! window's monitor. Every capture also says where on the screen the picture sits (`rect`, in
+//! physical pixels - the process is per-monitor DPI aware, see main.rs).
 
 use std::path::PathBuf;
 use windows_sys::Win32::Foundation::{HWND, RECT};
+use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
     GetMonitorInfoW, MonitorFromWindow, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
@@ -20,13 +23,102 @@ struct Image {
     bgra: Vec<u8>,
 }
 
-/// Capture `hwnd` and save it; returns the PNG path and how it was captured.
-pub fn shot(hwnd: HWND) -> Result<(String, &'static str), String> {
-    let (img, via) = match wgc::capture(hwnd) {
-        Ok(img) if looks_real(&img) => (img, "graphics-capture"),
-        _ => (gdi_capture(hwnd)?, "gdi"),
-    };
-    Ok((save(&img)?, via))
+/// An area of the screen in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Rect {
+    fn from_win(r: &RECT) -> Rect {
+        Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top }
+    }
+}
+
+/// A saved shot: the PNG, how it was captured (`graphics-capture`, `gdi` or `screen`) and the
+/// screen area the picture shows.
+pub struct Shot {
+    pub path: String,
+    pub via: &'static str,
+    pub rect: Rect,
+}
+
+/// A capture held in memory.
+struct Grab {
+    img: Image,
+    via: &'static str,
+    rect: Rect,
+}
+
+/// Capture `hwnd` and save it as a PNG.
+pub fn shot(hwnd: HWND) -> Result<Shot, String> {
+    let g = grab(hwnd)?;
+    Ok(Shot { path: save(&g.img)?, via: g.via, rect: g.rect })
+}
+
+/// Capture `hwnd` without saving; returns the 32x18 fingerprint (see thumb.rs) and how it was
+/// captured.
+pub fn thumb(hwnd: HWND) -> Result<(String, &'static str), String> {
+    let g = grab(hwnd)?;
+    Ok((crate::thumb::encode(g.img.w as usize, g.img.h as usize, &g.img.bgra), g.via))
+}
+
+fn grab(hwnd: HWND) -> Result<Grab, String> {
+    match wgc::capture(hwnd) {
+        Ok(img) if looks_real(&img) => {
+            // the frame is the window's visible frame (no drop shadow): DWM's extended frame
+            // bounds give its place; the frame's own size wins if the two differ slightly
+            let origin = frame_bounds(hwnd).or_else(|| window_rect(hwnd)).unwrap_or(Rect { x: 0, y: 0, w: 0, h: 0 });
+            let rect = Rect { x: origin.x, y: origin.y, w: img.w as i32, h: img.h as i32 };
+            Ok(Grab { img, via: "graphics-capture", rect })
+        }
+        _ => gdi_capture(hwnd),
+    }
+}
+
+/// The window's visible frame on screen (no invisible resize border, no shadow).
+fn frame_bounds(hwnd: HWND) -> Option<Rect> {
+    unsafe {
+        let mut r: RECT = std::mem::zeroed();
+        let hr = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+            &mut r as *mut RECT as *mut core::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        );
+        let rect = Rect::from_win(&r);
+        (hr == 0 && rect.w > 0 && rect.h > 0).then_some(rect)
+    }
+}
+
+fn window_rect(hwnd: HWND) -> Option<Rect> {
+    unsafe {
+        let mut r: RECT = std::mem::zeroed();
+        (GetWindowRect(hwnd, &mut r) != 0).then(|| Rect::from_win(&r))
+    }
+}
+
+/// The part of `img` (which shows `outer` on screen) that shows `inner`, clipped to `outer`.
+/// Returns the cropped picture and the area it now shows.
+fn crop(img: Image, outer: Rect, inner: Rect) -> (Image, Rect) {
+    let x0 = inner.x.max(outer.x);
+    let y0 = inner.y.max(outer.y);
+    let x1 = (inner.x + inner.w).min(outer.x + outer.w);
+    let y1 = (inner.y + inner.h).min(outer.y + outer.h);
+    if x1 <= x0 || y1 <= y0 || (x0, y0, x1, y1) == (outer.x, outer.y, outer.x + outer.w, outer.y + outer.h) {
+        return (img, outer);
+    }
+    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let (dx, dy) = ((x0 - outer.x) as usize, (y0 - outer.y) as usize);
+    let stride = img.w as usize * 4;
+    let mut bgra = Vec::with_capacity(w * h * 4);
+    for y in dy..dy + h {
+        bgra.extend_from_slice(&img.bgra[y * stride + dx * 4..y * stride + (dx + w) * 4]);
+    }
+    (Image { w: w as u32, h: h as u32, bgra }, Rect { x: x0, y: y0, w: w as i32, h: h as i32 })
 }
 
 /// An all-black frame usually means the capture didn't really see the window.
@@ -70,11 +162,12 @@ unsafe fn read_bitmap(mem: HDC, bmp: *mut core::ffi::c_void, w: i32, h: i32) -> 
     (lines == h).then_some(Image { w: w as u32, h: h as u32, bgra })
 }
 
-fn gdi_capture(hwnd: HWND) -> Result<Image, String> {
+fn gdi_capture(hwnd: HWND) -> Result<Grab, String> {
     unsafe {
         let mut r: RECT = std::mem::zeroed();
         GetWindowRect(hwnd, &mut r);
-        let (w, h) = (r.right - r.left, r.bottom - r.top);
+        let outer = Rect::from_win(&r);
+        let (w, h) = (outer.w, outer.h);
         let screen = GetDC(std::ptr::null_mut());
         let mem = CreateCompatibleDC(screen);
         let mut result = None;
@@ -83,7 +176,15 @@ fn gdi_capture(hwnd: HWND) -> Result<Image, String> {
             let old = SelectObject(mem, bmp);
             // PW_RENDERFULLCONTENT (2) also draws DirectX content on Windows 8.1+
             if PrintWindow(hwnd, mem, 2) != 0 {
-                result = read_bitmap(mem, bmp, w, h).filter(looks_real);
+                // the bitmap covers the window rect, invisible resize borders included: keep
+                // only the visible frame, the same area Windows.Graphics.Capture shows
+                result = read_bitmap(mem, bmp, w, h)
+                    .map(|img| match frame_bounds(hwnd) {
+                        Some(inner) => crop(img, outer, inner),
+                        None => (img, outer),
+                    })
+                    .filter(|(img, _)| looks_real(img))
+                    .map(|(img, rect)| Grab { img, via: "gdi", rect });
             }
             SelectObject(mem, old);
             DeleteObject(bmp);
@@ -100,7 +201,8 @@ fn gdi_capture(hwnd: HWND) -> Result<Image, String> {
                     let bmp = CreateCompatibleBitmap(screen, mw, mh);
                     let old = SelectObject(mem, bmp);
                     if BitBlt(mem, 0, 0, mw, mh, screen, m.left, m.top, SRCCOPY) != 0 {
-                        result = read_bitmap(mem, bmp, mw, mh);
+                        result = read_bitmap(mem, bmp, mw, mh)
+                            .map(|img| Grab { img, via: "screen", rect: Rect::from_win(&m) });
                     }
                     SelectObject(mem, old);
                     DeleteObject(bmp);
@@ -249,5 +351,44 @@ mod wgc {
             let _ = pool.Close();
             result
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A w x h image whose pixel (x, y) has blue = x, green = y.
+    fn grid(w: u32, h: u32) -> Image {
+        let bgra = (0..h).flat_map(|y| (0..w).flat_map(move |x| [x as u8, y as u8, 0, 255])).collect();
+        Image { w, h, bgra }
+    }
+
+    #[test]
+    fn crop_keeps_the_visible_frame() {
+        // window rect 100,50 10x8; frame inset 2 left/right, 0 top, 2 bottom
+        let outer = Rect { x: 100, y: 50, w: 10, h: 8 };
+        let inner = Rect { x: 102, y: 50, w: 6, h: 6 };
+        let (img, rect) = crop(grid(10, 8), outer, inner);
+        assert_eq!(rect, inner);
+        assert_eq!((img.w, img.h), (6, 6));
+        assert_eq!(img.bgra.len(), 6 * 6 * 4);
+        assert_eq!(&img.bgra[..2], &[2, 0]); // top-left is source (2, 0)
+        let last = (6 * 6 - 1) * 4;
+        assert_eq!(&img.bgra[last..last + 2], &[7, 5]); // bottom-right is source (7, 5)
+    }
+
+    #[test]
+    fn crop_clips_and_ignores_no_overlap() {
+        let outer = Rect { x: 0, y: 0, w: 4, h: 4 };
+        // a frame reaching past the bitmap is clipped to it
+        let (img, rect) = crop(grid(4, 4), outer, Rect { x: 1, y: -3, w: 10, h: 5 });
+        assert_eq!(rect, Rect { x: 1, y: 0, w: 3, h: 2 });
+        assert_eq!((img.w, img.h, img.bgra.len()), (3, 2, 3 * 2 * 4));
+        // no overlap, or the same area: unchanged
+        let (img, rect) = crop(grid(4, 4), outer, Rect { x: 50, y: 50, w: 2, h: 2 });
+        assert_eq!((rect, img.w, img.h), (outer, 4, 4));
+        let (_, rect) = crop(grid(4, 4), outer, outer);
+        assert_eq!(rect, outer);
     }
 }
