@@ -71,9 +71,15 @@ const slides = computed(() => Array.from({ length: Math.min(count.value, shown.v
   position: relative;
   min-width: 0;
   min-height: 0;
-  /* always the last row (the stretching one): the sheet tabs and the pager show only with two or
-     more, and without them the page fell into the auto row and had no height at all */
+}
+/* pages and sheets: the page always takes the last row (the stretching one) - the sheet tabs and
+   the pager show only with two or more, and without them the page fell into the auto row and had
+   no height at all. Slides keep their own two columns (the strip, then the page). */
+.nav:not(.slides) .page {
   grid-row: -2 / -1;
+}
+.nav.slides .page {
+  grid-column: 2;
 }
 .strip {
   display: flex;

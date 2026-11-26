@@ -39,7 +39,7 @@
 // with { api, doc, page, count, sel, args, pickFile }) and components (`views`): a full-screen one in
 // the room's overlay, a panel under the page or beside it (ribbon.js editorViews). Intents that ask the
 // member first (Scroll's insert.picture / insert.link) get the room's file picker or its prompt.
-import { computed, defineAsyncComponent, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
+import { computed, defineAsyncComponent, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import FindBar from './FindBar.vue'
 import ClassicLayout from './layout/ClassicLayout.vue'
 import StudioLayout from './layout/StudioLayout.vue'
@@ -100,6 +100,11 @@ const recent = ref([])
 const status = ref('')
 const busy = ref(false)
 const zoom = ref(1)
+// every document opens at its own size: a zoom chosen for another one (or fitted while the page area
+// was squeezed) never carries over
+watch(doc, () => {
+  zoom.value = 1
+})
 // an action waiting for its second press (it would let unsaved changes go): { action, path }
 const armed = ref(null)
 let stopChanged = null
