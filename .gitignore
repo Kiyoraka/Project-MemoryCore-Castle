@@ -6,6 +6,7 @@ npm-debug.log*
 
 # Rust / Tauri
 src-tauri/target/
+worldsmith-helper/target/
 src-tauri/gen/
 # Castle is a Windows desktop app; the mobile icon sets the icon tool also writes are not used
 src-tauri/icons/android/
