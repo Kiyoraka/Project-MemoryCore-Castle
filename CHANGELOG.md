@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- SCRIPTORIUM's page shows in Scroll, Ledger and Folio (a one-page document had no room to draw in), and WORLDSMITH's screenshot area takes the whole window.
+
 ## 0.8.1 - 2026-11-26
 
 - A room you switch on in Settings > Rooms opens fresh: SCRIPTORIUM (and WORLDSMITH, STORY, STUDIO, PHOTO and MUSIC STUDIO) no longer keeps saying it is turned off after you turn it on.

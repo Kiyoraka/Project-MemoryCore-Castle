@@ -511,8 +511,10 @@ watch(attached, (game) => game || stopAuto())
   /* fills the screen the way every room does (a percent height has nothing to measure against) */
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  /* a column, so the stage takes what is left whether the problem and note lines show or not
+     (a five-row grid put the stage in an auto row whenever they were hidden) */
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 14px 18px;
   box-sizing: border-box;
@@ -566,6 +568,7 @@ watch(attached, (game) => game || stopAuto())
   opacity: 0.85;
 }
 .stage {
+  flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr);
   gap: 12px;
