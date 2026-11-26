@@ -42,7 +42,7 @@ import {
 } from '../api/castle.js'
 import { devRoom, sessionView, tabForSlot } from '../views/dev/devtabs.js'
 import { fullLineFor, noticeKey, noticeWords } from './modelnotice.js'
-import { cardWords, nextCard, notNow, showsCard } from './freshstart.js'
+import { cardWords, nextCard, notNow, restingFresh, showsCard } from './freshstart.js'
 
 const props = defineProps({
   // Changes whenever Settings saves, so the session status is read again.
@@ -119,6 +119,8 @@ const ended = ref(false)
 const status = ref({ ready: false, message: '', fix: null })
 // the resting screen offers "Start fresh" beside Wake (the main session only)
 const offersFresh = ref(false)
+// a fresh start ended the old session and its new one never got going: Start fresh tries it again
+const freshRetry = ref(false)
 // the session started on another model because its own weekly share is spent (one line, closable)
 const notice = ref(null)
 const closedNotice = ref('')
@@ -200,6 +202,7 @@ function show(state) {
   running.value = state.running
   status.value = state.status
   offersFresh.value = state.offersFreshStart === true
+  freshRetry.value = state.freshRetry === true
   notice.value = state.notice ?? null
 }
 
@@ -564,7 +567,8 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
       <p class="message">{{ problem || status.message }}</p>
       <div class="buttons">
         <button class="primary" :disabled="!status.ready" @click="wake({ greet: true })">Wake {{ companion === 'Your companion' ? 'your companion' : companion }}{{ isDev ? ' here' : '' }}</button>
-        <button v-if="!isDev && offersFresh" :disabled="!status.ready" title="A new talk: your companion wakes from its memory, and what was said but not saved stays in the last one" @click="wake({ greet: true, fresh: true })">Start fresh</button>
+        <button v-if="!isDev && restingFresh({ offersFresh, freshRetry }) === 'retry'" :disabled="!status.ready || freshState === 'running'" title="Try the fresh start again: your companion wakes from its memory and carries our latest talk" @click="startFresh">Start fresh</button>
+        <button v-else-if="!isDev && restingFresh({ offersFresh, freshRetry }) === 'new'" :disabled="!status.ready" title="A new talk: your companion wakes from its memory, and what was said but not saved stays in the last one" @click="wake({ greet: true, fresh: true })">Start fresh</button>
         <button v-if="status.fix === 'setup'" @click="emit('setup')">Open setup</button>
         <button v-if="status.fix === 'settings' || status.fix === 'install'" @click="emit('settings')">Settings</button>
       </div>

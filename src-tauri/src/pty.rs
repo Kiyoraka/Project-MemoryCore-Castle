@@ -334,6 +334,18 @@ impl PtyHost {
             session.kill();
         }
     }
+
+    /// Ends the session only while it is still the one with this id, so a watchdog never ends a
+    /// newer one. Returns whether it asked that session to end.
+    pub fn kill_if(&self, id: u64) -> bool {
+        match self.session.lock().unwrap().as_mut() {
+            Some((current, session)) if *current == id => {
+                session.kill();
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]

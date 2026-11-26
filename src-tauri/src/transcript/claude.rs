@@ -126,6 +126,11 @@ pub fn set_own_session(records_folder: PathBuf, id: String) {
     }
 }
 
+/// The id Castle's own session runs under, when it is known (the fresh start's log names it).
+pub fn own_session_id() -> Option<String> {
+    OWN_SESSION.lock().ok()?.as_ref().map(|(_, id)| id.clone())
+}
+
 /// How long after a turn Castle sent a record born in the folder counts as that turn's.
 pub const CLEAR_GRACE: Duration = Duration::from_secs(20);
 

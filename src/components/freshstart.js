@@ -30,3 +30,11 @@ export function cardWords(percent) {
   const full = typeof percent === 'number' ? ` (${percent}%)` : ''
   return `My memory of this talk is getting full${full}. Shall I start fresh? Nothing is lost: Chat keeps every word, I keep my memory, and I carry our latest talk with me.`
 }
+
+// The resting screen's Start fresh: after a fresh start whose new session never got going (the
+// watchdog in fresh_start.rs ended it), it tries that fresh start again, the latest talk handed
+// over ('retry'); otherwise it is the one-off new talk ('new'), or not there at all (null).
+export function restingFresh({ offersFresh, freshRetry }) {
+  if (freshRetry) return 'retry'
+  return offersFresh ? 'new' : null
+}

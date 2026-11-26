@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ASK_AGAIN_AT, ASK_AT, cardWords, nextCard, notNow, showsCard } from './freshstart.js'
+import { ASK_AGAIN_AT, ASK_AT, cardWords, nextCard, notNow, restingFresh, showsCard } from './freshstart.js'
 
 const at = (percent, extra = {}) => ({ percent, busy: false, running: true, ...extra })
 
@@ -34,5 +34,13 @@ describe('the home chat asks to start fresh', () => {
     expect(cardWords(86)).toBe('My memory of this talk is getting full (86%). Shall I start fresh? Nothing is lost: Chat keeps every word, I keep my memory, and I carry our latest talk with me.')
     expect(cardWords(undefined)).toContain('getting full. Shall I')
     expect(cardWords(86).toLowerCase()).not.toContain('alice')
+  })
+
+  it('after a launch that never got going, the resting Start fresh tries the fresh start again', () => {
+    expect(restingFresh({ offersFresh: true, freshRetry: true })).toBe('retry')
+    // even for a member whose every start is fresh (no one-off button otherwise)
+    expect(restingFresh({ offersFresh: false, freshRetry: true })).toBe('retry')
+    expect(restingFresh({ offersFresh: true, freshRetry: false })).toBe('new')
+    expect(restingFresh({ offersFresh: false, freshRetry: false })).toBe(null)
   })
 })

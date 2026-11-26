@@ -166,6 +166,9 @@ pub struct TerminalView {
     /// The resting screen offers "Start fresh" beside Wake (the main session, unless every start
     /// is fresh already).
     offers_fresh_start: bool,
+    /// A fresh start ended the old session and no new one got going: the resting screen's Start
+    /// fresh tries it again, the latest talk handed over (fresh_start.rs).
+    fresh_retry: bool,
     /// The session started on another model because its own weekly share is spent: one line for
     /// the member (the screen writes it in their words and time).
     notice: Option<ModelNotice>,
@@ -223,6 +226,7 @@ fn view(store: &SettingsStore, host: &PtyHost, room: Room) -> TerminalView {
         status: status(&settings, room, program.as_deref()),
         snapshot: host.snapshot(),
         offers_fresh_start: offers_fresh_start(room, &settings.main_start),
+        fresh_retry: room == Room::Main && crate::fresh_start::retry_offered(),
         notice: host.fallback().map(ModelNotice::from),
     }
 }
@@ -387,14 +391,40 @@ pub fn claude_voice() -> VoiceView {
 /// Writes Castle's session settings (again each wake, so a moved install points at its own tools).
 /// None when the script is not there or the file cannot be written: the session then simply has no
 /// status line, which never stops it from starting.
-pub fn ensure_session_settings(store: &SettingsStore, tools: &Path) -> Option<PathBuf> {
-    if !tools.join(STATUS_LINE_SCRIPT).is_file() {
+/// `home`: the home chat's own keys (home_settings), which go in a file of their own, so a DEV tab
+/// or another room waking meanwhile never rewrites the home session's settings.
+pub fn ensure_session_settings(store: &SettingsStore, tools: &Path, home: &serde_json::Map<String, serde_json::Value>) -> Option<PathBuf> {
+    let status = tools.join(STATUS_LINE_SCRIPT).is_file().then(|| session_settings_text(tools, &personal_voice()));
+    if status.is_none() && home.is_empty() {
         return None;
     }
-    let file = session_settings_file(store);
+    let file = if home.is_empty() { session_settings_file(store) } else { home_settings_file(store) };
     std::fs::create_dir_all(file.parent()?).ok()?;
-    std::fs::write(&file, session_settings_text(tools, &personal_voice())).ok()?;
+    std::fs::write(&file, settings_text_with(status.as_deref(), home)).ok()?;
     Some(file)
+}
+
+/// The home chat's own settings file, beside the shared one.
+pub fn home_settings_file(store: &SettingsStore) -> PathBuf {
+    store.folder().join("home-session-settings.json")
+}
+
+/// A settings file's text (none: an empty one) with the home chat's own keys on top. Pure.
+pub fn settings_text_with(text: Option<&str>, home: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut settings: serde_json::Map<String, serde_json::Value> = text.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default();
+    settings.extend(home.clone());
+    serde_json::Value::Object(settings).to_string()
+}
+
+/// The home chat's own Claude Code settings, beside DISABLE_AUTO_COMPACT (home_vars): Claude Code
+/// also compacts a talk left quiet before its prompt cache expires ("Compacted while idle", issue
+/// #107), which that variable does not stop; only `"idleCompaction": false` in a settings file
+/// does. DEV tabs and the other rooms keep it, as they keep their auto-compact. Pure.
+pub fn home_settings(cli: Cli, room: Room) -> serde_json::Map<String, serde_json::Value> {
+    match (cli, room) {
+        (Cli::Claude, Room::Main) => [("idleCompaction".to_string(), serde_json::Value::Bool(false))].into_iter().collect(),
+        _ => serde_json::Map::new(),
+    }
 }
 
 /// The variables that go with it, whatever the room: no CLAUDE.md file is read and no auto memory.
@@ -446,26 +476,44 @@ fn room_instructions_boot(store: &SettingsStore, room: Room, folder: &Path) -> O
 /// written: a session that should be only this companion is never started half-isolated.
 #[cfg(test)]
 pub fn isolation(store: &SettingsStore, cli: Cli, on: bool) -> Result<(Vec<String>, Vec<(String, String)>), String> {
-    isolation_inner(store, cli, on, None)
+    isolation_inner(store, cli, on, None, &serde_json::Map::new())
 }
 
 /// `isolation`, plus Castle's status line (from the script in `tools`), so the session's context
 /// shows in Chat.
 pub fn isolation_with_status(store: &SettingsStore, cli: Cli, on: bool, tools: &Path) -> Result<(Vec<String>, Vec<(String, String)>), String> {
-    isolation_inner(store, cli, on, Some(tools))
+    isolation_inner(store, cli, on, Some(tools), &serde_json::Map::new())
 }
 
-fn isolation_inner(store: &SettingsStore, cli: Cli, on: bool, tools: Option<&Path>) -> Result<(Vec<String>, Vec<(String, String)>), String> {
+/// `isolation_with_status` for a room's session, with the home chat's own settings (home_settings)
+/// in its settings file. With the switch off the member's own setup is read, and the home chat's
+/// keys still travel alone by `--settings` on top of it.
+pub fn isolation_for_room(store: &SettingsStore, cli: Cli, on: bool, tools: &Path, room: Room) -> Result<(Vec<String>, Vec<(String, String)>), String> {
+    let home = home_settings(cli, room);
+    let (mut args, vars) = isolation_inner(store, cli, on, Some(tools), &home)?;
+    if args.is_empty() && !home.is_empty() {
+        let file = home_settings_file(store);
+        let written = file.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok()) && std::fs::write(&file, settings_text_with(None, &home)).is_ok();
+        // a file that cannot be written never stops the session from starting
+        if written {
+            args = vec!["--settings".to_string(), file.display().to_string()];
+        }
+    }
+    Ok((args, vars))
+}
+
+fn isolation_inner(store: &SettingsStore, cli: Cli, on: bool, tools: Option<&Path>, home: &serde_json::Map<String, serde_json::Value>) -> Result<(Vec<String>, Vec<(String, String)>), String> {
     if !on || !cli.isolates() {
         return Ok((Vec::new(), Vec::new()));
     }
     let mcp = ensure_mcp_config(store).ok_or("Castle could not write its settings folder, so the session was not started.")?;
-    let settings = tools.and_then(|tools| ensure_session_settings(store, tools));
+    let settings = tools.and_then(|tools| ensure_session_settings(store, tools, home));
     Ok((isolation_args_with(cli, &mcp, settings.as_deref()), isolation_vars(cli)))
 }
 
 /// The home chat is never compacted: there the talk is the memory, so Claude Code's own auto-compact
-/// is off and a full talk starts fresh instead (fresh_start.rs). DEV tabs keep their auto-compact.
+/// is off (its idle compaction too, home_settings) and a full talk starts fresh instead
+/// (fresh_start.rs). DEV tabs keep their auto-compact.
 pub fn home_vars(cli: Cli, room: Room) -> Vec<(String, String)> {
     match (cli, room) {
         (Cli::Claude, Room::Main) => vec![("DISABLE_AUTO_COMPACT".to_string(), "1".to_string())],
@@ -550,7 +598,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     vars.extend(wake_vars(boot.as_ref()));
     // the personal setup stays out whenever the switch is on - in the STORY room too, and even when
     // the names are missing and no boot file was written
-    let (isolation_args, isolation_vars) = isolation_with_status(store, settings.cli, settings.only_this_companion, &tools_folder(app))?;
+    let (isolation_args, isolation_vars) = isolation_for_room(store, settings.cli, settings.only_this_companion, &tools_folder(app), room)?;
     vars.extend(isolation_vars);
     vars.extend(home_vars(settings.cli, room));
     // WORLDSMITH's session finds the memory helper by the name the Keep's room uses too
@@ -621,6 +669,10 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     if started {
         host.bind_provider(settings.cli);
         host.set_fallback(fallback);
+    }
+    // the home chat is awake again: a failed fresh start's offer to try again is gone
+    if started && room == Room::Main {
+        crate::fresh_start::forget_retry();
     }
     // a CLI that names its own sessions is remembered once its record appears
     if started && room == Room::Main && !resumed {
@@ -889,6 +941,57 @@ mod tests {
         assert_eq!(home_vars(Cli::Claude, Room::Main), vec![("DISABLE_AUTO_COMPACT".to_string(), "1".to_string())]);
         assert!(home_vars(Cli::Claude, Room::Story).is_empty());
         assert!(home_vars(Cli::Codex, Room::Main).is_empty());
+    }
+
+    #[test]
+    fn only_the_home_chat_on_claude_code_turns_idle_compaction_off() {
+        let home = home_settings(Cli::Claude, Room::Main);
+        assert_eq!(serde_json::Value::Object(home.clone()), serde_json::json!({ "idleCompaction": false }));
+        // exactly where auto compact is off already
+        for (cli, room) in [(Cli::Claude, Room::Story), (Cli::Claude, Room::Worldsmith), (Cli::Claude, Room::Scriptorium), (Cli::Claude, Room::Music), (Cli::Codex, Room::Main), (Cli::Gemini, Room::Main), (Cli::Grok, Room::Main)] {
+            assert!(home_settings(cli, room).is_empty());
+            assert_eq!(home_vars(cli, room).is_empty(), home_settings(cli, room).is_empty());
+        }
+        assert!(!home_vars(Cli::Claude, Room::Main).is_empty());
+        // on top of Castle's own keys, never instead of them
+        let merged: serde_json::Value = serde_json::from_str(&settings_text_with(Some(r#"{"statusLine":{"type":"command","command":"s"}}"#), &home)).unwrap();
+        assert_eq!(merged["idleCompaction"], false);
+        assert_eq!(merged["statusLine"]["command"], "s");
+        assert_eq!(settings_text_with(None, &home), r#"{"idleCompaction":false}"#);
+    }
+
+    #[test]
+    fn the_home_sessions_settings_file_turns_idle_compaction_off_with_the_switch_on_or_off() {
+        let tools = folder("home-tools");
+        std::fs::write(tools.join(STATUS_LINE_SCRIPT), "# script").unwrap();
+        let store = SettingsStore::open(&folder("home-config"));
+        let file_of = |args: &[String]| args.iter().position(|a| a == "--settings").map(|at| PathBuf::from(&args[at + 1]));
+        let read = |file: &Path| -> serde_json::Value { serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap() };
+
+        // the switch on: the home chat's own file, with Castle's status line and the idle compaction off
+        let (args, _) = isolation_for_room(&store, Cli::Claude, true, &tools, Room::Main).unwrap();
+        let home = file_of(&args).unwrap();
+        assert_eq!(home, home_settings_file(&store));
+        assert!(home.ends_with("home-session-settings.json"));
+        let written = read(&home);
+        assert_eq!(written["idleCompaction"], false);
+        assert_eq!(written["statusLine"]["type"], "command");
+        assert_eq!(args.last(), Some(&"--strict-mcp-config".to_string()));
+
+        // another room keeps the shared file, untouched by the home chat's key
+        let (args, _) = isolation_for_room(&store, Cli::Claude, true, &tools, Room::Story).unwrap();
+        let shared = file_of(&args).unwrap();
+        assert_eq!(shared, session_settings_file(&store));
+        assert!(read(&shared).get("idleCompaction").is_none());
+        assert_eq!(read(&home)["idleCompaction"], false, "the home file is not rewritten by another room's wake");
+
+        // the switch off: the member's own setup, and only the home chat's key on top of it
+        let (args, vars) = isolation_for_room(&store, Cli::Claude, false, &tools, Room::Main).unwrap();
+        assert_eq!(args, vec!["--settings".to_string(), home_settings_file(&store).display().to_string()]);
+        assert!(vars.is_empty());
+        assert_eq!(read(&home_settings_file(&store)), serde_json::json!({ "idleCompaction": false }));
+        assert!(isolation_for_room(&store, Cli::Claude, false, &tools, Room::Story).unwrap().0.is_empty());
+        assert!(isolation_for_room(&store, Cli::Codex, true, &tools, Room::Main).unwrap().0.is_empty());
     }
 
     #[test]
