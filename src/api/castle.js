@@ -109,6 +109,15 @@ export const worldsmithRecipe = (id, keep) => invoke('worldsmith_recipe', { id, 
 export const worldsmithSnap = () => invoke('worldsmith_snap')
 export const onWorldsmithShot = (handler) => listen('worldsmith-shot', (event) => handler(event.payload))
 export const onWorldsmithInstall = (handler) => listen('castle://worldsmith-install', (event) => handler(event.payload))
+// The Forge's Lens, Translate: read the game's words and draw them over it in the member's language.
+// -> { lines: [{ x, y, w, h, text, translated }], width, height, rect: { x, y, w, h }, via }
+export const worldsmithTranslate = () => invoke('worldsmith_translate')
+export const worldsmithOverlayHide = () => invoke('worldsmith_overlay_hide')
+// 'values' | 'translate': which Tool the room has open (the F10 key and the overlay follow it)
+export const worldsmithModeSet = (mode) => invoke('worldsmith_mode_set', { mode })
+export const worldsmithAutoSet = (on) => invoke('worldsmith_auto_set', { on: Boolean(on) })
+// a Translation, { hidden: true } or { error } - heard by the room and the overlay window
+export const onWorldsmithLines = (handler) => listen('worldsmith-lines', (event) => handler(event.payload))
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 

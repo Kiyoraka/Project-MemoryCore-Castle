@@ -77,6 +77,11 @@ if (devThemeRoom) {
   Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden', background: 'transparent' })
   Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: 'transparent' })
   import('./worlds/IdentifyNumber.vue').then(({ default: IdentifyNumber }) => createApp(IdentifyNumber, { number: Number(view.number) || 1 }).mount('#app'))
+} else if (view?.view === 'worldsmith-overlay') {
+  // WORLDSMITH's Translate Lens: a see-through window laid exactly over the game, only the bubbles show
+  Object.assign(document.documentElement.style, { height: '100%', overflow: 'hidden', background: 'transparent' })
+  Object.assign(document.body.style, { margin: '0', height: '100%', overflow: 'hidden', background: 'transparent' })
+  import('./views/worldsmith/WorldsmithOverlay.vue').then(({ default: WorldsmithOverlay }) => createApp(WorldsmithOverlay, { initial: view }).mount('#app'))
 } else {
   createApp(App).mount('#app')
 }
