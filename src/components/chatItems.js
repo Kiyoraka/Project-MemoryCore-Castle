@@ -2,9 +2,10 @@ import { firstHeading } from './markdown.js'
 
 // What Chat draws from the session's record: the companion's words, the member's, pictures side by
 // side, films, voice lines and songs, and plan cards. Tool steps and the plan-file and plan-end
-// markers stay in Log.
+// markers stay in Log; the trail to and from other sessions ("peer") only puts DEV chips on the
+// companion's words (devchips.js).
 
-const HIDDEN = new Set(['work', 'plan-file', 'plan-end'])
+const HIDDEN = new Set(['work', 'plan-file', 'plan-end', 'peer'])
 
 // A plan card shows only its title and how many phases; the reader holds the whole plan.
 export function planFace(text) {
@@ -20,8 +21,9 @@ export function openPlanFile(entries) {
   return entries[at].text
 }
 
-// Whether an entry is one of the markers Chat never draws (they only say where a plan is written).
-export const isMarker = (entry) => entry?.role === 'plan-file' || entry?.role === 'plan-end'
+// Whether an entry is one of the markers Chat never draws (they only say where a plan is written,
+// or which session a message went to or came from).
+export const isMarker = (entry) => entry?.role === 'plan-file' || entry?.role === 'plan-end' || entry?.role === 'peer'
 
 const fileCard = (waiting, at) => ({
   kind: 'plan',

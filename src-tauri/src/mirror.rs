@@ -569,7 +569,26 @@ pub fn boot(conn: &mut impl Queryable) -> Result<String, String> {
 pub fn boot_prompt(conn: &mut impl Queryable, memory: &Path) -> Result<Option<String>, String> {
     let Some(body) = memory_body(conn)? else { return Ok(None) };
     let pictures = memory.join(crate::studio::PICTURE_SHELF).display().to_string();
-    Ok(Some(format!(
+    Ok(Some(prompt_text(&body, &pictures)))
+}
+
+/// How the companion tells the member, in HOME, that a line is about one of the DEV tabs: a marker
+/// at the end of that line, which Castle hides and draws as a chip naming the tab (a click opens
+/// it). The three states are the chip's colour (devchips.js reads the marker back).
+pub const DEV_MARKER_RULE: &str = "
+===== DEV tabs in HOME =====
+When a line you write to the member in HOME is about one of the DEV tabs (you briefed that tab, it reported back to you, or you are passing on how it is doing), end that line with a marker naming the tab and what it wants from the member:
+`[dev:<tab>|go]` - the tab waits for the member (a send, a push, a yes).
+`[dev:<tab>|done]` - the tab finished a piece of work and reported back.
+`[dev:<tab>|fyi]` - how it is doing, nothing for the member to do.
+<tab> is the tab's name as the DEV room shows it: the project folder's name, with its number when the project has more than one session (`[dev:shop|done]`, `[dev:shop · 2|go]`). Castle hides the marker and shows a small chip that opens that tab, so never explain the marker or put it in a code block. One marker per tab and line; a line that is not about a DEV tab has none. In a DEV tab itself, never write one.
+";
+
+/// The wake prompt around the memory's body: the header (with STUDIO's picture shelf), the body,
+/// then the DEV marker rule.
+/// Pure, tested.
+pub fn prompt_text(body: &str, pictures: &str) -> String {
+    let mut text = format!(
         "# Your memory
 
          This is your memory. MemoryCore Castle read it from the memory database when it woke you, so it is already complete and already loaded:
@@ -579,7 +598,9 @@ pub fn boot_prompt(conn: &mut impl Queryable, memory: &Path) -> Result<Option<St
          The session memory is kept by section: `castle-memory session set --section \"<heading>\" --file <text file>`.
          A picture you make, with any tool, is saved in `{pictures}` (with its prompt beside it as `<name>.prompt.md`), so STUDIO shows it.
 {body}"
-    )))
+    );
+    text.push_str(DEV_MARKER_RULE);
+    text
 }
 
 // ---------- skills: database = truth, disk = mirror ----------
@@ -802,6 +823,21 @@ pub fn remove_skill(conn: &mut impl Queryable, folder: &Path, plugin: &str, name
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_wake_prompt_teaches_the_dev_marker_after_the_memory() {
+        let prompt = super::prompt_text("===== master-memory.md =====\nlikes tea\n", "/m/media-generation/image-generation");
+        assert!(prompt.starts_with("# Your memory\n"));
+        let (memory, rule) = (prompt.find("likes tea").unwrap(), prompt.find("===== DEV tabs in HOME =====").unwrap());
+        assert!(memory < rule, "the rule comes after the memory");
+        // the marker and its three states, written exactly as devchips.js reads them
+        for marker in ["`[dev:<tab>|go]`", "`[dev:<tab>|done]`", "`[dev:<tab>|fyi]`", "`[dev:shop · 2|go]`"] {
+            assert!(prompt.contains(marker), "missing {marker}");
+        }
+        assert!(prompt.contains("Castle hides the marker") && prompt.contains("never explain the marker or put it in a code block"));
+        assert!(prompt.contains("In a DEV tab itself, never write one."));
+        assert!(prompt.trim_end().ends_with("never write one."));
+    }
+
     #[test]
     fn the_companion_wakes_with_its_mood_and_knows_it_may_change_it() {
         let mood = crate::mood::Mood { words: vec!["sweet".into(), "dreamy".into(), "regal".into()], tone: "Soft and unhurried.".into(), source: "daily".into(), why: None, at: "08:00".into() };

@@ -19,8 +19,11 @@ const props = defineProps({
   companion: { type: String, default: 'Your companion' },
   cli: { type: String, default: 'claude' },
   settingsStamp: { type: Number, default: 0 },
+  // a DEV chip clicked in HOME ({ slot, folder, stamp }): that tab shows, or its project opens
+  wanted: { type: Object, default: null },
 })
-const emit = defineEmits(['settings', 'setup'])
+// tab: the slot that shows (null for none), so the DEV button's count clears as its tabs are seen
+const emit = defineEmits(['settings', 'setup', 'tab'])
 
 // the tabs' running dots are read again this often while the room shows
 const READ_EVERY_MS = 3000
@@ -154,6 +157,23 @@ async function refresh() {
     // outside Castle's window, or the core is busy: the last list stays
   }
 }
+
+// A chip from HOME: its tab when that session is still open, else its project (a new session).
+async function openWanted(wanted) {
+  if (!wanted) return
+  if (wanted.slot !== null && wanted.slot !== undefined) {
+    if (!state.value.tabs.length) await refresh()
+    const open = state.value.tabs.find((t) => t.slot === wanted.slot)
+    if (open && (!wanted.folder || samePath(open.folder, wanted.folder))) {
+      idleFolder.value = null
+      activeSlot.value = open.slot
+      return
+    }
+  }
+  if (wanted.folder) await openProject(wanted.folder)
+}
+watch(() => props.wanted?.stamp, () => openWanted(props.wanted), { immediate: true })
+watch(activeSlot, (slot) => emit('tab', slot ?? null), { immediate: true })
 
 async function openProject(folder) {
   problem.value = ''

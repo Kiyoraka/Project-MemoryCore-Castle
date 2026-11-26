@@ -32,6 +32,9 @@ pub struct DevTab {
     /// its number within its project, kept for the session's life ("shop · 2")
     number: u32,
     running: bool,
+    /// the running session's process id: Claude Code's address for it to other sessions is
+    /// `uds:/tmp/cc-socks/<pid>.sock`, so HOME's messages to and from it are known as this tab's
+    pid: Option<u32>,
     status: SessionStatus,
     /// the tab started on another model because its own weekly share is spent
     notice: Option<session::ModelNotice>,
@@ -95,6 +98,7 @@ fn state(store: &SettingsStore, hosts: &DevHosts) -> DevState {
                 name: dev_tabs::name_of(folder),
                 number: numbers.get(slot).copied().unwrap_or(1),
                 running: hosts.0.get(slot).is_some_and(PtyHost::is_running),
+                pid: hosts.0.get(slot).and_then(PtyHost::pid),
                 status: tab_status(&settings, Path::new(folder), program.as_deref()),
                 notice: hosts.0.get(slot).and_then(PtyHost::fallback).map(session::ModelNotice::from),
             })

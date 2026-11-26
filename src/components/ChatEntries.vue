@@ -4,6 +4,7 @@ import MarkdownText from './MarkdownText.vue'
 import { chooseLine, isDesignGroup } from './designpick.js'
 import { isCompanionVoice, songOf, soundName } from './chatItems.js'
 import { readsClaudeScreen } from './providers.js'
+import { chipTitle, chipWords } from './devchips.js'
 
 // Chat's conversation: the member's bubbles right, the companion's left, plan cards, pictures side
 // by side, films, voice lines and songs, and the typing bubble (the card for a choice asked in the
@@ -22,7 +23,7 @@ const props = defineProps({
   companion: { type: String, default: 'Your companion' },
   cli: { type: String, default: 'claude' },
 })
-const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose-designs', 'open-media', 'media-play', 'resend'])
+const emit = defineEmits(['show-log', 'send-now', 'open-plan', 'open-picture', 'toggle-voice', 'play-voice', 'choose-designs', 'open-media', 'media-play', 'resend', 'open-dev'])
 
 // One film or sound plays at a time: a player that starts pauses the others and the voice line.
 function pauseOthers(except = null) {
@@ -131,8 +132,22 @@ defineExpose({ nearBottom, toBottom })
 
     <template v-for="item in items" :key="item.id">
       <div v-if="item.kind === 'message'" class="row" :class="item.entry.role">
-        <div class="bubble">
-          <MarkdownText :text="item.entry.text" size="chat" />
+        <div class="bubble" :class="item.dev?.length ? `dev dev-${item.dev[0].state}` : null">
+          <MarkdownText :text="item.shown ?? item.entry.text" size="chat" />
+          <div v-if="item.dev?.length" class="dev-chips">
+            <button
+              v-for="chip in item.dev"
+              :key="chip.key"
+              type="button"
+              class="dev-chip"
+              :class="[`dev-${chip.state}`, { closed: !chip.open }]"
+              :disabled="chip.unknown"
+              :title="chipTitle(chip)"
+              @click="emit('open-dev', chip)"
+            >
+              <span aria-hidden="true">↗</span> <b>{{ chip.label }}</b> <span class="dev-state">· {{ chipWords(chip) }}</span>
+            </button>
+          </div>
           <div v-if="item.entry.pictures?.length" class="shared">
             <button
               v-for="path in item.entry.pictures"
@@ -313,6 +328,89 @@ defineExpose({ nearBottom, toBottom })
   font-size: 10px;
   white-space: nowrap;
   color: var(--text-dim);
+}
+
+/* A line about a DEV tab: an edge in its state's colour and a chip that opens the tab. Only
+   "needs your go" is loud (safety yellow), so it is found first. */
+.bubble.dev {
+  border-left: 3px solid var(--chip-edge);
+}
+
+.bubble.dev-go,
+.dev-chip.dev-go {
+  --chip-edge: #e6c400;
+}
+
+.bubble.dev-done,
+.dev-chip.dev-done {
+  --chip-edge: var(--good, #8fe3b8);
+}
+
+.bubble.dev-fyi,
+.dev-chip.dev-fyi {
+  --chip-edge: #8fbde6;
+}
+
+.dev-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 10px 2px 8px;
+  border: 1px solid var(--chip-edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip-edge) 16%, transparent);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-chip b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-chip .dev-state {
+  color: var(--text-dim);
+}
+
+.dev-chip.dev-go {
+  background: #ffe600;
+  color: #141414;
+}
+
+.dev-chip.dev-go .dev-state {
+  color: #3a3a00;
+}
+
+.dev-chip.closed {
+  border-style: dashed;
+  background: none;
+  color: var(--text);
+}
+
+.dev-chip.closed .dev-state {
+  color: var(--text-dim);
+}
+
+.dev-chip:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.dev-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 /* The member's ticks: one grey while it travels, one while it waits in the queue, two blue once read. */

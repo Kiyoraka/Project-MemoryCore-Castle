@@ -235,6 +235,26 @@ const badges = computed(() => badgesFor({
   calendar: rooms.value.calendar ? calendarCard.value : null,
   browser: browserUnread.value,
 }))
+// HOME's DEV chips (devchips.js): a click opens DEV on that tab, and the "needs your go" and
+// "finished" chips not seen yet are counted on the DEV button until that tab is opened.
+const devWanted = ref(null) // { slot, folder, stamp }
+const devChips = ref([]) // [{ key, slot }] said since Castle started
+const devSeen = ref(new Set())
+const devSlot = ref(null) // the tab DEV shows
+const devUnseen = computed(() => devChips.value.filter((chip) => !devSeen.value.has(chip.key)).length)
+function seeDevTab() {
+  if (active.value !== 'dev' || devSlot.value === null) return
+  const now = devChips.value.filter((chip) => chip.slot === devSlot.value && !devSeen.value.has(chip.key))
+  if (now.length) devSeen.value = new Set([...devSeen.value, ...now.map((chip) => chip.key)])
+}
+watch([active, devSlot, devChips], seeDevTab)
+const heardDevChips = (event) => (devChips.value = Array.isArray(event.detail) ? event.detail : [])
+function openDevTab(event) {
+  const { slot = null, folder = null } = event.detail ?? {}
+  if (!tabs.value.some((t) => t.id === 'dev')) return
+  devWanted.value = { slot, folder, stamp: Date.now() }
+  active.value = 'dev'
+}
 // The rooms pinned to the top bar (Settings `pinnedRooms`); every other room opens from APPS, the room launcher.
 const pins = ref([...DEFAULT_PINS])
 // What the top bar holds: HOME, APPS, the pinned rooms, and the open room if it is not pinned.
@@ -673,6 +693,8 @@ onMounted(async () => {
   }).catch(() => null)
   window.addEventListener('keydown', onArrangeKey)
   window.addEventListener('keydown', onLauncherKey)
+  window.addEventListener('castle-dev-chips', heardDevChips)
+  window.addEventListener('castle-open-dev', openDevTab)
   stopProviderEvents = await onProviderChanged(async () => { await settingsSaved(); window.dispatchEvent(new Event('castle-provider-changed')) }).catch(() => null)
   stopOpenChat = await onOpenChat(() => {
     active.value = 'chat'
@@ -733,6 +755,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onArrangeKey)
   window.removeEventListener('keydown', onLauncherKey)
+  window.removeEventListener('castle-dev-chips', heardDevChips)
+  window.removeEventListener('castle-open-dev', openDevTab)
   stopAutomations?.()
   stopCalendar?.()
   stopProviderEvents?.()
@@ -759,7 +783,7 @@ watch(settingsStamp, () => {
       :clock-format="barClock.format"
       :marks="barMarks"
       :mark-titles="{ story: 'The story has new lines', chat: 'New in the room', launcher: 'Something new is waiting in a room', browser: browserUnread.title ? `New in your tabs: ${browserUnread.title}` : 'New in your tabs' }"
-      :counts="{ browser: browserUnread.count }"
+      :counts="{ browser: browserUnread.count, dev: devUnseen }"
       @select="active = $event; marks = marks.filter((m) => m !== $event)"
       @reorder="reorderTabs"
       @settings="openSettings"
@@ -818,7 +842,7 @@ watch(settingsStamp, () => {
       <MyProfileView v-if="active === 'myprofile'" :companion="companion" @settings="openSettings('database')" />
       <ChatRoomView v-show="active === 'chat'" v-if="chatOpened" :visible="active === 'chat'" :companion="companion" :settings-stamp="settingsStamp" @settings="openSettings" @renamed="settingsSaved" @fresh="!marks.includes('chat') && (marks = [...marks, 'chat'])" />
       <BrowserWindow v-if="browserOpens === 'castle' && browserOpened" v-show="active === 'browser'" embedded :visible="active === 'browser' && !settingsOpen && !sentinelOpen && !backupOpen" />
-      <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" @settings="openSettings" @setup="openSetup" />
+      <DevView v-show="active === 'dev'" v-if="devOpened" :visible="active === 'dev'" :companion="companion" :cli="cli" :settings-stamp="settingsStamp" :wanted="devWanted" @tab="devSlot = $event" @settings="openSettings" @setup="openSetup" />
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
       <StoryView :key="`story-${roomKeys.story ?? 0}`" v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />
       <WorldsmithView :key="`worldsmith-${roomKeys.worldsmith ?? 0}`" v-show="active === 'worldsmith'" v-if="worldsmithOpened" :companion="companion" :cli="cli" :visible="active === 'worldsmith'" />
