@@ -31,6 +31,8 @@ import {
   onWorldsmithOutput,
   onScriptoriumExit,
   onScriptoriumOutput,
+  onMusicExit,
+  onMusicOutput,
   onWakeRequest,
   takeAutoWake,
   terminalResize,
@@ -49,6 +51,8 @@ const props = defineProps({
   room: { type: String, default: undefined },
   // the companion's name, for the buttons and messages
   companion: { type: String, default: 'Your companion' },
+  // a room may keep a drop for itself (MUSIC STUDIO's SEED): false from it leaves the drop out of the chat
+  dropFilter: { type: Function, default: null },
   // 'claude' or 'codex'
   cli: { type: String, default: 'claude' },
   // A DEV tab's slot (0-7): the panel then serves that tab's session, sits inside the tab (no
@@ -95,8 +99,8 @@ const session = isDev
       start: (cols, rows, greet, fresh) => terminalStart(cols, rows, props.room, greet, fresh),
       write: (data) => terminalWrite(data, props.room),
       resize: (cols, rows) => terminalResize(cols, rows, props.room),
-      onOutput: props.room === 'story' ? onStoryOutput : props.room === 'worldsmith' ? onWorldsmithOutput : props.room === 'scriptorium' ? onScriptoriumOutput : onTerminalOutput,
-      onExit: props.room === 'story' ? onStoryExit : props.room === 'worldsmith' ? onWorldsmithExit : props.room === 'scriptorium' ? onScriptoriumExit : onTerminalExit,
+      onOutput: props.room === 'story' ? onStoryOutput : props.room === 'worldsmith' ? onWorldsmithOutput : props.room === 'scriptorium' ? onScriptoriumOutput : props.room === 'music' ? onMusicOutput : onTerminalOutput,
+      onExit: props.room === 'story' ? onStoryExit : props.room === 'worldsmith' ? onWorldsmithExit : props.room === 'scriptorium' ? onScriptoriumExit : props.room === 'music' ? onMusicExit : onTerminalExit,
     }
 
 const WIDTH_KEY = 'castle.panelWidth'
@@ -140,6 +144,7 @@ function onDragDrop(event) {
     dropping.value = false
     const paths = drop.paths ?? []
     if (!paths.length) return
+    if (props.dropFilter && props.dropFilter(drop) === false) return
     if (view.value === 'chat') chat.value?.addPaths(paths)
     else if (view.value === 'log' && running.value) term.paste(paths.map(quoted).join(' '))
   }

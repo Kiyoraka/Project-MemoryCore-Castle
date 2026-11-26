@@ -3,7 +3,7 @@ import { windowRoom as windowRoomOf } from './launcher.js'
 import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, pinRows, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
-const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'browser', 'artifacts', 'worldsmith', 'scriptorium', 'photo'].map((id) => room(id))
+const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'browser', 'artifacts', 'worldsmith', 'scriptorium', 'photo', 'music'].map((id) => room(id))
 const ids = (groups) => groups.flatMap((g) => g.tabs.map((t) => t.id))
 
 describe('the launcher groups', () => {
@@ -24,7 +24,7 @@ describe('the launcher groups', () => {
     expect(ids(groups).length).toBe(all.length + 1)
   })
   it('leaves out a group with no visible room, and a room that is switched off is simply not in the list', () => {
-    const fewer = all.filter((t) => !['studio', 'photo', 'story', 'world', 'library', 'worldsmith'].includes(t.id))
+    const fewer = all.filter((t) => !['studio', 'photo', 'music', 'story', 'world', 'library', 'worldsmith'].includes(t.id))
     const groups = groupRooms(fewer)
     expect(groups.map((g) => g.id)).toEqual(['companion', 'work', 'connect', 'system'])
     expect(ids(groups)).not.toContain('studio')
@@ -64,6 +64,12 @@ describe('window rooms', () => {
     expect(create.indexOf('photo')).toBe(create.indexOf('studio') + 1)
     expect(HINTS.photo).toBe('A basic photo editor with your companion')
     expect(windowRoom('photo')).toBe(null)
+  })
+  it('MUSIC STUDIO sits in Create, right after PHOTO, with its hint', () => {
+    const create = GROUPS.find((g) => g.id === 'create').rooms
+    expect(create.indexOf('music')).toBe(create.indexOf('photo') + 1)
+    expect(HINTS.music).toBe('Make whole songs with your companion')
+    expect(windowRoom('music')).toBe(null)
   })
 })
 

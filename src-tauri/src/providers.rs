@@ -49,6 +49,7 @@ fn journal_file(store: &SettingsStore, room: Room) -> PathBuf {
             // a room of its own never shares STORY's talk
             Room::Worldsmith => "worldsmith.json",
             Room::Scriptorium => "scriptorium.json",
+            Room::Music => "music.json",
         })
 }
 

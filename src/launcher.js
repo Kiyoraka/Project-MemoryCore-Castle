@@ -24,7 +24,7 @@ export const LAUNCHER_TAB = { id: 'launcher', label: 'APPS', fixed: true, title:
 export const GROUPS = [
   { id: 'companion', label: 'Companion', rooms: ['home', 'chat', 'myprofile', 'diary', 'appearance', 'finance'] },
   { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'scriptorium', 'automations', 'calendar', 'browser', 'artifacts'] },
-  { id: 'create', label: 'Create', rooms: ['studio', 'photo', 'story', 'world', 'library', 'worldsmith'] },
+  { id: 'create', label: 'Create', rooms: ['studio', 'photo', 'music', 'story', 'world', 'library', 'worldsmith'] },
   { id: 'connect', label: 'Connect', rooms: ['messaging', 'market'] },
   { id: 'system', label: 'System', rooms: ['theme', 'apps'] },
 ]
@@ -45,6 +45,7 @@ export const HINTS = {
   finance: 'Receipts your companion reads, kept on this computer',
   studio: 'Pictures, songs, video and voice',
   photo: 'A basic photo editor with your companion',
+  music: 'Make whole songs with your companion',
   story: 'A story told with your companion',
   world: 'Worlds and screens',
   library: 'Books for you and your companion',

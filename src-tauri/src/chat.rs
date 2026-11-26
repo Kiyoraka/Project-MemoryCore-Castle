@@ -2,7 +2,7 @@
 //! their own reader, so the two Chats never mix.
 
 use crate::files;
-use crate::session::{MainHost, Room, ScriptoriumHost, StoryHost, WorldsmithHost, SCRIPTORIUM_FOLDER, STORY_FOLDER, WORLDSMITH_FOLDER};
+use crate::session::{MainHost, MusicHost, Room, ScriptoriumHost, StoryHost, WorldsmithHost, MUSIC_FOLDER, SCRIPTORIUM_FOLDER, STORY_FOLDER, WORLDSMITH_FOLDER};
 use crate::settings::{Cli, SettingsStore};
 use crate::transcript::{self, claude, ChatEntry, Follower};
 use serde::Serialize;
@@ -36,6 +36,8 @@ pub struct StoryChat(pub ChatState);
 pub struct WorldsmithChat(pub ChatState);
 #[derive(Default)]
 pub struct ScriptoriumChat(pub ChatState);
+#[derive(Default)]
+pub struct MusicChat(pub ChatState);
 
 /// Pictures the member dropped or pasted into Chat this run: the screen may show these as
 /// thumbnails before they are sent (once sent, the record reader allows them as the member's).
@@ -52,12 +54,13 @@ pub struct ChatPoll {
     status: &'static str,
 }
 
-fn pick<'a>(room: Room, main: &'a MainChat, story: &'a StoryChat, smith: &'a WorldsmithChat, scribe: &'a ScriptoriumChat) -> &'a ChatState {
+fn pick<'a>(room: Room, main: &'a MainChat, story: &'a StoryChat, smith: &'a WorldsmithChat, scribe: &'a ScriptoriumChat, music: &'a MusicChat) -> &'a ChatState {
     match room {
         Room::Main => &main.0,
         Room::Story => &story.0,
         Room::Worldsmith => &smith.0,
         Room::Scriptorium => &scribe.0,
+        Room::Music => &music.0,
     }
 }
 
@@ -141,10 +144,12 @@ pub fn chat_poll(
     story: State<StoryHost>,
     smith: State<WorldsmithHost>,
     scribe: State<ScriptoriumHost>,
+    music: State<MusicHost>,
     main_chat: State<MainChat>,
     story_chat: State<StoryChat>,
     smith_chat: State<WorldsmithChat>,
     scribe_chat: State<ScriptoriumChat>,
+    music_chat: State<MusicChat>,
 ) -> ChatPoll {
     let room = Room::named(room.as_deref());
     let host = match room {
@@ -152,8 +157,9 @@ pub fn chat_poll(
         Room::Story => &story.0,
         Room::Worldsmith => &smith.0,
         Room::Scriptorium => &scribe.0,
+        Room::Music => &music.0,
     };
-    let chat = pick(room, &main_chat, &story_chat, &smith_chat, &scribe_chat);
+    let chat = pick(room, &main_chat, &story_chat, &smith_chat, &scribe_chat, &music_chat);
     let empty = |status| ChatPoll { entries: Vec::new(), reset: false, status };
     let Some((session, started)) = host.started() else {
         return empty("asleep");
@@ -182,8 +188,9 @@ pub fn chat_poll(
             Room::Main => follower
                 .skipping(&folder.join(STORY_FOLDER))
                 .skipping(&folder.join(WORLDSMITH_FOLDER))
-                .skipping(&folder.join(SCRIPTORIUM_FOLDER)),
-            Room::Story | Room::Worldsmith | Room::Scriptorium => follower,
+                .skipping(&folder.join(SCRIPTORIUM_FOLDER))
+                .skipping(&folder.join(MUSIC_FOLDER)),
+            Room::Story | Room::Worldsmith | Room::Scriptorium | Room::Music => follower,
         };
         *slot = Some((session, follower));
         reset = true;
@@ -229,10 +236,11 @@ pub fn chat_media(
     story_chat: State<StoryChat>,
     smith_chat: State<WorldsmithChat>,
     scribe_chat: State<ScriptoriumChat>,
+    music_chat: State<MusicChat>,
     member: State<MemberPictures>,
     store: State<SettingsStore>,
 ) -> Result<String, String> {
-    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat, &scribe_chat);
+    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat, &scribe_chat, &music_chat);
     let allowed = chat.was_shown(&path)
         || member.0.lock().unwrap().contains(&path)
         || crate::providers::history(&store, Room::named(room.as_deref())).iter().any(|e| e.path.as_ref() == Some(&path) || e.pictures.contains(&path));
@@ -267,10 +275,11 @@ pub fn chat_media_stream(
     story_chat: State<StoryChat>,
     smith_chat: State<WorldsmithChat>,
     scribe_chat: State<ScriptoriumChat>,
+    music_chat: State<MusicChat>,
     store: State<SettingsStore>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat, &scribe_chat);
+    let chat = pick(Room::named(room.as_deref()), &main_chat, &story_chat, &smith_chat, &scribe_chat, &music_chat);
     let allowed = chat.was_shown(&path)
         || crate::providers::history(&store, Room::named(room.as_deref())).iter().any(|e| e.path.as_ref() == Some(&path));
     if !allowed {

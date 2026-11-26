@@ -35,6 +35,8 @@
 //!  castle-memory finance list [--month 2026-11] [--state proposed|kept|dismissed] | finance show --id 4
 //!  castle-memory scriptorium describe | read [--file q.json] | do --file change.json [--label ..] | shot [--page N]
 //!                                            the document open in SCRIPTORIUM (through the room's inbox)
+//!  castle-memory music look | music act <name> '<json values>' [--file values.json]
+//!                                            MUSIC STUDIO's state and one action on its page (through the room's files)
 //!  castle-memory export --to <folder>        the memory back out as markdown
 //!  castle-memory dump --to backup/memory.sql | restore --from backup/memory.sql
 //! ```
@@ -255,7 +257,7 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
         ["export"] => export(conn, Path::new(ask.need("to")?)),
         ["dump"] => dump(conn, Path::new(ask.need("to")?)),
         ["restore"] => restore(conn, Path::new(ask.need("from")?)),
-        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, worldsmith, scriptorium, export, dump, restore.", words.join(" "))),
+        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, worldsmith, scriptorium, music, export, dump, restore.", words.join(" "))),
     }
 }
 
@@ -1088,6 +1090,10 @@ pub fn main(args: &[String]) -> i32 {
         // SCRIPTORIUM's door speaks to the open room through its inbox, never the database
         if ask.words.first().map(String::as_str) == Some("scriptorium") {
             return crate::scriptorium_host::door_cli(&ask, &memory);
+        }
+        // MUSIC STUDIO's door speaks to the open page through the room's files, never the database
+        if ask.words.first().map(String::as_str) == Some("music") {
+            return crate::music_studio::door_cli(&ask, &memory);
         }
         let mut conn = memdb::open_for(&memory)?;
         run(&mut conn, &ask, &memory)

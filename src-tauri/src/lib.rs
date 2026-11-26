@@ -74,6 +74,7 @@ mod paint;
 mod photo;
 mod photo_door;
 mod photo_files;
+mod music_studio;
 mod resume;
 mod quota;
 mod alerts;
@@ -386,6 +387,8 @@ pub fn run() {
         .manage(session::WorldsmithHost::default())
         .manage(chat::ScriptoriumChat::default())
         .manage(session::ScriptoriumHost::default())
+        .manage(chat::MusicChat::default())
+        .manage(session::MusicHost::default())
         .manage(scriptorium_host::ScriptoriumState::default())
         .manage(chat::MemberPictures::default())
         .manage(projectdb::Held::default())
@@ -687,6 +690,13 @@ pub fn run() {
             photo_door::photo_request_take,
             photo_door::photo_door_done,
             photo_door::photo_save_back,
+            music_studio::music_prepare,
+            music_studio::music_close,
+            music_studio::music_state_write,
+            music_studio::music_action_done,
+            music_studio::music_seed_copy,
+            music_studio::music_albums,
+            music_studio::music_approve,
             voicestudio::voicestudio_status,
             bridges::telegram::telegram_bridge_status,
             bridges::telegram::telegram_bridge_approve,
@@ -964,6 +974,8 @@ pub fn run() {
             backup::start_diary_watcher(app.handle());
             studio::start_notice_watcher(app.handle());
             studio::allow_memory_folder(app.handle());
+            // MUSIC STUDIO follows its actions file from now on: an older line is never run
+            music_studio::start(app.handle());
 
             let toggle = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM);
             app.handle().plugin(

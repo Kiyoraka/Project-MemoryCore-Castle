@@ -138,6 +138,10 @@ pub fn send_message(text: String, room: Option<String>, app: AppHandle) -> Resul
             send_room::<ScriptoriumHost>(&app, &text, |h| &h.0)?;
             return Ok(Sent { queued: false });
         }
+        Some(crate::session::Room::Music) => {
+            send_room::<crate::session::MusicHost>(&app, &text, |h| &h.0)?;
+            return Ok(Sent { queued: false });
+        }
         Some(crate::session::Room::Main) => {}
         None => return Err("Castle does not know that room. Your message has not been sent.".into()),
     }
@@ -333,6 +337,7 @@ pub fn chat_prompt_holds(room: Option<String>, text: String, app: AppHandle) -> 
         Some("story") => claude_screen(&app.state::<StoryHost>().0),
         Some("worldsmith") => claude_screen(&app.state::<WorldsmithHost>().0),
         Some("scriptorium") => claude_screen(&app.state::<ScriptoriumHost>().0),
+        Some("music") => claude_screen(&app.state::<crate::session::MusicHost>().0),
         Some(other) => other
             .strip_prefix("dev:")
             .and_then(|n| n.parse::<usize>().ok())

@@ -48,6 +48,7 @@ import StoryView from './views/StoryView.vue'
 import WorldsmithView from './views/WorldsmithView.vue'
 import ScriptoriumView from './views/ScriptoriumView.vue'
 import PhotoView from './views/PhotoView.vue'
+import MusicStudioView from './views/MusicStudioView.vue'
 import WorldView from './views/WorldView.vue'
 import ChatRoomView from './views/ChatRoomView.vue'
 import BrowserWindow from './browser/BrowserWindow.vue'
@@ -87,6 +88,7 @@ const allTabs = [
   { id: 'appearance', label: 'APPEARANCE' },
   { id: 'studio', label: 'STUDIO' },
   { id: 'photo', label: 'PHOTO' },
+  { id: 'music', label: 'MUSIC STUDIO' },
   { id: 'story', label: 'STORY' },
   { id: 'world', label: 'WORLD' },
   { id: 'chat', label: 'CHAT' },
@@ -139,7 +141,7 @@ const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
 // Rooms that are built; any other room shows its name until its phase lands.
-const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith', 'scriptorium', 'photo'])
+const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith', 'scriptorium', 'photo', 'music'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
 const marks = ref([])
 const memberName = ref('')
@@ -150,6 +152,8 @@ const worldsmithOpened = ref(active.value === 'worldsmith')
 const scriptoriumOpened = ref(active.value === 'scriptorium')
 // PHOTO stays mounted once opened, so the picture, its layers and its undo pills wait while the member is elsewhere
 const photoOpened = ref(active.value === 'photo')
+// MUSIC STUDIO stays mounted once opened, so the open song, its mix and its undo wait while the member is elsewhere
+const musicOpened = ref(active.value === 'music')
 // STUDIO stays mounted once opened, so a painting in PAINT and its undo wait while the member is elsewhere
 const studioOpened = ref(active.value === 'studio')
 // Settings > Rooms > SCRIPTORIUM's Layout: 'classic' or 'studio'
@@ -173,6 +177,7 @@ watch(active, (room, was) => {
   if (room === 'worldsmith') worldsmithOpened.value = true
   if (room === 'scriptorium') scriptoriumOpened.value = true
   if (room === 'photo') photoOpened.value = true
+  if (room === 'music') musicOpened.value = true
   if (room === 'studio') studioOpened.value = true
   if (room === 'chat') chatOpened.value = true
   if (room === 'dev') devOpened.value = true
@@ -239,6 +244,7 @@ watch(tabs, (list) => {
   if (!ids.has('worldsmith')) worldsmithOpened.value = false
   if (!ids.has('scriptorium')) scriptoriumOpened.value = false
   if (!ids.has('photo')) photoOpened.value = false
+  if (!ids.has('music')) musicOpened.value = false
   if (!ids.has('studio')) studioOpened.value = false
   if (!ids.has('chat')) chatOpened.value = false
   if (!ids.has('dev')) devOpened.value = false
@@ -812,6 +818,7 @@ watch(settingsStamp, () => {
       <AppearanceView v-if="active === 'appearance'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
       <StudioView v-show="active === 'studio'" v-if="studioOpened" :companion="companion" :stamp="memoryStamp" :visible="active === 'studio'" @keys="openKeys" />
       <PhotoView v-show="active === 'photo'" v-if="photoOpened" :companion="companion" :cli="cli" :visible="active === 'photo'" />
+      <MusicStudioView v-show="active === 'music'" v-if="musicOpened" :companion="companion" :cli="cli" :visible="active === 'music'" @keys="openKeys" />
       <ThemeView v-if="active === 'theme'" :companion="companion" @changed="themeChanged" @show-chat="active = 'home'" />
       <MemoryRoom v-if="['diary', 'projects'].includes(active)" :room="active" :stamp="memoryStamp" :open-file="roomFile" />
       <LibraryView v-if="active === 'library'" :companion="companion" :stamp="memoryStamp" />

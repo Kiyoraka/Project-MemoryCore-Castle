@@ -23,6 +23,10 @@ pub const SCRIPTORIUM_OUTPUT: &str = "scriptorium-output";
 pub const SCRIPTORIUM_EXIT: &str = "scriptorium-exit";
 /// The SCRIPTORIUM room's folder inside the memory folder (its door's inbox lives there too).
 pub const SCRIPTORIUM_FOLDER: &str = "scriptorium";
+pub const MUSIC_OUTPUT: &str = "music-output";
+pub const MUSIC_EXIT: &str = "music-exit";
+/// MUSIC STUDIO's folder inside the memory folder (its door's state, actions and answers live there too).
+pub const MUSIC_FOLDER: &str = "music-studio";
 
 #[derive(Default)]
 pub struct MainHost(pub PtyHost);
@@ -32,15 +36,18 @@ pub struct StoryHost(pub PtyHost);
 pub struct WorldsmithHost(pub PtyHost);
 #[derive(Default)]
 pub struct ScriptoriumHost(pub PtyHost);
+#[derive(Default)]
+pub struct MusicHost(pub PtyHost);
 
 /// Which session a command is for: the main one (the default), the STORY room's, WORLDSMITH's or
-/// SCRIPTORIUM's.
+/// SCRIPTORIUM's or MUSIC STUDIO's.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Room {
     Main,
     Story,
     Worldsmith,
     Scriptorium,
+    Music,
 }
 
 impl Room {
@@ -49,6 +56,7 @@ impl Room {
             Some("story") => Room::Story,
             Some("worldsmith") => Room::Worldsmith,
             Some("scriptorium") => Room::Scriptorium,
+            Some("music") => Room::Music,
             _ => Room::Main,
         }
     }
@@ -61,6 +69,7 @@ impl Room {
             Some("story") => Some(Room::Story),
             Some("worldsmith") => Some(Room::Worldsmith),
             Some("scriptorium") => Some(Room::Scriptorium),
+            Some("music") => Some(Room::Music),
             Some(_) => None,
         }
     }
@@ -71,6 +80,7 @@ impl Room {
             Room::Story => (STORY_OUTPUT, STORY_EXIT),
             Room::Worldsmith => (WORLDSMITH_OUTPUT, WORLDSMITH_EXIT),
             Room::Scriptorium => (SCRIPTORIUM_OUTPUT, SCRIPTORIUM_EXIT),
+            Room::Music => (MUSIC_OUTPUT, MUSIC_EXIT),
         }
     }
 
@@ -82,6 +92,7 @@ impl Room {
             Room::Story => memory.join(STORY_FOLDER),
             Room::Worldsmith => memory.join(WORLDSMITH_FOLDER),
             Room::Scriptorium => memory.join(SCRIPTORIUM_FOLDER),
+            Room::Music => memory.join(MUSIC_FOLDER),
         })
     }
 }
@@ -113,6 +124,9 @@ pub fn status(settings: &Settings, room: Room, program: Option<&std::path::Path>
     if room == Room::Scriptorium && !folder.is_dir() {
         return not_ready("SCRIPTORIUM is not ready yet. Open SCRIPTORIUM once to prepare it.".into(), "setup");
     }
+    if room == Room::Music && !folder.is_dir() {
+        return not_ready("MUSIC STUDIO is not ready yet. Open MUSIC STUDIO once to prepare it.".into(), "setup");
+    }
     if program.is_none() {
         let cli = settings.cli.label();
         return not_ready(format!("{cli} was not found on this computer. Install it, then try again."), "install");
@@ -122,16 +136,18 @@ pub fn status(settings: &Settings, room: Room, program: Option<&std::path::Path>
         Room::Story => "Ready to open the story.".to_string(),
         Room::Worldsmith => "Ready to open WORLDSMITH.".to_string(),
         Room::Scriptorium => "Ready to open SCRIPTORIUM.".to_string(),
+        Room::Music => "Ready to open MUSIC STUDIO.".to_string(),
     };
     SessionStatus { ready: true, message, fix: None }
 }
 
-fn host<'a>(room: Room, main: &'a MainHost, story: &'a StoryHost, smith: &'a WorldsmithHost, scribe: &'a ScriptoriumHost) -> &'a PtyHost {
+fn host<'a>(room: Room, main: &'a MainHost, story: &'a StoryHost, smith: &'a WorldsmithHost, scribe: &'a ScriptoriumHost, music: &'a MusicHost) -> &'a PtyHost {
     match room {
         Room::Main => &main.0,
         Room::Story => &story.0,
         Room::Worldsmith => &smith.0,
         Room::Scriptorium => &scribe.0,
+        Room::Music => &music.0,
     }
 }
 
@@ -417,6 +433,7 @@ fn room_instructions_boot(store: &SettingsStore, room: Room, folder: &Path) -> O
         Room::Story => "story.md",
         Room::Worldsmith => "worldsmith.md",
         Room::Scriptorium => "scriptorium.md",
+        Room::Music => "music.md",
         Room::Main => "main.md",
     };
     let file = store.folder().join("boot").join(name);
@@ -540,8 +557,9 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
     if room == Room::Worldsmith {
         vars.push((crate::worldsmith::helper::HELPER_VAR.into(), crate::worldsmith::helper::path().display().to_string()));
     }
-    // SCRIPTORIUM's door (`castle-memory scriptorium ..`) finds the room's inbox through the memory folder
-    if room == Room::Scriptorium {
+    // SCRIPTORIUM's door (`castle-memory scriptorium ..`) finds the room's inbox through the memory folder,
+    // and MUSIC STUDIO's (`castle-memory music ..`) its state, actions and answers
+    if room == Room::Scriptorium || room == Room::Music {
         if let Some(memory) = settings.memory_folder.as_deref() {
             vars.push((crate::door::MEMORY_ENV.into(), memory.to_string()));
         }
@@ -595,6 +613,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
                 Room::Story => ending.state::<StoryHost>().0.finished(id),
                 Room::Worldsmith => ending.state::<WorldsmithHost>().0.finished(id),
                 Room::Scriptorium => ending.state::<ScriptoriumHost>().0.finished(id),
+                Room::Music => ending.state::<MusicHost>().0.finished(id),
             }
             let _ = ending.emit(exit_event, code);
         },
@@ -618,6 +637,7 @@ pub(crate) fn wake_as(app: &AppHandle, store: &SettingsStore, host: &PtyHost, ro
 pub fn any_running(app: &AppHandle) -> bool {
     app.state::<MainHost>().0.is_running() || app.state::<StoryHost>().0.is_running() || app.state::<WorldsmithHost>().0.is_running()
         || app.state::<ScriptoriumHost>().0.is_running()
+        || app.state::<MusicHost>().0.is_running()
 }
 
 pub fn end_all(app: &AppHandle) {
@@ -625,12 +645,13 @@ pub fn end_all(app: &AppHandle) {
     app.state::<StoryHost>().0.kill();
     app.state::<WorldsmithHost>().0.kill();
     app.state::<ScriptoriumHost>().0.kill();
+    app.state::<MusicHost>().0.kill();
 }
 
 #[tauri::command]
-pub fn terminal_state(room: Option<String>, store: State<SettingsStore>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>) -> TerminalView {
+pub fn terminal_state(room: Option<String>, store: State<SettingsStore>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>, music: State<MusicHost>) -> TerminalView {
     let room = Room::named(room.as_deref());
-    view(&store, host(room, &main, &story, &smith, &scribe), room)
+    view(&store, host(room, &main, &story, &smith, &scribe, &music), room)
 }
 
 /// The opening line Castle gives a session when the member presses Wake: neither CLI does anything
@@ -659,6 +680,7 @@ pub fn terminal_start(
     story: State<StoryHost>,
     smith: State<WorldsmithHost>,
     scribe: State<ScriptoriumHost>,
+    music: State<MusicHost>,
 ) -> Result<TerminalView, String> {
     let room = Room::known(room.as_deref()).ok_or("Castle does not know that room.")?;
     if room == Room::Story {
@@ -670,7 +692,10 @@ pub fn terminal_start(
     if room == Room::Scriptorium {
         crate::rooms::need(&store, crate::scriptorium_host::ROOM)?;
     }
-    let host = host(room, &main, &story, &smith, &scribe);
+    if room == Room::Music {
+        crate::rooms::need(&store, crate::music_studio::ROOM)?;
+    }
+    let host = host(room, &main, &story, &smith, &scribe, &music);
     wake_as(&app, &store, host, room, cols, rows, opening_prompt(room, greet), fresh == Some(true))?;
     Ok(view(&store, host, room))
 }
@@ -712,10 +737,10 @@ pub fn is_terminal_reply(data: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn terminal_write(data: String, room: Option<String>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>, images: State<crate::providers::Images>, control: State<crate::providers::Control>) -> Result<(), String> {
+pub fn terminal_write(data: String, room: Option<String>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>, music: State<MusicHost>, images: State<crate::providers::Images>, control: State<crate::providers::Control>) -> Result<(), String> {
     let room = Room::known(room.as_deref()).ok_or("Castle does not know that room.")?;
     if is_terminal_reply(&data) {
-        return host(room, &main, &story, &smith, &scribe).reply(data.as_bytes());
+        return host(room, &main, &story, &smith, &scribe, &music).reply(data.as_bytes());
     }
     // A provider switch and a drawing only concern the main session: the STORY room never waits on them.
     if room == Room::Main {
@@ -729,7 +754,7 @@ pub fn terminal_write(data: String, room: Option<String>, main: State<MainHost>,
             return Err("A picture is being drawn in this memory. Your message has not been sent; send it when the drawing finishes, or press Stop on the drawing.".into());
         }
     }
-    host(room, &main, &story, &smith, &scribe).write(data.as_bytes())
+    host(room, &main, &story, &smith, &scribe, &music).write(data.as_bytes())
 }
 
 /// While Codex draws in the memory folder, only a message being sent (Enter) waits: typing, Ctrl+C,
@@ -739,8 +764,8 @@ fn holds_back_while_drawing(data: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn terminal_resize(cols: u16, rows: u16, room: Option<String>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>) -> Result<(), String> {
-    host(Room::named(room.as_deref()), &main, &story, &smith, &scribe).resize(cols.max(20), rows.max(5))
+pub fn terminal_resize(cols: u16, rows: u16, room: Option<String>, main: State<MainHost>, story: State<StoryHost>, smith: State<WorldsmithHost>, scribe: State<ScriptoriumHost>, music: State<MusicHost>) -> Result<(), String> {
+    host(Room::named(room.as_deref()), &main, &story, &smith, &scribe, &music).resize(cols.max(20), rows.max(5))
 }
 
 /// Ends the STORY room's session ("Leave the story"); the main one is never ended this way.
@@ -791,6 +816,13 @@ mod tests {
         assert!(!status(&set, Room::Story, Some(program)).ready);
         std::fs::create_dir_all(memory.join(STORY_FOLDER)).unwrap();
         assert!(status(&set, Room::Story, Some(program)).ready);
+
+        // MUSIC STUDIO needs its own folder, inside the memory folder
+        assert_eq!(Room::Music.folder(&set), Some(memory.join(MUSIC_FOLDER)));
+        assert!(!status(&set, Room::Music, Some(program)).ready);
+        std::fs::create_dir_all(memory.join(MUSIC_FOLDER)).unwrap();
+        assert_eq!(status(&set, Room::Music, Some(program)).message, "Ready to open MUSIC STUDIO.");
+        assert_eq!(Room::Music.events(), (MUSIC_OUTPUT, MUSIC_EXIT));
     }
 
     #[test]
@@ -802,6 +834,9 @@ mod tests {
         assert_eq!(Room::named(Some("scriptorium")), Room::Scriptorium);
         assert_eq!(Room::known(Some("scriptorium")), Some(Room::Scriptorium));
         assert_eq!(Room::known(Some("scriptorum")), None);
+        assert_eq!(Room::named(Some("music")), Room::Music);
+        assert_eq!(Room::known(Some("music")), Some(Room::Music));
+        assert_eq!(Room::known(Some("musik")), None);
         assert_eq!(Room::known(Some("worldsmiht")), None, "a room Castle does not know never reaches the main session");
         assert_eq!(Room::named(None), Room::Main);
         assert_eq!(Room::named(Some("anything")), Room::Main);

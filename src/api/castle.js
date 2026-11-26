@@ -884,3 +884,18 @@ export const onBrowserState = (handler) => listen('browser-state', (event) => ha
 export const onBrowserPutInChat = (handler) => listen('browser-put-in-chat', (event) => handler(event.payload))
 // How much is new across the browser's tabs, read from each site's own title: -> { count, title, away }
 export const onBrowserUnread = (handler) => listen('browser-unread', (event) => handler(event.payload))
+
+// MUSIC STUDIO (music_studio.rs): its room and session, the page's state for the companion, the
+// companion's actions in (`music-action`) and the page's answers out, the seeds and the album shelf.
+export const musicPrepare = () => invoke('music_prepare')
+export const musicClose = () => invoke('music_close')
+export const musicStateWrite = (state) => invoke('music_state_write', { state })
+export const onMusicAction = (handler) => listen('music-action', (event) => handler(event.payload))
+export const musicActionDone = (result) => invoke('music_action_done', { result })
+// a dropped seed copied into the room's seeds/ -> { kind, path }
+export const musicSeedCopy = (path) => invoke('music_seed_copy', { path })
+// -> [{ folder, title, cover, tracks: [{ number, slug, title, style, lyrics, negative, approved, takes: [{ take, path }] }] }]
+export const musicAlbums = () => invoke('music_albums')
+export const musicApprove = (album, slug, take) => invoke('music_approve', { album, slug, take })
+export const onMusicOutput = (handler) => listen('music-output', (event) => handler(event.payload))
+export const onMusicExit = (handler) => listen('music-exit', (event) => handler(event.payload))
