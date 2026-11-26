@@ -4,6 +4,10 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.8.3 - 2026-11-26
+
+- WORLDSMITH's helper is published: Get it downloads the small helper (checked against its pinned fingerprint before it is ever run), so your companion can now find and change the numbers in your own offline games.
+
 ## 0.8.2 - 2026-11-26
 
 - SCRIPTORIUM's page shows in Scroll, Ledger and Folio (a one-page document had no room to draw in), and WORLDSMITH's screenshot area takes the whole window.

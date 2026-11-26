@@ -12,9 +12,13 @@ use tauri::{AppHandle, Emitter};
 pub const FILE: &str = "worldsmith-helper.exe";
 /// The helper release Castle takes (its own tag, `worldsmith-helper-v<VERSION>`).
 pub const VERSION: &str = "1.0.0";
-/// The pinned release: None until the first `worldsmith-helper-v1.0.0` release is published, then its
-/// SHA-256 and size go here. Until then Get it says so and fetches nothing.
-pub const RELEASE: Option<Release> = None;
+/// The pinned release: `worldsmith-helper-v1.0.0` as GitHub published it (Nov 26 2026). Get it
+/// fetches only this file, and a download that does not match the SHA-256 is thrown away.
+pub const RELEASE: Option<Release> = Some(Release {
+    file: FILE,
+    sha256: "334cfdcbebd8bd44b7c627cec06295c0f137d7d103ef33368444d9622a63eeff",
+    bytes: 610816,
+});
 /// A local build of the helper, for development before the release exists (debug builds only).
 pub const OVERRIDE_VAR: &str = "CASTLE_WORLDSMITH_HELPER";
 /// What the room's session reads to find the helper (the Keep's room reads the same name).
