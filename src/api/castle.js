@@ -134,6 +134,20 @@ export const scriptoriumUndo = (doc) => invoke('scriptorium_undo', { doc })
 export const scriptoriumRedo = (doc) => invoke('scriptorium_redo', { doc })
 export const scriptoriumHistory = (doc) => invoke('scriptorium_history', { doc })
 export const scriptoriumDoor = (doc, verb, args = {}) => invoke('scriptorium_door', { doc, verb, argsJson: typeof args === 'string' ? args : JSON.stringify(args ?? {}) })
+// the editing ground (JSON text back): a pos is the editor's own place, a selection { anchor, focus }
+// hit -> pos | null; caret -> { page, x, y, height } | null; selection -> [{ page, x, y, w, h }]; state -> {..};
+// copy -> { text, rich }; move (left, right, up, down, word_left, word_right, line_start, line_end, doc_start, doc_end) -> pos | null
+const asJson = (v) => (typeof v === 'string' ? v : JSON.stringify(v ?? null))
+export const scriptoriumHit = (doc, page, x, y) => invoke('scriptorium_hit', { doc, page, x, y })
+export const scriptoriumCaret = (doc, pos) => invoke('scriptorium_caret', { doc, posJson: asJson(pos) })
+export const scriptoriumSelection = (doc, sel) => invoke('scriptorium_selection', { doc, selJson: asJson(sel) })
+export const scriptoriumState = (doc, sel) => invoke('scriptorium_state', { doc, selJson: asJson(sel) })
+export const scriptoriumCopy = (doc, sel) => invoke('scriptorium_copy', { doc, selJson: asJson(sel) })
+export const scriptoriumMove = (doc, pos, motion) => invoke('scriptorium_move', { doc, posJson: asJson(pos), motion })
+// the save picker, then every page as our own PDF -> the path written, or null when the picker was closed
+export const scriptoriumExportPdf = (doc) => invoke('scriptorium_export_pdf', { doc })
+// a temp PDF handed to the system's print -> what happened, in words
+export const scriptoriumPrint = (doc) => invoke('scriptorium_print', { doc })
 // -> a path, or null when the picker was closed
 export const scriptoriumOpenDialog = () => invoke('scriptorium_open_dialog')
 export const scriptoriumSaveDialog = (name) => invoke('scriptorium_save_dialog', { name: name ?? null })

@@ -1,4 +1,4 @@
-// The room shell's pure parts: the editors, the ribbon's tabs, the history read for the AI's changes,
+// The room shell's pure parts: the editors, the history read for the AI's changes,
 // and the shortcuts. Nothing here knows any host: each host passes its own api in.
 
 export const EDITORS = [
@@ -13,13 +13,7 @@ export const LAYOUTS = ['classic', 'studio']
 // M1: files open, show and save; editing by hand grows with the next milestone.
 export const EARLY_BADGE = 'Early - open and see'
 
-// The ribbon's tab names, per editor; their buttons are placeholders until each editor lands.
-export const RIBBON_TABS = {
-  scroll: ['Home', 'Insert', 'Layout', 'Review', 'View'],
-  ledger: ['Home', 'Insert', 'Formulas', 'Data', 'View'],
-  stage: ['Home', 'Insert', 'Design', 'Transitions', 'Slide Show'],
-  folio: ['Home', 'Annotate', 'Pages', 'Forms', 'View'],
-}
+// The ribbon's tabs and buttons live with each editor (editors/<editor>/index.js, read by ribbon.js).
 
 /** The editor by id; Scroll for anything unknown. */
 export function editorOf(id) {
@@ -35,11 +29,6 @@ export function layoutOf(value) {
 export function titleFor(editor, file = '') {
   const name = String(file ?? '').trim()
   return `Scriptorium · ${editorOf(editor).label}${name ? ` · ${name}` : ''}`
-}
-
-/** The ribbon's tabs for an editor. */
-export function ribbonTabs(editor) {
-  return RIBBON_TABS[editorOf(editor).id]
 }
 
 /** JSON text (or an object already) as a value; null for anything unreadable. */

@@ -31,6 +31,13 @@ const P = {
   palette: '<path d="M12 3a9 9 0 0 0 0 18c1.2 0 2-.8 2-2 0-.6-.3-1-.6-1.4-.3-.4-.6-.8-.6-1.4 0-1.1.9-2 2-2h2.2A4 4 0 0 0 21 10c0-3.9-4-7-9-7Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/>',
   paragraph: '<path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>',
   frame: '<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>',
+  print: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7Z"/>',
+  exportPdf: '<path d="M6 3h8l4 4v6"/><path d="M14 3v4h4M6 3v18h7"/><path d="M17 15v6M14 18l3 3 3-3"/>',
+  find: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  replace: '<path d="M4 7h11l-3-3M20 17H9l3 3"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
 }
 
 /** The inner markup of an icon (empty for a name it does not know). */
@@ -43,6 +50,14 @@ export function icon(name, size = 18) {
   const body = iconPaths(name)
   if (!body) return ''
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+}
+
+/** A button's icon: a name above, or an editor's own inline SVG markup (24x24, currentColor) - bundled
+ * with the editor, never anything a document brings. */
+export function iconOf(nameOrMarkup, size = 18) {
+  const v = String(nameOrMarkup ?? '').trim()
+  if (!v.startsWith('<')) return icon(v, size)
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${v}</svg>`
 }
 
 export const ICON_NAMES = Object.keys(P)

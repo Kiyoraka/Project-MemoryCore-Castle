@@ -1,11 +1,12 @@
 <script setup>
 // Classic: the title bar ("Scriptorium · <editor>"), a ribbon of tab names and icon buttons, the page in
-// the middle and the chat on the right (the pick scriptorium-scroll-1). The formatting buttons are
-// placeholders until each editor lands; New, Open (with the recent files beside it), Save, Save as, Undo
-// and Redo work now.
-import { ref, watch } from 'vue'
-import { EDITORS, ribbonTabs } from '../room.js'
-import { icon } from '../icons.js'
+// the middle and the chat on the right (the pick scriptorium-scroll-1). New, Open (with the recent files
+// beside it), Save, Save as, Undo, Redo, Export PDF and Print are the room's; each tab's groups come from
+// the editor's own registry (ribbon.js), a button pressed when the editor's state says its stateKey.
+import { computed, ref, watch } from 'vue'
+import { EDITORS } from '../room.js'
+import { pressed, tabGroups } from '../ribbon.js'
+import { icon, iconOf } from '../icons.js'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -19,8 +20,13 @@ const props = defineProps({
   status: { type: String, default: '' },
   // the recent files: Studio lists them; Classic opens them from the menu beside Open
   recent: { type: Array, default: () => [] },
+  // the editor's registry (ribbon.js editorUi) and its state under the selection
+  ui: { type: Object, default: () => ({ tabs: [{ name: 'Home', groups: [] }], panels: [], intents: {} }) },
+  editState: { type: Object, default: () => ({}) },
+  canExport: { type: Boolean, default: false },
+  canPrint: { type: Boolean, default: false },
 })
-const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent'])
+const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent', 'button', 'exportPdf', 'print', 'find'])
 
 // the recent files' small menu
 const menu = ref(false)
@@ -38,28 +44,10 @@ watch(
   () => (tab.value = 'Home'),
 )
 
-const later = (what) => `${what} - arrives with ${EDITORS.find((e) => e.id === props.editor)?.label ?? 'this editor'}`
-const FORMAT = [
-  [
-    { name: 'bold', label: 'Bold' },
-    { name: 'italic', label: 'Italic' },
-    { name: 'underline', label: 'Underline' },
-  ],
-  [
-    { name: 'bullets', label: 'Bullets' },
-    { name: 'numbers', label: 'Numbering' },
-  ],
-  [
-    { name: 'alignLeft', label: 'Align left' },
-    { name: 'alignCenter', label: 'Centre' },
-    { name: 'alignRight', label: 'Align right' },
-  ],
-  [
-    { name: 'image', label: 'Picture' },
-    { name: 'link', label: 'Link' },
-    { name: 'table', label: 'Table' },
-  ],
-]
+const tabNames = computed(() => (props.ui?.tabs ?? []).map((t) => t.name))
+const groups = computed(() => tabGroups(props.ui, tab.value))
+const label = computed(() => EDITORS.find((e) => e.id === props.editor)?.label ?? 'this editor')
+const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${label.value} soon`)
 </script>
 
 <template>
@@ -77,7 +65,7 @@ const FORMAT = [
     </header>
 
     <nav class="tabs" role="tablist" aria-label="Ribbon">
-      <button v-for="t in ribbonTabs(editor)" :key="t" role="tab" :aria-selected="t === tab" :class="{ on: t === tab }" @click="tab = t">{{ t }}</button>
+      <button v-for="t in tabNames" :key="t" role="tab" :aria-selected="t === tab" :class="{ on: t === tab }" @click="tab = t">{{ t }}</button>
     </nav>
 
     <div class="ribbon" role="toolbar" :aria-label="`${tab} tools`">
@@ -101,13 +89,22 @@ const FORMAT = [
         <button title="Redo (Ctrl+Y)" :disabled="busy || !canRedo" @click="emit('redo')" v-html="icon('redo', 20)"></button>
       </div>
       <div class="group">
-        <span class="font" :title="later('Fonts')" aria-disabled="true"><span class="bar"></span><span class="chev">▾</span></span>
+        <button title="Export as PDF" :disabled="busy || !canExport" @click="emit('exportPdf')" v-html="icon('exportPdf', 20)"></button>
+        <button title="Print (Ctrl+P)" :disabled="busy || !canPrint" @click="emit('print')" v-html="icon('print', 20)"></button>
+        <button title="Find (Ctrl+F)" @click="emit('find')" v-html="icon('find', 20)"></button>
       </div>
-      <div v-for="(g, i) in FORMAT" :key="i" class="group">
-        <button v-for="b in g" :key="b.name" disabled :title="later(b.label)" :aria-label="b.label" v-html="icon(b.name, 20)"></button>
-      </div>
-      <div class="group">
-        <button disabled title="Ask in the chat beside the page" aria-label="Ask in the chat" class="spark" v-html="icon('spark', 20)"></button>
+      <div v-for="(g, i) in groups" :key="`${tab}-${i}`" class="group" role="group" :aria-label="g.label || undefined">
+        <button
+          v-for="(b, j) in g.buttons"
+          :key="j"
+          :class="{ on: pressed(editState, b.stateKey) }"
+          :aria-pressed="b.stateKey ? pressed(editState, b.stateKey) : undefined"
+          :aria-label="b.title"
+          :title="titleOf(b)"
+          :disabled="busy || !b.ready"
+          @click="emit('button', b)"
+          v-html="iconOf(b.icon, 20)"
+        ></button>
       </div>
     </div>
 
@@ -294,27 +291,9 @@ const FORMAT = [
   opacity: 0.38;
   cursor: default;
 }
-.ribbon button.spark {
-  color: var(--scr-accent);
-}
-.font {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 8px;
+.ribbon button.on {
   background: var(--scr-chip);
-  opacity: 0.5;
-}
-.font .bar {
-  width: 90px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--scr-muted);
-}
-.font .chev {
-  font-size: 11px;
+  color: var(--scr-text);
 }
 .body {
   display: grid;

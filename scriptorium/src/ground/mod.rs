@@ -4,6 +4,8 @@
 pub mod bus;
 pub mod display;
 pub mod draw;
+pub mod edit;
+pub mod export;
 pub mod flate;
 pub mod font;
 pub mod opc;

@@ -11,6 +11,7 @@
 //! - Formulas: the text is kept (shared formulas expanded per cell for the formula bar); nothing is
 //!   calculated yet: the cached values are shown.
 
+pub mod calc;
 pub mod cellref;
 mod edit;
 mod formula;

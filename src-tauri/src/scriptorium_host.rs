@@ -29,6 +29,8 @@ use scriptorium::ground::bus::json::{self, Json};
 use scriptorium::ground::bus::{Bus, BusError, Change, Command, CommandSpec, Document, Origin, DOOR_VERBS};
 use scriptorium::folio::FolioDoc;
 use scriptorium::ground::display::{Color, DisplayList, Item, Paint, PathOp, Resources, Stroke};
+use scriptorium::ground::edit::Editing;
+use scriptorium::ground::export::{export_pdf_with, ExportOptions};
 use scriptorium::ground::font::FontIndex;
 use scriptorium::ground::pdfw::{PageResources, PdfWriter};
 use scriptorium::ground::text::FontCache;
@@ -233,6 +235,12 @@ impl Document for AnyDoc {
     }
     fn resources(&self) -> Option<&Resources> {
         each_doc!(self, d => d.resources())
+    }
+    fn editing(&self) -> Option<&dyn Editing> {
+        each_doc!(self, d => d.editing())
+    }
+    fn pdf_resources(&self) -> Option<PageResources> {
+        each_doc!(self, d => d.pdf_resources())
     }
 }
 
@@ -520,11 +528,27 @@ impl Docs {
         self.current = None;
     }
 
-    /// The member's own command (a button, a shortcut): one undo step with `Origin::User`.
+    /// The member's own command (a button, a shortcut, typing): one undo step with `Origin::User`
+    /// (none when it changed nothing, as a find). `{"ok":true,"step","pages","selection"}`, where
+    /// `selection` is where the editor says the selection landed (null when it does not say).
     pub fn command(&mut self, id: u64, name: &str, args_text: &str) -> Result<String, String> {
         let open = self.get(id)?;
         let args = parse_args(args_text).map_err(|e| e.to_string())?;
-        open.bus.do_one(Command::new(name, args), Origin::User).map(|d| done_json(&d)).map_err(|e| e.to_string())
+        open.bus.do_user(Command::new(name, args)).map(|v| v.to_string()).map_err(|e| e.to_string())
+    }
+
+    /// The editing door on a document (`hit`, `caret`, `selection`, `state`, `copy`, `move`): JSON
+    /// text in and out. A document that cannot be edited by hand yet answers nothing (null, [], {}).
+    pub fn edit(&mut self, id: u64, verb: &str, args: &Json) -> Result<String, String> {
+        let open = self.get(id)?;
+        open.bus.edit(verb, args).map(|v| v.to_string()).map_err(|e| e.to_string())
+    }
+
+    /// The document as one PDF (every page), titled by its file's name.
+    pub fn export_pdf(&mut self, id: u64) -> Result<Vec<u8>, String> {
+        let open = self.get(id)?;
+        let title = Path::new(&open.title).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        Ok(export_pdf_with(open.bus.doc(), &ExportOptions { title, date: None }))
     }
 
     pub fn history(&mut self, id: u64) -> Result<String, String> {
@@ -924,6 +948,152 @@ pub fn scriptorium_door(doc: u64, verb: String, args_json: Option<String>, store
     Ok(docs(&(store, state))?.door(Some(doc), &verb, args_json.as_deref().unwrap_or("")).0)
 }
 
+/// JSON text of a page's argument (a pos or a selection); an empty one is null.
+fn arg_json(text: &str, what: &str) -> Result<Json, String> {
+    if text.trim().is_empty() {
+        return Ok(Json::Null);
+    }
+    json::parse(text).map_err(|e| format!("The {what} is not readable: {e}"))
+}
+
+/// The place under a page point (points): the editor's own pos as JSON, or `null`.
+#[tauri::command]
+pub fn scriptorium_hit(doc: u64, page: usize, x: f64, y: f64, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("page", page).with("x", x).with("y", y);
+    docs(&(store, state))?.edit(doc, "hit", &args)
+}
+
+/// The caret's box at a pos: `{"page","x","y","height"}` or `null`.
+#[tauri::command]
+pub fn scriptorium_caret(doc: u64, pos_json: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("pos", arg_json(&pos_json, "place")?);
+    docs(&(store, state))?.edit(doc, "caret", &args)
+}
+
+/// The boxes that paint a selection: `[{"page","x","y","w","h"}, ..]`.
+#[tauri::command]
+pub fn scriptorium_selection(doc: u64, sel_json: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("sel", arg_json(&sel_json, "selection")?);
+    docs(&(store, state))?.edit(doc, "selection", &args)
+}
+
+/// The formatting under a selection, for the ribbon's pressed buttons (the editor's own keys).
+#[tauri::command]
+pub fn scriptorium_state(doc: u64, sel_json: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("sel", arg_json(&sel_json, "selection")?);
+    docs(&(store, state))?.edit(doc, "state", &args)
+}
+
+/// What a copy of a selection takes: `{"text","rich"}`.
+#[tauri::command]
+pub fn scriptorium_copy(doc: u64, sel_json: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("sel", arg_json(&sel_json, "selection")?);
+    docs(&(store, state))?.edit(doc, "copy", &args)
+}
+
+/// The place one caret motion away (left, right, up, down, word_left, word_right, line_start,
+/// line_end, doc_start, doc_end): a pos, or `null` when the caret stays.
+#[tauri::command]
+pub fn scriptorium_move(doc: u64, pos_json: String, motion: String, store: State<SettingsStore>, state: State<ScriptoriumState>) -> Result<String, String> {
+    let args = Json::obj().with("pos", arg_json(&pos_json, "place")?).with("motion", motion.as_str());
+    docs(&(store, state))?.edit(doc, "move", &args)
+}
+
+/// The PDF name offered for a document's export: its own name with .pdf.
+pub fn export_name(title: &str) -> String {
+    let stem = Path::new(title.trim()).file_stem().map(|s| s.to_string_lossy().trim().to_string()).filter(|s| !s.is_empty());
+    format!("{}.pdf", stem.unwrap_or_else(|| "Untitled".into()))
+}
+
+/// Exports a document as a PDF of every page: the save picker first (None when it is closed), then our
+/// own PDF written whole. Answers the path written.
+#[tauri::command]
+pub async fn scriptorium_export_pdf(app: AppHandle, doc: u64, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    crate::rooms::need(&store, ROOM)?;
+    let name = export_name(&state.docs.lock().unwrap().get(doc)?.title);
+    let picked = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_title("Export as PDF")
+                .set_file_name(&name)
+                .add_filter("PDF", &["pdf"])
+                .blocking_save_file()
+                .and_then(|file| file.into_path().ok())
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+    let Some(mut target) = picked else { return Ok(None) };
+    if ext_of(&target) != "pdf" {
+        target.set_extension("pdf");
+    }
+    let bytes = state.docs.lock().unwrap().export_pdf(doc)?;
+    {
+        let target = target.clone();
+        tauri::async_runtime::spawn_blocking(move || write_document(&target, &bytes)).await.map_err(|_| "The PDF could not be written.".to_string())??;
+    }
+    Ok(Some(target.display().to_string()))
+}
+
+/// Where a print's PDF waits for the printer: the system's temp folder, one file per document.
+pub fn print_path(doc: u64) -> PathBuf {
+    std::env::temp_dir().join(format!("scriptorium-print-{}-{doc}.pdf", std::process::id()))
+}
+
+/// Prints a document: a PDF of every page in the temp folder, handed to the system's print verb
+/// (Windows: the PDF app's "print"; when no app offers it, the PDF opens so it can be printed from
+/// there; macOS and Linux: `lp`). Answers what happened in plain words.
+#[tauri::command]
+pub async fn scriptorium_print(doc: u64, store: State<'_, SettingsStore>, state: State<'_, ScriptoriumState>) -> Result<String, String> {
+    crate::rooms::need(&store, ROOM)?;
+    let bytes = state.docs.lock().unwrap().export_pdf(doc)?;
+    let file = print_path(doc);
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&file, &bytes).map_err(|_| "The page could not be made ready for printing (the temp folder is not writable).".to_string())?;
+        print_file(&file)
+    })
+    .await
+    .map_err(|_| "The document could not be printed.".to_string())?
+}
+
+#[cfg(windows)]
+fn print_file(file: &Path) -> Result<String, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
+    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let path = wide(file.as_os_str());
+    let run = |verb: &str, show| {
+        let verb = wide(std::ffi::OsStr::new(verb));
+        // SAFETY: every pointer points into a Vec that outlives the call; null is allowed for the
+        // window, the parameters and the folder.
+        let code = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), path.as_ptr(), std::ptr::null(), std::ptr::null(), show) };
+        // ShellExecuteW answers a value above 32 when it worked
+        code as isize > 32
+    };
+    if run("print", SW_HIDE) {
+        return Ok("Sent to the printer.".into());
+    }
+    if run("open", SW_SHOWNORMAL) {
+        return Ok("No app here prints PDFs directly, so the PDF opened - print it from there.".into());
+    }
+    Err("Windows has no app to print PDFs with.".into())
+}
+
+#[cfg(not(windows))]
+fn print_file(file: &Path) -> Result<String, String> {
+    let out = std::process::Command::new("lp").arg(file).output().map_err(|_| "The system's printing (lp) could not be reached.".to_string())?;
+    if out.status.success() {
+        Ok("Sent to the printer.".into())
+    } else {
+        Err(format!("The printer refused it: {}", String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
 /// The member picks a document to open; None when the picker is closed.
 #[tauri::command]
 pub async fn scriptorium_open_dialog(app: AppHandle) -> Option<String> {
@@ -1062,6 +1232,30 @@ pub fn scriptorium_close(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_editing_edge_answers_for_every_document() {
+        let mut docs = Docs::default();
+        let id = docs.add(OpenDoc::new("scroll", AnyDoc::Blank(BlankDocument::default()), None));
+        // the blank page takes no caret yet: nothing comes back, never an error
+        assert_eq!(docs.edit(id, "hit", &Json::obj().with("page", 0).with("x", 80.0).with("y", 90.0)).unwrap(), "null");
+        assert_eq!(docs.edit(id, "selection", &Json::obj().with("sel", Json::obj().with("anchor", 1))).unwrap(), "[]");
+        assert_eq!(docs.edit(id, "state", &Json::obj().with("sel", Json::obj().with("anchor", 1))).unwrap(), "{}");
+        assert!(docs.edit(id, "state", &Json::obj()).is_err(), "state needs a selection");
+        assert!(docs.edit(id + 1, "hit", &Json::obj()).is_err());
+        // a command answers where the selection landed
+        let out = docs.command(id, "blank.note", r#"{"text":"x"}"#).unwrap();
+        assert_eq!(out, r#"{"ok":true,"step":1,"pages":[0],"selection":null}"#);
+        // export: every page as our own PDF
+        let pdf = docs.export_pdf(id).unwrap();
+        assert!(pdf.starts_with(b"%PDF-") && pdf.ends_with(b"%%EOF\n"));
+        assert_eq!(export_name("Report.docx"), "Report.pdf");
+        assert_eq!(export_name("  "), "Untitled.pdf");
+        assert_eq!(export_name("Untitled"), "Untitled.pdf");
+        assert!(print_path(7).to_string_lossy().ends_with("-7.pdf"));
+        assert_eq!(arg_json("", "place").unwrap(), Json::Null);
+        assert!(arg_json("{", "place").is_err());
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("castle-scriptorium-{name}-{}", std::process::id()));

@@ -21,7 +21,6 @@ import {
   readHistory,
   readList,
   recentRows,
-  ribbonTabs,
   saveAsName,
   saveName,
   shortcutOf,
@@ -29,6 +28,7 @@ import {
   titleFor,
   undoState,
 } from './room.js'
+import { ribbonTabs } from './ribbon.js'
 
 describe('the editors and the layouts', () => {
   it('has the four editors in order, each with its file type', () => {

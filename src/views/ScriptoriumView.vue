@@ -9,21 +9,29 @@ import ScriptoriumRoom from '../scriptorium/ScriptoriumRoom.vue'
 import {
   onScriptoriumChanged,
   scriptoriumClose,
+  scriptoriumCaret,
   scriptoriumCloseDoc,
   scriptoriumCommand,
+  scriptoriumCopy,
   scriptoriumDisplay,
   scriptoriumDoor,
+  scriptoriumExportPdf,
   scriptoriumGlyphs,
   scriptoriumHistory,
+  scriptoriumHit,
   scriptoriumImage,
+  scriptoriumMove,
   scriptoriumNew,
   scriptoriumOpen,
   scriptoriumOpenDialog,
   scriptoriumPrepare,
+  scriptoriumPrint,
   scriptoriumRecent,
   scriptoriumRedo,
   scriptoriumSave,
   scriptoriumSaveDialog,
+  scriptoriumSelection,
+  scriptoriumState,
   scriptoriumUndo,
 } from '../api/castle.js'
 
@@ -56,6 +64,17 @@ const api = {
   save: scriptoriumSave,
   recent: scriptoriumRecent,
   onChanged: onScriptoriumChanged,
+  // the editing ground: the caret, the selection, the ribbon's state and the copy
+  hit: scriptoriumHit,
+  caret: scriptoriumCaret,
+  selection: scriptoriumSelection,
+  state: scriptoriumState,
+  copy: scriptoriumCopy,
+  move: scriptoriumMove,
+  exportPdf: scriptoriumExportPdf,
+  print: scriptoriumPrint,
+  // the system clipboard for a copy (the page's paste arrives as a paste event)
+  writeClipboard: (text) => navigator.clipboard?.writeText(text),
 }
 
 async function prepare() {

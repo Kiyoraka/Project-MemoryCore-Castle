@@ -8,6 +8,7 @@
 use std::fmt;
 
 use super::display::DisplayList;
+use super::edit::{self, Editing};
 use self::json::Json;
 
 // ---------------------------------------------------------------------------------------------------
@@ -703,6 +704,17 @@ pub trait Document {
     fn resources(&self) -> Option<&super::display::Resources> {
         None
     }
+    /// The caret, the selection and the copy, once the document can be edited by hand (see
+    /// [`super::edit`]). An editor answers `Some(self)` from its own `impl Editing`.
+    fn editing(&self) -> Option<&dyn Editing> {
+        None
+    }
+    /// The faces (and original JPEGs) behind the display lists' ids, for export and print as real,
+    /// searchable PDF text. Without them [`super::export`] draws each glyph from its outline in
+    /// [`Document::resources`] (it looks the same, but copies as no text).
+    fn pdf_resources(&self) -> Option<super::pdfw::PageResources> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -841,7 +853,8 @@ impl<D: Document> Bus<D> {
     }
 
     /// Do several commands as ONE undo step, all or nothing: if one fails, those already applied are
-    /// undone in reverse and the error is returned.
+    /// undone in reverse and the error is returned. Commands that changed nothing (no inverse, no page
+    /// touched - a find) leave no step: the answer's `step` is 0.
     pub fn do_group(&mut self, cmds: Vec<Command>, origin: Origin) -> Result<Done, BusError> {
         self.do_group_labelled(cmds, origin, None)
     }
@@ -858,6 +871,11 @@ impl<D: Document> Bus<D> {
             }
         }
         let (undo, pages) = self.apply_all(&cmds)?;
+        if undo.is_empty() && pages.is_empty() {
+            // Nothing changed (a find, a command that met nothing to do): no undo step, and the redo
+            // stack stays as it was.
+            return Ok(Done { step: 0, pages_touched: Vec::new() });
+        }
         let id = self.next_id;
         self.next_id += 1;
         let label = match label {
@@ -956,7 +974,8 @@ impl<D: Document> Bus<D> {
     // --- the AI's door ---
 
     /// The AI's door, four verbs and nothing else:
-    /// - `describe` -> `{ "kind", "pages", "document": doc.describe(), "commands": [{name,summary,args}] }`
+    /// - `describe` -> `{ "kind", "pages", "editable", "document": doc.describe(), "commands": [{name,summary,args}] }`
+    ///   (`editable`: the document takes a caret and a selection, see [`super::edit`])
     /// - `read` -> `doc.read(args)`
     /// - `do` -> args `{ "commands": [{ "name", "args" }, ...], "label"?: string }`, applied as ONE
     ///   group with `Origin::Ai`; answers `{ "ok": true, "step", "pages" }`
@@ -967,6 +986,7 @@ impl<D: Document> Bus<D> {
             "describe" => Ok(Json::obj()
                 .with("kind", self.doc.kind())
                 .with("pages", self.doc.page_count())
+                .with("editable", self.doc.editing().is_some())
                 .with("document", self.doc.describe())
                 .with("commands", Json::Arr(self.doc.commands().iter().map(CommandSpec::to_json).collect()))),
             "read" => self.doc.read(args),
@@ -1001,6 +1021,35 @@ impl<D: Document> Bus<D> {
             }
             other => Err(BusError::UnknownVerb(other.to_string())),
         }
+    }
+
+    // --- the editing door (the caret, the selection, the copy; never a change) ---
+
+    /// The document's editing, when it can be edited by hand.
+    pub fn editing(&self) -> Option<&dyn Editing> {
+        self.doc.editing()
+    }
+
+    /// The editing door ([`edit::door`]): `hit`, `caret`, `selection`, `state`, `copy`, `move`.
+    pub fn edit(&self, verb: &str, args: &Json) -> Result<Json, BusError> {
+        edit::door(&self.doc, verb, args)
+    }
+
+    /// [`Bus::edit`] for a host edge that speaks text; errors as `{"ok":false,"error":".."}`.
+    pub fn edit_json(&self, verb: &str, args_text: &str) -> String {
+        edit::door_json(&self.doc, verb, args_text)
+    }
+
+    /// The member's own command, answered for the page: `{"ok":true,"step","pages","selection"}` where
+    /// `selection` is where the document says the selection landed (`null` when it does not say).
+    pub fn do_user(&mut self, cmd: Command) -> Result<Json, BusError> {
+        let probe = cmd.clone();
+        let done = self.do_one(cmd, Origin::User)?;
+        Ok(Json::obj()
+            .with("ok", true)
+            .with("step", done.step)
+            .with("pages", Json::Arr(done.pages_touched.iter().map(|p| Json::from(*p)).collect()))
+            .with("selection", edit::landed_json(&self.doc, &probe)))
     }
 
     /// The door for a host edge that speaks text: args as JSON text in, JSON text out. Errors come
@@ -1368,5 +1417,75 @@ mod tests {
         assert!(out.starts_with(r#"{"ok":false,"error":"bad args: json:"#), "{}", out);
         let out = b.door_json("fly", "{}");
         assert!(out.contains("unknown verb 'fly'"));
+    }
+
+    // --- the editing seam ---
+
+    #[test]
+    fn a_document_is_not_editable_until_it_says_so() {
+        let mut b = bus();
+        assert!(b.editing().is_none());
+        let d = b.door("describe", &Json::Null).unwrap();
+        assert_eq!(d.get("editable"), Some(&Json::Bool(false)));
+        assert!(b.edit("hit", &parse(r#"{"page":0,"x":1,"y":1}"#).unwrap()).unwrap().is_null());
+        assert_eq!(b.edit_json("selection", r#"{"sel":{"anchor":1}}"#), "[]");
+        assert!(b.edit_json("nope", "{}").contains("\"ok\":false"));
+        // The member's command answers where the selection landed (nowhere said, here).
+        let out = b.do_user(ins(0, "a")).unwrap();
+        assert_eq!(out.to_string(), r#"{"ok":true,"step":1,"pages":[0],"selection":null}"#);
+        assert!(b.do_user(Command::new("test.nuke", Json::obj())).is_err());
+    }
+
+    #[test]
+    fn a_command_that_changed_nothing_leaves_no_step() {
+        /// Knows `quiet.find` (changes nothing) and `quiet.add` (one number up).
+        struct Quiet {
+            n: usize,
+        }
+        impl Document for Quiet {
+            fn kind(&self) -> &'static str {
+                "quiet"
+            }
+            fn apply(&mut self, cmd: &Command) -> Result<Change, BusError> {
+                match cmd.name.as_str() {
+                    "quiet.find" => Ok(Change::default()),
+                    "quiet.add" => {
+                        self.n += 1;
+                        Ok(Change { undo: vec![Command::new("quiet.sub", Json::obj())], pages_touched: vec![0] })
+                    }
+                    "quiet.sub" => {
+                        self.n -= 1;
+                        Ok(Change { undo: vec![Command::new("quiet.add", Json::obj())], pages_touched: vec![0] })
+                    }
+                    other => Err(BusError::unknown(other)),
+                }
+            }
+            fn describe(&self) -> Json {
+                Json::obj()
+            }
+            fn read(&self, _what: &Json) -> Result<Json, BusError> {
+                Ok(Json::Null)
+            }
+            fn display(&self, _page: usize) -> DisplayList {
+                DisplayList::new(10.0, 10.0)
+            }
+            fn page_count(&self) -> usize {
+                1
+            }
+            fn commands(&self) -> Vec<CommandSpec> {
+                ["quiet.find", "quiet.add", "quiet.sub"].iter().map(|n| CommandSpec::new(*n, "", "{}")).collect()
+            }
+        }
+        let mut b = Bus::new(Quiet { n: 0 });
+        b.do_one(Command::new("quiet.add", Json::obj()), Origin::User).unwrap();
+        b.do_one(Command::new("quiet.add", Json::obj()), Origin::User).unwrap();
+        b.undo().unwrap();
+        assert!(b.can_redo());
+        let done = b.do_one(Command::new("quiet.find", Json::obj()), Origin::User).unwrap();
+        assert_eq!(done, Done { step: 0, pages_touched: Vec::new() });
+        assert_eq!(b.history().len(), 2, "one done, one undone: the find left nothing");
+        assert!(b.can_redo(), "a find keeps the redo stack");
+        b.redo().unwrap();
+        assert_eq!(b.doc().n, 2);
     }
 }

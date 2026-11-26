@@ -30,8 +30,9 @@ mod embed;
 mod image;
 mod md5;
 mod obj;
+// the test reader, also for the ground's export tests
 #[cfg(test)]
-mod reader;
+pub(crate) mod reader;
 #[cfg(test)]
 mod tests;
 

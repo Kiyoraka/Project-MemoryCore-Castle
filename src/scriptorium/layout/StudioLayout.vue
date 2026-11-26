@@ -1,10 +1,12 @@
 <script setup>
 // Studio: an icon rail of the editors, the recent files, the page, an inspector on the right and the chat
-// docked along the bottom (the pick scriptorium-scroll-3). The inspector's controls are placeholders until
-// each editor lands; the rail, the files, Undo and Redo work now.
-import { computed, ref } from 'vue'
+// docked along the bottom (the pick scriptorium-scroll-3). The toolbar over the page shows one tab of the
+// editor's registry (ribbon.js) at a time, and the inspector its panels; the rail, the files, Undo, Redo,
+// Save, Export PDF and Print are the room's.
+import { computed, ref, watch } from 'vue'
 import { EDITORS, editorOf } from '../room.js'
-import { icon } from '../icons.js'
+import { pressed, tabGroups } from '../ribbon.js'
+import { icon, iconOf } from '../icons.js'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -18,25 +20,29 @@ const props = defineProps({
   status: { type: String, default: '' },
   // [{ path, name, editor }]
   recent: { type: Array, default: () => [] },
+  // the editor's registry (ribbon.js editorUi) and its state under the selection
+  ui: { type: Object, default: () => ({ tabs: [{ name: 'Home', groups: [] }], panels: [], intents: {} }) },
+  editState: { type: Object, default: () => ({}) },
+  canExport: { type: Boolean, default: false },
+  canPrint: { type: Boolean, default: false },
 })
-const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent'])
+const emit = defineEmits(['editor', 'new', 'open', 'save', 'saveAs', 'undo', 'redo', 'recent', 'button', 'exportPdf', 'print', 'find'])
 
 const current = computed(() => editorOf(props.editor))
-const inspectorTabs = [
-  { id: 'look', icon: 'sliders', label: 'Look' },
-  { id: 'text', icon: 'text', label: 'Text' },
-  { id: 'picture', icon: 'image', label: 'Pictures' },
-  { id: 'layout', icon: 'table', label: 'Layout' },
-]
-const inspector = ref('look')
-const later = (what) => `${what} - arrives with ${current.value.label}`
-const SECTIONS = [
-  { icon: 'text', label: 'Text' },
-  { icon: 'paragraph', label: 'Paragraph' },
-  { icon: 'palette', label: 'Colour' },
-  { icon: 'image', label: 'Picture' },
-  { icon: 'frame', label: 'Frame' },
-]
+const tab = ref('Home')
+const inspector = ref('')
+watch(
+  () => props.editor,
+  () => {
+    tab.value = 'Home'
+    inspector.value = ''
+  },
+)
+const tabNames = computed(() => (props.ui?.tabs ?? []).map((t) => t.name))
+const groups = computed(() => tabGroups(props.ui, tab.value))
+const panels = computed(() => props.ui?.panels ?? [])
+const panel = computed(() => panels.value.find((p) => p.id === inspector.value) ?? panels.value[0] ?? null)
+const titleOf = (b) => (b.ready ? b.title : `${b.title} - comes to ${current.value.label} soon`)
 </script>
 
 <template>
@@ -50,6 +56,8 @@ const SECTIONS = [
         <button title="Redo (Ctrl+Y)" :disabled="busy || !canRedo" @click="emit('redo')" v-html="icon('redo', 18)"></button>
         <button title="Save (Ctrl+S)" :disabled="busy" @click="emit('save')" v-html="icon('save', 18)"></button>
         <button title="Save as (Ctrl+Shift+S)" :disabled="busy" @click="emit('saveAs')" v-html="icon('saveAs', 18)"></button>
+        <button title="Export as PDF" :disabled="busy || !canExport" @click="emit('exportPdf')" v-html="icon('exportPdf', 18)"></button>
+        <button title="Print (Ctrl+P)" :disabled="busy || !canPrint" @click="emit('print')" v-html="icon('print', 18)"></button>
         <span v-if="badge" class="badge">{{ badge }}</span>
       </span>
     </header>
@@ -74,25 +82,55 @@ const SECTIONS = [
       </aside>
 
       <main class="desk">
-        <div class="toolbar" role="toolbar" aria-label="Format">
-          <button v-for="b in ['bold', 'italic', 'underline', 'alignLeft', 'alignCenter', 'alignRight', 'bullets', 'numbers', 'link', 'image']" :key="b" disabled :title="later(b)" :aria-label="b" v-html="icon(b, 18)"></button>
+        <div class="toolbar" role="toolbar" :aria-label="`${tab} tools`">
+          <span v-if="tabNames.length > 1" class="tab-pick" role="tablist" aria-label="Tools">
+            <button v-for="t in tabNames" :key="t" role="tab" class="tab" :class="{ on: t === tab }" :aria-selected="t === tab" @click="tab = t">{{ t }}</button>
+          </span>
+          <button title="Find (Ctrl+F)" aria-label="Find" @click="emit('find')" v-html="icon('find', 18)"></button>
+          <template v-for="(g, i) in groups" :key="`${tab}-${i}`">
+            <span class="tool-sep" aria-hidden="true"></span>
+            <button
+              v-for="(b, j) in g.buttons"
+              :key="j"
+              :class="{ on: pressed(editState, b.stateKey) }"
+              :aria-pressed="b.stateKey ? pressed(editState, b.stateKey) : undefined"
+              :aria-label="b.title"
+              :title="titleOf(b)"
+              :disabled="busy || !b.ready"
+              @click="emit('button', b)"
+              v-html="iconOf(b.icon, 18)"
+            ></button>
+          </template>
         </div>
         <div class="page-slot"><slot name="page" /></div>
         <div class="strip-slot"><slot name="strip" /></div>
       </main>
 
       <aside class="inspector" aria-label="Inspector">
-        <nav class="inspector-tabs" role="tablist">
-          <button v-for="t in inspectorTabs" :key="t.id" role="tab" :aria-selected="inspector === t.id" :class="{ on: inspector === t.id }" :title="t.label" @click="inspector = t.id" v-html="icon(t.icon, 20)"></button>
+        <nav v-if="panels.length > 1" class="inspector-tabs" role="tablist">
+          <button v-for="p in panels" :key="p.id" role="tab" :aria-selected="panel?.id === p.id" :class="{ on: panel?.id === p.id }" :title="p.label" @click="inspector = p.id" v-html="iconOf(p.icon || 'sliders', 20)"></button>
         </nav>
-        <section v-for="s in SECTIONS" :key="s.label" class="card" :title="later(s.label)">
-          <span class="card-icon" v-html="icon(s.icon, 18)"></span>
-          <div class="card-body">
-            <span class="card-label">{{ s.label }}</span>
-            <span class="slider" aria-hidden="true"><span></span></span>
-          </div>
-        </section>
-        <p class="hint">The inspector fills in as each editor lands.</p>
+        <template v-if="panel">
+          <section v-for="(g, i) in panel.groups" :key="`${panel.id}-${i}`" class="card">
+            <div class="card-body">
+              <span v-if="g.label" class="card-label">{{ g.label }}</span>
+              <div class="card-tools">
+                <button
+                  v-for="(b, j) in g.buttons"
+                  :key="j"
+                  :class="{ on: pressed(editState, b.stateKey) }"
+                  :aria-pressed="b.stateKey ? pressed(editState, b.stateKey) : undefined"
+                  :aria-label="b.title"
+                  :title="titleOf(b)"
+                  :disabled="busy || !b.ready"
+                  @click="emit('button', b)"
+                  v-html="iconOf(b.icon, 18)"
+                ></button>
+              </div>
+            </div>
+          </section>
+        </template>
+        <p v-else class="hint">Nothing to set here yet for {{ current.label }}.</p>
       </aside>
     </div>
 
@@ -307,9 +345,36 @@ const SECTIONS = [
 .toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 2px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--scr-line);
+}
+.toolbar button.on,
+.card-tools button.on {
+  background: var(--scr-chip);
+}
+.tab-pick {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 4px;
+}
+.toolbar .tab-pick button.tab {
+  width: auto;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--scr-muted);
+  font: inherit;
+  font-size: 12px;
+}
+.toolbar .tab-pick button.tab.on {
+  color: var(--scr-text);
+}
+.tool-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--scr-line);
 }
 .page-slot {
   position: relative;
@@ -363,11 +428,6 @@ const SECTIONS = [
   border: 1px solid var(--scr-line);
   border-radius: 12px;
   background: var(--scr-panel);
-  opacity: 0.6;
-}
-.card-icon {
-  display: inline-flex;
-  color: var(--scr-muted);
 }
 .card-body {
   display: flex;
@@ -378,17 +438,29 @@ const SECTIONS = [
 .card-label {
   font-size: 13px;
 }
-.slider {
-  position: relative;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--scr-chip);
+.card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
 }
-.slider span {
-  position: absolute;
-  inset: 0 45% 0 0;
-  border-radius: 2px;
-  background: var(--scr-accent);
+.card-tools button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--scr-text);
+  cursor: pointer;
+}
+.card-tools button:hover:not(:disabled) {
+  background: var(--scr-hover);
+}
+.card-tools button:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 .dock {
   position: relative;
