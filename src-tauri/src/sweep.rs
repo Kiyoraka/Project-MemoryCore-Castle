@@ -3,7 +3,8 @@
 //! cleans only when the member presses the button, and writes one log line per group.
 //!
 //! Never touched by design: documents, downloads, desktop, pictures, the memory folder, project
-//! folders, cookies, saved passwords and Castle's own folders. In Temp, the Claude Code sessions'
+//! folders (only cargo's own build caches in them, the Rust group), cookies, saved passwords and
+//! Castle's own folders. In Temp, the Claude Code sessions'
 //! `claude` scratchpads and anything changed in the last 24 hours stay.
 //!
 //! The engine is the Alice Keep's (its Phase 97), ported: the same walk and rules, with the macOS
@@ -14,11 +15,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// The groups, in the sheet's order: (id, label).
-pub const GROUPS: [(&str, &str); 5] = [
+pub const GROUPS: [(&str, &str); 6] = [
     ("temp", "Temp files"),
     ("browser", "Browser caches"),
     ("thumbs", "Thumbnail cache"),
     ("crash", "Crash dumps and logs"),
+    ("rust", "Rust build caches"),
     ("recycle", "Recycle Bin"),
 ];
 
@@ -26,7 +28,8 @@ pub const GROUPS: [(&str, &str); 5] = [
 pub const TEMP_FRESH: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Tests and a careful first run point every group inside this folder: `<root>/temp`,
-/// `<root>/browser`, `<root>/thumbs`, `<root>/crash`, `<root>/deep`. The Recycle Bin is then not offered.
+/// `<root>/browser`, `<root>/thumbs`, `<root>/crash`, `<root>/deep`, and `<root>/rust` as the one
+/// project whose build caches are looked at. The Recycle Bin is then not offered.
 pub const ROOT_VAR: &str = "CASTLE_SWEEP_ROOT";
 
 /// The log beside Castle's settings.
@@ -42,11 +45,14 @@ pub struct Root {
     pub prefix: Option<&'static str>,
     /// Why this root is skipped now (a browser is open), or None.
     pub skip: Option<String>,
+    /// One file inside it that always stays (the running Castle's own exe, when a member runs a build
+    /// of their own from a project's `target`), or None.
+    pub spare: Option<PathBuf>,
 }
 
 impl Root {
     fn plain(path: PathBuf) -> Self {
-        Root { path, temp: false, prefix: None, skip: None }
+        Root { path, temp: false, prefix: None, skip: None, spare: None }
     }
 }
 
@@ -133,6 +139,9 @@ fn walk(root: &Root, dir: &Path, dry: bool, now: SystemTime, tally: &mut Tally, 
             }
             continue;
         }
+        if root.spare.as_deref() == Some(path.as_path()) {
+            continue;
+        }
         if let Some(prefix) = root.prefix {
             if !entry.file_name().to_string_lossy().to_lowercase().starts_with(prefix) {
                 continue;
@@ -186,6 +195,7 @@ fn offered_on(group: &str, os: &str, test: bool) -> bool {
     match group {
         "temp" | "browser" | "crash" => os == "windows" || os == "macos" || test,
         "thumbs" => os == "windows" || test,
+        "rust" => os == "windows" || os == "macos" || test,
         // never the real Recycle Bin while every other group points at a test folder
         "recycle" => os == "windows" && !test,
         _ => false,
@@ -199,7 +209,7 @@ fn profile_caches(base: &Path, subs: &[PathBuf], skip: &Option<String>) -> Vec<R
         for sub in subs {
             let path = profile.join(sub);
             if path.is_dir() {
-                out.push(Root { path, temp: false, prefix: None, skip: skip.clone() });
+                out.push(Root { path, temp: false, prefix: None, skip: skip.clone(), spare: None });
             }
         }
     }
@@ -225,9 +235,11 @@ pub fn roots(group: &str) -> Vec<Root> {
 fn test_roots(test: &Path, group: &str) -> Vec<Root> {
     let path = test.join(group);
     match group {
-        "temp" => vec![Root { path, temp: true, prefix: None, skip: None }],
+        "temp" => vec![Root { path, temp: true, prefix: None, skip: None, spare: None }],
         "browser" | "crash" => vec![Root::plain(path)],
-        "thumbs" => vec![Root { path, temp: false, prefix: Some("thumbcache_"), skip: None }],
+        "thumbs" => vec![Root { path, temp: false, prefix: Some("thumbcache_"), skip: None, spare: None }],
+        // `<root>/rust` is one project: its `target` folders with cargo's tag
+        "rust" => rust_roots(&[path], std::env::current_exe().ok(), &[]),
         _ => Vec::new(),
     }
 }
@@ -236,7 +248,7 @@ fn test_roots(test: &Path, group: &str) -> Vec<Root> {
 fn windows_roots(group: &str) -> Vec<Root> {
     let local = env_dir("LOCALAPPDATA");
     match group {
-        "temp" => env_dir("TEMP").map(|path| vec![Root { path, temp: true, prefix: None, skip: None }]).unwrap_or_default(),
+        "temp" => env_dir("TEMP").map(|path| vec![Root { path, temp: true, prefix: None, skip: None, spare: None }]).unwrap_or_default(),
         "browser" => {
             let Some(local) = local else { return Vec::new() };
             let open = running(&["chrome.exe", "msedge.exe", "brave.exe", "firefox.exe"]);
@@ -254,13 +266,14 @@ fn windows_roots(group: &str) -> Vec<Root> {
             out.extend(profile_caches(&local.join("Mozilla").join("Firefox").join("Profiles"), &[PathBuf::from("cache2")], &skip));
             out
         }
-        "thumbs" => local.map(|l| vec![Root { path: l.join("Microsoft").join("Windows").join("Explorer"), temp: false, prefix: Some("thumbcache_"), skip: None }]).unwrap_or_default(),
+        "thumbs" => local.map(|l| vec![Root { path: l.join("Microsoft").join("Windows").join("Explorer"), temp: false, prefix: Some("thumbcache_"), skip: None, spare: None }]).unwrap_or_default(),
         "crash" => local
             .map(|l| {
                 let wer = l.join("Microsoft").join("Windows").join("WER");
                 vec![Root::plain(l.join("CrashDumps")), Root::plain(wer.join("ReportArchive")), Root::plain(wer.join("ReportQueue"))]
             })
             .unwrap_or_default(),
+        "rust" => rust_roots(&projects(), std::env::current_exe().ok(), &running(&["cargo.exe", "rustc.exe"])),
         _ => Vec::new(),
     }
 }
@@ -270,7 +283,7 @@ fn mac_roots(group: &str) -> Vec<Root> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let caches = home.as_ref().map(|h| h.join("Library").join("Caches"));
     match group {
-        "temp" => env_dir("TMPDIR").map(|path| vec![Root { path, temp: true, prefix: None, skip: None }]).unwrap_or_default(),
+        "temp" => env_dir("TMPDIR").map(|path| vec![Root { path, temp: true, prefix: None, skip: None, spare: None }]).unwrap_or_default(),
         "browser" => {
             let Some(caches) = caches else { return Vec::new() };
             let open = running(&["google chrome", "microsoft edge", "brave browser", "firefox"]);
@@ -283,7 +296,7 @@ fn mac_roots(group: &str) -> Vec<Root> {
             ] {
                 if path.is_dir() {
                     let skip = open.iter().any(|n| n == process).then(|| format!("{name} is open - its cache is skipped"));
-                    out.push(Root { path, temp: false, prefix: None, skip });
+                    out.push(Root { path, temp: false, prefix: None, skip, spare: None });
                 }
             }
             let skip = open.iter().any(|n| n == "firefox").then(|| "Firefox is open - its cache is skipped".to_string());
@@ -291,8 +304,97 @@ fn mac_roots(group: &str) -> Vec<Root> {
             out
         }
         "crash" => home.map(|h| vec![Root::plain(h.join("Library").join("Logs").join("DiagnosticReports"))]).unwrap_or_default(),
+        "rust" => rust_roots(&projects(), std::env::current_exe().ok(), &running(&["cargo", "rustc"])),
         _ => Vec::new(),
     }
+}
+
+// ---------- Rust build caches (ported from the Alice Keep's Phase 208) ----------
+
+/// The projects Castle knows (the DEV tab's projects and the folders under the projects folder), set
+/// by the commands from the member's settings before a measure or a clean - so a new project is found
+/// without being named.
+static PROJECTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+pub fn set_projects(list: Vec<PathBuf>) {
+    *PROJECTS.lock().unwrap() = list;
+}
+
+fn projects() -> Vec<PathBuf> {
+    PROJECTS.lock().unwrap().clone()
+}
+
+/// A path as compared: lowercase, one kind of slash, no slash at the end.
+fn same_key(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase().replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// The projects from the member's settings: every DEV project and every folder one level under the
+/// projects folder, each once (case-insensitively), never the memory folder.
+pub fn projects_of(dev_projects: &[String], dev_root: Option<&str>, memory_folder: Option<&str>) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = dev_projects.iter().filter(|p| !p.trim().is_empty()).map(PathBuf::from).collect();
+    if let Some(root) = dev_root.filter(|r| !r.trim().is_empty()) {
+        out.extend(std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+    }
+    let memory = memory_folder.filter(|m| !m.trim().is_empty()).map(|m| same_key(Path::new(m)));
+    let mut seen = std::collections::BTreeSet::new();
+    out.retain(|p| {
+        let key = same_key(p);
+        memory.as_deref() != Some(key.as_str()) && seen.insert(key)
+    });
+    out
+}
+
+/// Every cargo build folder of these projects: a folder named `target` or `target-<something>` right
+/// in the project or its `src-tauri`, and only one that carries cargo's own `CACHEDIR.TAG`, so nothing
+/// else can be taken for one. The `spare` file (Castle's own exe) stays; a running build skips them all.
+pub fn rust_roots(projects: &[PathBuf], spare: Option<PathBuf>, building: &[String]) -> Vec<Root> {
+    let skip = (!building.is_empty()).then(|| "A Rust build is running - its caches are skipped".to_string());
+    let mut out: Vec<Root> = Vec::new();
+    for project in projects {
+        for base in [project.clone(), project.join("src-tauri")] {
+            for entry in std::fs::read_dir(&base).into_iter().flatten().flatten() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                let path = entry.path();
+                let real_dir = std::fs::symlink_metadata(&path).map(|m| m.is_dir() && !is_link(&m)).unwrap_or(false);
+                if !real_dir || !(name == "target" || name.starts_with("target-")) || !path.join("CACHEDIR.TAG").is_file() {
+                    continue;
+                }
+                if out.iter().any(|r| r.path == path) {
+                    continue;
+                }
+                let spare = spare.clone().filter(|exe| exe.starts_with(&path));
+                out.push(Root { path, temp: false, prefix: None, skip: skip.clone(), spare });
+            }
+        }
+    }
+    out
+}
+
+/// The Rust caches can be hundreds of gigabytes, so their size is read in the background and kept for
+/// an hour: the card never waits on it. (measured at, bytes, files)
+static RUST_SIZE: std::sync::Mutex<Option<(std::time::Instant, u64, u64)>> = std::sync::Mutex::new(None);
+static RUST_MEASURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const RUST_FRESH: Duration = Duration::from_secs(60 * 60);
+
+fn rust_size(roots: &[Root]) -> Option<(u64, u64)> {
+    let known = *RUST_SIZE.lock().unwrap();
+    let stale = known.is_none_or(|(at, _, _)| at.elapsed() > RUST_FRESH);
+    if stale && !RUST_MEASURING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        let roots = roots.to_vec();
+        std::thread::spawn(move || {
+            let now = SystemTime::now();
+            let (mut bytes, mut files) = (0, 0);
+            for root in roots.iter().filter(|r| r.skip.is_none()) {
+                let t = sweep_root(root, true, now, &mut |_| {});
+                bytes += t.bytes;
+                files += t.files;
+            }
+            *RUST_SIZE.lock().unwrap() = Some((std::time::Instant::now(), bytes, files));
+            RUST_MEASURING.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+    known.map(|(_, b, f)| (b, f))
 }
 
 // ---------- measure and clean ----------
@@ -324,6 +426,18 @@ pub fn measure() -> Vec<GroupSize> {
             }
             let roots = roots(id);
             let mut size = GroupSize { id: id.to_string(), label: label(id), bytes: 0, files: 0, note: note_of(&roots) };
+            if *id == "rust" {
+                // a running build: its note alone; else the size kept from the background walk
+                if !size.note.is_empty() {
+                    return size;
+                }
+                match rust_size(&roots) {
+                    Some((bytes, files)) => (size.bytes, size.files) = (bytes, files),
+                    None if !roots.is_empty() => size.note = "Measuring the Rust caches...".into(),
+                    None => {}
+                }
+                return size;
+            }
             for root in &roots {
                 let t = sweep_root(root, true, now, &mut |_| {});
                 size.bytes += t.bytes;
@@ -371,6 +485,10 @@ pub fn clean(ids: &[String], log_folder: &Path, progress: &mut dyn FnMut(&str, u
                 result.skipped += t.skipped;
             }
             total += result.freed;
+            if *id == "rust" {
+                // measured again on the next look
+                *RUST_SIZE.lock().unwrap() = None;
+            }
         }
         log(log_folder, &result);
         done.push(result);
@@ -419,12 +537,12 @@ pub const DEEP_FLAG: &str = "--sweep-deep";
 /// The system folders Deep clean empties (inside the test root's `deep` folder while one is set).
 pub fn deep_roots() -> Vec<Root> {
     if let Some(test) = test_root() {
-        return vec![Root { path: test.join("deep"), temp: true, prefix: None, skip: None }];
+        return vec![Root { path: test.join("deep"), temp: true, prefix: None, skip: None, spare: None }];
     }
     #[cfg(windows)]
     {
         let system = env_dir("SystemRoot").unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-        vec![Root { path: system.join("Temp"), temp: true, prefix: None, skip: None }, Root::plain(system.join("SoftwareDistribution").join("Download"))]
+        vec![Root { path: system.join("Temp"), temp: true, prefix: None, skip: None, spare: None }, Root::plain(system.join("SoftwareDistribution").join("Download"))]
     }
     #[cfg(not(windows))]
     Vec::new()
@@ -582,16 +700,27 @@ pub fn sweep_status(store: tauri::State<'_, crate::settings::SettingsStore>) -> 
     status_of(&store)
 }
 
+/// The projects whose Rust build caches SWEEP may look at, from the member's settings.
+fn know_projects(store: &crate::settings::SettingsStore) {
+    let list = {
+        let settings = store.current.lock().unwrap();
+        projects_of(&settings.dev_projects, settings.dev_root.as_deref(), settings.memory_folder.as_deref())
+    };
+    set_projects(list);
+}
+
 /// What can be freed now (a walk of every offered group: off the page's thread; nothing deleted).
 #[tauri::command]
-pub async fn sweep_measure() -> Result<Vec<GroupSize>, String> {
+pub async fn sweep_measure(store: tauri::State<'_, crate::settings::SettingsStore>) -> Result<Vec<GroupSize>, String> {
+    know_projects(&store);
     tauri::async_runtime::spawn_blocking(measure).await.map_err(|_| "Sweep could not measure.".to_string())
 }
 
 /// Cleans the ticked groups; the page hears `castle://sweep` { group, freed } as files go.
 #[tauri::command]
-pub async fn sweep_clean(app: tauri::AppHandle, groups: Vec<String>) -> Result<Vec<Cleaned>, String> {
+pub async fn sweep_clean(app: tauri::AppHandle, groups: Vec<String>, store: tauri::State<'_, crate::settings::SettingsStore>) -> Result<Vec<Cleaned>, String> {
     use tauri::{Emitter, Manager};
+    know_projects(&store);
     tauri::async_runtime::spawn_blocking(move || {
         let Ok(_one) = RUNNING.try_lock() else { return Err("A sweep is already running.".to_string()) };
         let folder = app.state::<crate::settings::SettingsStore>().folder();
@@ -664,7 +793,7 @@ mod tests {
     #[test]
     fn temp_keeps_the_sessions_and_anything_fresh_and_never_the_root() {
         let base = tree("temp");
-        let root = Root { path: base.clone(), temp: true, prefix: None, skip: None };
+        let root = Root { path: base.clone(), temp: true, prefix: None, skip: None, spare: None };
         for (rel, bytes, aged) in [("junk.tmp", 100, true), ("deep/old.log", 50, true), ("new.tmp", 7, false), ("claude/session/scratch.md", 9, true)] {
             write(&base.join(rel), bytes);
             if aged {
@@ -689,7 +818,7 @@ mod tests {
         let base = tree("thumbs");
         write(&base.join("thumbcache_256.db"), 30);
         write(&base.join("iconcache_16.db"), 30);
-        let root = Root { path: base.clone(), temp: false, prefix: Some("thumbcache_"), skip: None };
+        let root = Root { path: base.clone(), temp: false, prefix: Some("thumbcache_"), skip: None, spare: None };
         assert_eq!(sweep_root(&root, false, SystemTime::now(), &mut |_| {}).bytes, 30);
         assert!(base.join("iconcache_16.db").exists());
         let skipped = Root { skip: Some("Chrome is open".into()), ..root };
@@ -741,9 +870,9 @@ mod tests {
     #[test]
     fn each_system_offers_only_its_own_groups_and_a_test_root_never_the_real_bin() {
         let on = |os: &str, test: bool| GROUPS.iter().map(|(g, _)| *g).filter(|g| offered_on(g, os, test)).collect::<Vec<_>>();
-        assert_eq!(on("windows", false), ["temp", "browser", "thumbs", "crash", "recycle"]);
-        assert_eq!(on("macos", false), ["temp", "browser", "crash"]);
-        assert_eq!(on("windows", true), ["temp", "browser", "thumbs", "crash"], "the Recycle Bin is never offered beside a test root");
+        assert_eq!(on("windows", false), ["temp", "browser", "thumbs", "crash", "rust", "recycle"]);
+        assert_eq!(on("macos", false), ["temp", "browser", "crash", "rust"]);
+        assert_eq!(on("windows", true), ["temp", "browser", "thumbs", "crash", "rust"], "the Recycle Bin is never offered beside a test root");
         assert!(on("linux", false).is_empty());
     }
 
@@ -754,6 +883,57 @@ mod tests {
         assert!(test_roots(base, "temp")[0].temp);
         assert_eq!(test_roots(base, "thumbs")[0].prefix, Some("thumbcache_"));
         assert!(test_roots(base, "recycle").is_empty());
+        assert!(test_roots(base, "rust").is_empty(), "a test root without a tagged target folder has no Rust cache");
+    }
+
+    #[test]
+    fn only_a_cargo_target_folder_is_a_rust_cache_and_the_running_exe_stays() {
+        let base = tree("rust");
+        let shop = base.join("shop");
+        let castle = base.join("Castle");
+        for (dir, tagged) in [
+            (shop.join("src-tauri").join("target"), true),
+            (castle.join("src-tauri").join("target-test"), true),
+            (castle.join("target"), true),
+            (castle.join("src-tauri").join("targets-not-cargo"), true),
+            (castle.join("src-tauri").join("target-plain"), false),
+        ] {
+            write(&dir.join("debug").join("big.rlib"), 64);
+            if tagged {
+                std::fs::write(dir.join("CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55").unwrap();
+            }
+        }
+        let exe = shop.join("src-tauri").join("target").join("release").join("memorycore-castle.exe");
+        write(&exe, 8);
+        let projects = vec![shop.clone(), castle.clone(), base.join("not-made-yet")];
+        let roots = rust_roots(&projects, Some(exe.clone()), &[]);
+        let mut found: Vec<String> = roots.iter().map(|r| r.path.strip_prefix(&base).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        found.sort();
+        assert_eq!(found, vec!["Castle/src-tauri/target-test", "Castle/target", "shop/src-tauri/target"], "untagged folders and other names are never taken");
+        assert!(roots.iter().filter(|r| !r.path.starts_with(&shop)).all(|r| r.spare.is_none()), "the exe is spared only in the folder it sits in");
+        let shop_root = roots.iter().find(|r| r.path.starts_with(&shop)).unwrap();
+        let t = sweep_root(shop_root, false, SystemTime::now(), &mut |_| {});
+        assert_eq!(t.files, 2, "the cache files and its marker go");
+        assert!(exe.exists(), "the running Castle's own exe stays");
+        assert!(castle.join("src-tauri").join("target-plain").join("debug").join("big.rlib").exists(), "an untagged folder is never touched");
+        assert!(rust_roots(&projects, None, &["cargo.exe".into()]).iter().all(|r| r.skip.is_some()), "a running build skips them all");
+        assert_eq!(note_of(&rust_roots(&projects, None, &["rustc.exe".into()])), "A Rust build is running - its caches are skipped");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn the_projects_are_the_dev_projects_and_the_folders_under_the_root_never_the_memory_folder() {
+        let base = tree("projects");
+        std::fs::create_dir_all(base.join("Sanad")).unwrap();
+        std::fs::create_dir_all(base.join("MemoryCore")).unwrap();
+        std::fs::write(base.join("notes.txt"), "x").unwrap();
+        let one = base.join("Sanad").to_string_lossy().to_string();
+        let memory = format!("{}/", base.join("MEMORYCORE").to_string_lossy().replace('\\', "/"));
+        let list = projects_of(&[one.clone(), one.to_uppercase(), String::new()], Some(base.to_str().unwrap()), Some(&memory));
+        assert_eq!(list.len(), 1, "a project named twice, a loose file and the memory folder are not projects twice or at all");
+        assert!(same_key(&list[0]).ends_with("/sanad"));
+        assert!(projects_of(&[], None, None).is_empty());
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
@@ -766,7 +946,7 @@ mod tests {
         let downloads = base.join("Download");
         write(&downloads.join("kb123/update.cab"), 60);
         let file = base.join("result.json");
-        let roots = [Root { path: system_temp.clone(), temp: true, prefix: None, skip: None }, Root::plain(downloads.clone())];
+        let roots = [Root { path: system_temp.clone(), temp: true, prefix: None, skip: None, spare: None }, Root::plain(downloads.clone())];
         let ran = deep_into(&roots, &file);
         assert_eq!((ran.freed, ran.files, ran.skipped), (100, 2, 0));
         assert_eq!(read_result(&file), Some(ran));
