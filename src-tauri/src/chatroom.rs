@@ -415,6 +415,27 @@ fn make_companion_key(base: &str, token: &str, companion: &str) -> Result<(Optio
     Ok((v.get("id").map(|id| id.to_string().trim_matches('"').to_string()), new_key))
 }
 
+/// Removes one of the member's room keys on the Portfolio. Gone already (404) counts as removed;
+/// anything else is an error, so Castle keeps the id and can try again instead of leaving a key
+/// behind that the member can no longer see from here.
+fn delete_key(base: &str, token: &str, id: &str) -> Result<(), String> {
+    let answer = http_client(Duration::from_secs(20))?
+        .delete(format!("{base}/api/member/room-keys/{id}"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|_| "The Portfolio could not be reached, so the old room key is still there. Try again.".to_string())?;
+    delete_outcome(answer.status().as_u16())
+}
+
+/// A delete's status as Castle treats it (pure, tested).
+pub fn delete_outcome(status: u16) -> Result<(), String> {
+    match status {
+        200..=299 | 404 => Ok(()),
+        401 => Err("Your sign-in has run out - sign in again.".into()),
+        s => Err(format!("The old room key could not be removed ({s}). Try again.")),
+    }
+}
+
 /// Does the companion's room key need remaking? Yes when the name it carries is not the name in
 /// Settings (pure, tested). A key made before Castle remembered the name is remade once.
 pub fn needs_rename(carried: Option<&str>, current: &str) -> bool {
@@ -514,8 +535,20 @@ pub async fn room_companion_in(on: bool, store: State<'_, SettingsStore>) -> Res
             if key::load("room-companion").is_some() {
                 return Ok(had_id);
             }
+            // a key Castle made before but lost here (its id kept, the key itself gone from the
+            // Keychain) is removed first, so letting the companion in never adds a second key
+            if let Some(old) = plain_id(had_id) {
+                delete_key(&base, &token, &old)?;
+            }
             let (id, new_key) = make_companion_key(&base, &token, &companion)?;
-            key::save("room-companion", &new_key)?;
+            if let Err(why) = key::save("room-companion", &new_key) {
+                // the Portfolio made the key but Castle could not keep it: take it back off the
+                // Portfolio, or every retry would leave one more key there
+                if let Some(made) = plain_id(id.clone()) {
+                    let _ = delete_key(&base, &token, &made);
+                }
+                return Err(why);
+            }
             // the picture chosen in Settings goes with it; a failed upload never undoes the "Let in"
             if let (Some(door_id), Some(p)) = (plain_id(id.clone()), picture) {
                 let _ = upload_picture(&base, &token, &companion_face_door(&door_id), &p);
@@ -523,8 +556,8 @@ pub async fn room_companion_in(on: bool, store: State<'_, SettingsStore>) -> Res
             Ok(id)
         } else {
             if let Some(id) = plain_id(had_id) {
-                // a key already gone on the Portfolio is fine
-                let _ = http_client(Duration::from_secs(20))?.delete(format!("{base}/api/member/room-keys/{id}")).bearer_auth(&token).send();
+                // only forgotten here once the Portfolio has let it go (or never had it)
+                delete_key(&base, &token, &id)?;
             }
             let _ = key::forget("room-companion");
             Ok(None)
@@ -1010,6 +1043,14 @@ mod tests {
         assert_eq!(key_refusal(403, r#"{"error":"This room is for MemoryCore Foundation members"}"#), "This room is for MemoryCore Foundation members");
         assert!(key_refusal(409, r#"{"error":"You already have 3 room keys"}"#).contains("Library card"));
         assert!(key_refusal(500, "").contains("500"));
+    }
+
+    #[test]
+    fn a_room_key_is_forgotten_only_once_the_portfolio_let_it_go() {
+        assert!(delete_outcome(204).is_ok());
+        assert!(delete_outcome(404).is_ok(), "already gone is fine");
+        assert!(delete_outcome(401).unwrap_err().contains("sign in again"));
+        assert!(delete_outcome(500).unwrap_err().contains("500"));
     }
 
     #[test]
