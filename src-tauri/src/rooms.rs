@@ -32,7 +32,12 @@ pub async fn rooms_apply(app: AppHandle, rooms: BTreeMap<String, bool>, store: S
     let saved = next.rooms.clone();
     let story = (before.room_on("story"), next.room_on("story"));
     let world = (before.room_on("world"), next.room_on("world"));
+    let worldsmith = (before.room_on(crate::worldsmith::ROOM), next.room_on(crate::worldsmith::ROOM));
     *store.current.lock().unwrap() = next;
+    if worldsmith == (true, false) {
+        // the game let go, every frozen value stopped, the helper ended
+        crate::worldsmith::pipe::stop(&app);
+    }
     if story == (true, false) {
         app.state::<StoryHost>().0.kill();
     }

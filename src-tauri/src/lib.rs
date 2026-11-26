@@ -24,6 +24,7 @@ mod db;
 mod fetch;
 mod node_runtime;
 mod sweep;
+mod worldsmith;
 mod dev;
 mod dev_files;
 mod dev_git;
@@ -365,6 +366,7 @@ pub fn run() {
         .manage(bridges::discord::DiscordState::default())
         .manage(bridges::whatsapp::WhatsAppState::default())
         .manage(session::StoryHost::default())
+        .manage(worldsmith::pipe::Serve::default())
         .manage(dev::DevHosts::default())
         .manage(dev::DevChats::default())
         .manage(system::SystemMeters::default())
@@ -509,6 +511,11 @@ pub fn run() {
             weather::weather_read,
             sweep::sweep_status,
             sweep::sweep_measure,
+            worldsmith::pipe::worldsmith_status,
+            worldsmith::pipe::worldsmith_get_helper,
+            worldsmith::pipe::worldsmith_start,
+            worldsmith::pipe::worldsmith_stop,
+            worldsmith::pipe::worldsmith_call,
             sweep::sweep_clean,
             sweep::sweep_deep,
             sweep::sweep_settings_save,
@@ -971,6 +978,8 @@ pub fn run() {
             // The companion's sessions belong to Castle: when Castle ends, so do they.
             if let RunEvent::Exit = event {
                 browser_session::leave();
+                // the game let go and every frozen value stopped before the helper ends
+                worldsmith::pipe::stop(app);
                 session::end_all(app);
                 dev::end_all(app);
                 db::stop_with_castle(app);
