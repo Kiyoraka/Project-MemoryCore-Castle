@@ -51,12 +51,29 @@ pub enum RunItem {
     Field(FieldKind),
 }
 
+/// What XML a run was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunKind {
+    /// A `w:r`.
+    R,
+    /// A `w:fldSimple` (its one field item).
+    FldSimple,
+    /// An `m:oMath` / `m:oMathPara` (its text, read only).
+    Math,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Run {
     pub rpr: RunProps,
     pub items: Vec<RunItem>,
     /// The hyperlink target when the run sits in a `w:hyperlink`.
     pub link: Option<String>,
+    /// Element-only child indices from the paragraph (`w:p`) down to the run's element.
+    pub src: Vec<usize>,
+    pub kind: RunKind,
+    /// For each item, the element index (among the run element's element children) it was read
+    /// from (0 for a field simple or math run).
+    pub item_src: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +86,10 @@ pub struct Para {
     pub sect: Option<SectPr>,
     /// Index among all body paragraphs in reading order (`usize::MAX` in headers and footers).
     pub flat: usize,
+    /// Index among the paragraphs of its header or footer part (`usize::MAX` in the body).
+    pub hidx: usize,
+    /// The complex fields still open when the paragraph starts (a field may span paragraphs).
+    pub fields_in: Vec<FieldState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,6 +264,10 @@ pub struct Model {
     pub theme: Theme,
     pub settings: Settings,
     pub flat: Vec<FlatPara>,
+    /// The paragraphs of each header and footer part, by part name (paths from the part's root).
+    pub hflat: HashMap<String, Vec<FlatPara>>,
+    /// `w:clrSchemeMapping` (theme colours resolve through it).
+    pub cmap: ColorMap,
     pub tables: usize,
     pub pictures: usize,
     /// Anchored (floating) drawings: counted, not shown yet.
@@ -304,11 +329,12 @@ impl Model {
 
         let mut flat = Vec::new();
         let mut counts = Counts::default();
-        let mut p = PartReader { pkg, part: main.to_string(), ctx: &ctx, images, flat: Some(&mut flat), fields: Vec::new(), counts: &mut counts, styles: &styles };
+        let mut p = PartReader { pkg, part: main.to_string(), ctx: &ctx, images, flat: Some(&mut flat), fields: Vec::new(), counts: &mut counts, styles: &styles, light: false, body: true };
         let mut final_sect = SectPr::default();
         let body = p.blocks(body_el, &[body_index], Some(&mut final_sect));
 
         let mut headers = HashMap::new();
+        let mut hflat = HashMap::new();
         let mut sects: Vec<SectPr> = Vec::new();
         collect_sects(&body, &mut sects);
         sects.push(final_sect.clone());
@@ -317,14 +343,27 @@ impl Model {
                 if headers.contains_key(name) {
                     continue;
                 }
+                let mut hf = Vec::new();
                 let blocks = match pkg.part_bytes(name).ok().and_then(|b| parse_dom(&b).ok()) {
                     Some(hroot) => {
-                        let mut hp = PartReader { pkg, part: name.clone(), ctx: &ctx, images, flat: None, fields: Vec::new(), counts: &mut counts, styles: &styles };
+                        let mut hp = PartReader {
+                            pkg,
+                            part: name.clone(),
+                            ctx: &ctx,
+                            images,
+                            flat: Some(&mut hf),
+                            fields: Vec::new(),
+                            counts: &mut counts,
+                            styles: &styles,
+                            light: false,
+                            body: false,
+                        };
                         hp.blocks(&hroot, &[], None)
                     }
                     None => Vec::new(),
                 };
                 headers.insert(name.clone(), blocks);
+                hflat.insert(name.clone(), hf);
             }
         }
         Ok(Model {
@@ -336,6 +375,8 @@ impl Model {
             theme,
             settings,
             flat,
+            hflat,
+            cmap,
             tables: counts.tables,
             pictures: counts.pictures,
             floating: counts.floating,
@@ -363,16 +404,18 @@ struct Counts {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Phase {
+pub enum Phase {
     Instr,
     Result,
 }
 
-struct FieldState {
-    instr: String,
-    phase: Phase,
-    dynamic: Option<FieldKind>,
-    emitted: bool,
+/// One complex field open while reading (its instruction so far, which half we are in).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldState {
+    pub instr: String,
+    pub phase: Phase,
+    pub dynamic: Option<FieldKind>,
+    pub emitted: bool,
 }
 
 fn field_kind(instr: &str) -> Option<FieldKind> {
@@ -394,6 +437,44 @@ struct PartReader<'a, 'b> {
     fields: Vec<FieldState>,
     counts: &'b mut Counts,
     styles: &'a Styles,
+    /// Structure only: pictures are not decoded.
+    light: bool,
+    /// Reading the body (paragraphs get `flat`), else a header or footer (`hidx`).
+    body: bool,
+}
+
+/// A paragraph element's runs read again from (possibly edited) XML, with the fields open at its
+/// start: the same reading the model does, so the editing code and the layout agree on every
+/// character. Pictures are not decoded.
+pub fn read_runs(pkg: &Package, part: &str, model: &Model, p: &Element, fields_in: &[FieldState]) -> Vec<Run> {
+    let ctx = Ctx { theme: &model.theme, cmap: &model.cmap };
+    let mut images = ImageStore::default();
+    let mut counts = Counts::default();
+    let mut r = PartReader {
+        pkg,
+        part: part.to_string(),
+        ctx: &ctx,
+        images: &mut images,
+        flat: None,
+        fields: fields_in.to_vec(),
+        counts: &mut counts,
+        styles: &model.styles,
+        light: true,
+        body: false,
+    };
+    let mut runs = Vec::new();
+    r.inline_children(p, None, &[], &mut runs);
+    runs
+}
+
+/// A `w:rPr` element read as properties (for the editing code).
+pub fn parse_rpr(model: &Model, el: &Element) -> RunProps {
+    RunProps::parse(el, &Ctx { theme: &model.theme, cmap: &model.cmap })
+}
+
+/// A `w:pPr` element read as properties (for the editing code).
+pub fn parse_ppr(model: &Model, el: &Element) -> ParaProps {
+    ParaProps::parse(el, &Ctx { theme: &model.theme, cmap: &model.cmap })
 }
 
 impl<'a, 'b> PartReader<'a, 'b> {
@@ -425,7 +506,15 @@ impl<'a, 'b> PartReader<'a, 'b> {
     }
 
     fn para(&mut self, el: &Element, path: &[usize]) -> Para {
-        let mut para = Para { ppr: ParaProps::default(), mark: RunProps::default(), runs: Vec::new(), sect: None, flat: usize::MAX };
+        let mut para = Para {
+            ppr: ParaProps::default(),
+            mark: RunProps::default(),
+            runs: Vec::new(),
+            sect: None,
+            flat: usize::MAX,
+            hidx: usize::MAX,
+            fields_in: self.fields.clone(),
+        };
         if let Some(ppr) = el.child("pPr") {
             para.ppr = ParaProps::parse(ppr, self.ctx);
             if let Some(r) = ppr.child("rPr") {
@@ -435,9 +524,13 @@ impl<'a, 'b> PartReader<'a, 'b> {
                 para.sect = Some(self.sect(s));
             }
         }
-        self.inline_children(el, None, &mut para.runs);
+        self.inline_children(el, None, &[], &mut para.runs);
         if let Some(flat) = self.flat.as_deref_mut() {
-            para.flat = flat.len();
+            if self.body {
+                para.flat = flat.len();
+            } else {
+                para.hidx = flat.len();
+            }
             let style = para.ppr.style.clone().or_else(|| self.styles.default_para.clone());
             flat.push(FlatPara { text: plain_text(&para.runs), style, path: path.to_vec() });
         }
@@ -445,11 +538,13 @@ impl<'a, 'b> PartReader<'a, 'b> {
     }
 
     /// The run-level content of a paragraph (or of a hyperlink, field, content control...).
-    fn inline_children(&mut self, parent: &Element, link: Option<&str>, runs: &mut Vec<Run>) {
-        for c in parent.elements() {
+    fn inline_children(&mut self, parent: &Element, link: Option<&str>, path: &[usize], runs: &mut Vec<Run>) {
+        for (ci, c) in parent.elements().enumerate() {
+            let mut here = path.to_vec();
+            here.push(ci);
             match c.local() {
                 "r" => {
-                    if let Some(r) = self.run(c, link) {
+                    if let Some(r) = self.run(c, link, &here) {
                         runs.push(r);
                     }
                 }
@@ -458,7 +553,7 @@ impl<'a, 'b> PartReader<'a, 'b> {
                         .and_then(|id| self.pkg.rel_by_id(&self.part, id))
                         .map(|r| r.target.clone())
                         .or_else(|| attr(c, "anchor").map(|a| format!("#{a}")));
-                    self.inline_children(c, target.as_deref().or(link), runs);
+                    self.inline_children(c, target.as_deref().or(link), &here, runs);
                 }
                 "fldSimple" => {
                     let instr = attr(c, "instr").unwrap_or("");
@@ -472,22 +567,30 @@ impl<'a, 'b> PartReader<'a, 'b> {
                                 .and_then(|r| r.child("rPr"))
                                 .map(|r| RunProps::parse(r, self.ctx))
                                 .unwrap_or_default();
-                            runs.push(Run { rpr, items: vec![RunItem::Field(kind)], link: link.map(str::to_string) });
+                            runs.push(Run {
+                                rpr,
+                                items: vec![RunItem::Field(kind)],
+                                link: link.map(str::to_string),
+                                src: here,
+                                kind: RunKind::FldSimple,
+                                item_src: vec![0],
+                            });
                         }
-                        None => self.inline_children(c, link, runs),
+                        None => self.inline_children(c, link, &here, runs),
                     }
                 }
-                "ins" | "smartTag" | "customXml" | "dir" | "bdo" | "moveTo" => self.inline_children(c, link, runs),
+                "ins" | "smartTag" | "customXml" | "dir" | "bdo" | "moveTo" => self.inline_children(c, link, &here, runs),
                 "sdt" => {
-                    if let Some(content) = c.child("sdtContent") {
-                        self.inline_children(content, link, runs);
+                    if let Some((si, content)) = c.elements().enumerate().find(|(_, e)| e.local() == "sdtContent") {
+                        here.push(si);
+                        self.inline_children(content, link, &here, runs);
                     }
                 }
                 "oMathPara" | "oMath" => {
                     let mut text = String::new();
                     math_text(c, &mut text);
                     if !text.is_empty() {
-                        runs.push(Run { rpr: RunProps::default(), items: vec![RunItem::Text(text)], link: None });
+                        runs.push(Run { rpr: RunProps::default(), items: vec![RunItem::Text(text)], link: None, src: here, kind: RunKind::Math, item_src: vec![0] });
                     }
                 }
                 _ => {}
@@ -501,10 +604,23 @@ impl<'a, 'b> PartReader<'a, 'b> {
         self.fields.iter().any(|f| f.phase == Phase::Instr || f.dynamic.is_some())
     }
 
-    fn run(&mut self, el: &Element, link: Option<&str>) -> Option<Run> {
+    fn run(&mut self, el: &Element, link: Option<&str>, path: &[usize]) -> Option<Run> {
         let rpr = el.child("rPr").map(|r| RunProps::parse(r, self.ctx)).unwrap_or_default();
         let mut items: Vec<RunItem> = Vec::new();
-        for c in el.elements() {
+        let mut item_src: Vec<usize> = Vec::new();
+        for (ei, c) in el.elements().enumerate() {
+            self.run_child(c, &mut items);
+            item_src.resize(items.len(), ei);
+        }
+        if items.is_empty() {
+            return None;
+        }
+        Some(Run { rpr, items, link: link.map(str::to_string), src: path.to_vec(), kind: RunKind::R, item_src })
+    }
+
+    /// One child element of a `w:r`, read into items.
+    fn run_child(&mut self, c: &Element, items: &mut Vec<RunItem>) {
+        {
             match c.local() {
                 "fldChar" => match attr(c, "fldCharType").map(str::trim) {
                     Some("begin") => self.fields.push(FieldState { instr: String::new(), phase: Phase::Instr, dynamic: None, emitted: false }),
@@ -555,10 +671,7 @@ impl<'a, 'b> PartReader<'a, 'b> {
                 "t" => {
                     let t = c.text();
                     if !t.is_empty() {
-                        match items.last_mut() {
-                            Some(RunItem::Text(s)) => s.push_str(&t),
-                            _ => items.push(RunItem::Text(t)),
-                        }
+                        items.push(RunItem::Text(t));
                     }
                 }
                 "tab" | "ptab" => items.push(RunItem::Tab),
@@ -575,12 +688,12 @@ impl<'a, 'b> PartReader<'a, 'b> {
                         items.push(RunItem::Sym(ch, attr(c, "font").map(str::to_string)));
                     }
                 }
-                "drawing" => self.drawing(c, &mut items),
+                "drawing" => self.drawing(c, items),
                 "AlternateContent" => {
                     // Prefer a choice that holds a DrawingML picture; VML fallbacks are not drawn yet.
                     for alt in c.elements() {
                         if let Some(d) = alt.elements().find(|e| e.local() == "drawing") {
-                            self.drawing(d, &mut items);
+                            self.drawing(d, items);
                             break;
                         }
                     }
@@ -588,10 +701,6 @@ impl<'a, 'b> PartReader<'a, 'b> {
                 _ => {}
             }
         }
-        if items.is_empty() {
-            return None;
-        }
-        Some(Run { rpr, items, link: link.map(str::to_string) })
     }
 
     fn drawing(&mut self, el: &Element, items: &mut Vec<RunItem>) {
@@ -604,6 +713,7 @@ impl<'a, 'b> PartReader<'a, 'b> {
                         .map(|e| (emu_to_pt(num_attr(e, "cx").unwrap_or(0.0)), emu_to_pt(num_attr(e, "cy").unwrap_or(0.0))))
                         .unwrap_or((0.0, 0.0));
                     let image = find_blip(d)
+                        .filter(|_| !self.light)
                         .and_then(|id| self.pkg.rel_by_id(&self.part, id))
                         .filter(|r| !r.target_mode_external)
                         .map(|r| self.pkg.resolve(&self.part, r))

@@ -1,5 +1,8 @@
 //! Scroll, the word processor. Milestone M1, *open and see*: a `.docx` opens and shows faithfully,
-//! and saving changes nothing it did not touch.
+//! and saving changes nothing it did not touch. Milestone M2, *write*: a caret and a selection on
+//! the pages ([`caret`], the layout's position map), and every writing command of the first tier
+//! as an ordinary bus command ([`edit`], [`tables`], [`sections`], [`media`]) that edits the XML
+//! surgically ([`dom`]) and undoes by putting back exactly the XML it replaced.
 //!
 //! - [`ScrollDoc::open`] reads the package ([`crate::ground::opc`]), builds the [`model`] (body,
 //!   styles with `basedOn` chains, numbering, theme, settings, headers and footers, inline pictures)
@@ -14,17 +17,28 @@
 //! Paragraph indexes count every paragraph of the body in reading order, the ones inside table
 //! cells included (headers and footers are not counted).
 
+mod caret;
+pub mod dom;
+pub mod edit;
 pub mod layout;
+mod media;
 pub mod model;
 pub mod numbering;
+pub mod pos;
 pub mod props;
+mod sections;
 pub mod styles;
+mod tables;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_tests;
 
 use crate::ground::bus::json::Json;
 use crate::ground::bus::{BusError, Change, Command, CommandSpec, Document};
 use crate::ground::display::{Color, DisplayList, Item, Paint, PathOp, Resources};
+use crate::ground::edit::{Editing, Selection};
+use crate::ground::pdfw::PageResources;
 use crate::ground::font::FontIndex;
 use crate::ground::opc::{self, CoreProperties, Package};
 use crate::ground::text::FontCache;
@@ -49,6 +63,10 @@ pub struct ScrollDoc {
     laid: Laid,
     pages: Vec<DisplayList>,
     resources: Resources,
+    /// Where the last command's selection landed (by the command's fingerprint).
+    landed: Option<(String, Selection)>,
+    /// Character formatting chosen at a caret, for the text typed there next.
+    pending: Option<(pos::SPos, Vec<(String, Json)>)>,
 }
 
 impl std::fmt::Debug for ScrollDoc {
@@ -77,7 +95,18 @@ impl ScrollDoc {
         }
         let mut images = ImageStore::default();
         let model = Model::load(&pkg, &main, &mut images)?;
-        let mut doc = ScrollDoc { pkg, main, model, images, fonts, laid: Laid::default(), pages: Vec::new(), resources: Resources::new() };
+        let mut doc = ScrollDoc {
+            pkg,
+            main,
+            model,
+            images,
+            fonts,
+            laid: Laid::default(),
+            pages: Vec::new(),
+            resources: Resources::new(),
+            landed: None,
+            pending: None,
+        };
         doc.relayout();
         Ok(doc)
     }
@@ -486,10 +515,58 @@ impl Document for ScrollDoc {
     }
 
     fn apply(&mut self, cmd: &Command) -> Result<Change, BusError> {
+        self.landed = None;
+        let keeps_pending = matches!(cmd.name.as_str(), "scroll.toggle" | "scroll.format" | "scroll.font_size_step" | "scroll.insert_text" | "scroll.find" | "scroll.select");
+        if !keeps_pending {
+            self.pending = None;
+        }
         match cmd.name.as_str() {
             "scroll.set_title" => self.set_title(cmd),
             "scroll.set_paragraph_text" => self.set_paragraph_text(cmd),
             "scroll.restore_paragraph" => self.restore_paragraph(cmd),
+            "scroll.restore" => self.restore(cmd),
+            "scroll.insert_text" => self.cmd_insert_text(cmd),
+            "scroll.delete" => self.cmd_delete(cmd),
+            "scroll.enter" => self.cmd_enter(cmd),
+            "scroll.tab" => self.cmd_tab(cmd),
+            "scroll.paste" => self.cmd_paste(cmd),
+            "scroll.format" => self.cmd_format(cmd),
+            "scroll.toggle" => self.cmd_toggle(cmd),
+            "scroll.font_size_step" => self.cmd_font_step(cmd),
+            "scroll.clear_format" => self.cmd_clear_format(cmd),
+            "scroll.paragraph" => self.cmd_paragraph(cmd),
+            "scroll.align" => self.cmd_align(cmd),
+            "scroll.indent" => self.cmd_indent(cmd),
+            "scroll.style" => self.cmd_style(cmd),
+            "scroll.list" => self.cmd_list(cmd),
+            "scroll.list_level" => self.cmd_list_level(cmd),
+            "scroll.list_restart" => self.cmd_list_restart(cmd),
+            "scroll.find" => self.cmd_find(cmd),
+            "scroll.replace" => self.cmd_replace(cmd),
+            "scroll.select" => self.cmd_select(cmd),
+            "scroll.insert_table" => self.cmd_insert_table(cmd),
+            "scroll.table_insert" => self.cmd_table_insert(cmd),
+            "scroll.table_delete" => self.cmd_table_delete(cmd),
+            "scroll.merge_cells" => self.cmd_merge_cells(cmd),
+            "scroll.table_widths" => self.cmd_table_widths(cmd),
+            "scroll.row_height" => self.cmd_row_height(cmd),
+            "scroll.row_break" => self.cmd_row_break(cmd),
+            "scroll.header_rows" => self.cmd_header_rows(cmd),
+            "scroll.cell_align" => self.cmd_cell_align(cmd),
+            "scroll.shading" => self.cmd_shading(cmd),
+            "scroll.borders" => self.cmd_borders(cmd),
+            "scroll.table_align" => self.cmd_table_align(cmd),
+            "scroll.page_break" => self.cmd_page_break(cmd),
+            "scroll.section_break" => self.cmd_section_break(cmd),
+            "scroll.page_setup" => self.cmd_page_setup(cmd),
+            "scroll.header_footer" => self.cmd_header_footer(cmd),
+            "scroll.page_number" => self.cmd_page_number(cmd),
+            "scroll.page_numbering" => self.cmd_page_numbering(cmd),
+            "scroll.first_page" => self.cmd_first_page(cmd),
+            "scroll.insert_picture" => self.cmd_insert_picture(cmd),
+            "scroll.picture_size" => self.cmd_picture_size(cmd),
+            "scroll.link" => self.cmd_link(cmd),
+            "scroll.unlink" => self.cmd_unlink(cmd),
             other => Err(BusError::unknown(other)),
         }
     }
@@ -521,6 +598,28 @@ impl Document for ScrollDoc {
             .with("modified", opt(&core.modified));
         let sections = 1 + self.model.body.iter().filter(|b| matches!(b, model::Block::Para(p) if p.sect.is_some())).count();
         let (w, h) = self.pages.first().map(|d| (d.width, d.height)).unwrap_or((612.0, 792.0));
+        let mut styles: Vec<(&str, &str, &str)> = self
+            .model
+            .styles
+            .map
+            .values()
+            .filter_map(|s| {
+                let kind = match s.kind {
+                    styles::StyleKind::Paragraph => "paragraph",
+                    styles::StyleKind::Character => "character",
+                    styles::StyleKind::Table => "table",
+                    styles::StyleKind::Numbering => return None,
+                };
+                Some((s.id.as_str(), s.name.as_str(), kind))
+            })
+            .collect();
+        styles.sort();
+        let styles: Vec<Json> = styles.into_iter().map(|(id, name, kind)| Json::obj().with("id", id).with("name", name).with("type", kind)).collect();
+        let parts: Vec<Json> = {
+            let mut v: Vec<&String> = self.model.headers.keys().collect();
+            v.sort();
+            v.into_iter().map(|k| Json::Str(k.clone())).collect()
+        };
         Json::obj()
             .with("pages", self.pages.len())
             .with("paragraphs", self.model.flat.len())
@@ -531,6 +630,9 @@ impl Document for ScrollDoc {
             .with("page_size", Json::obj().with("width", w).with("height", h))
             .with("headings", headings)
             .with("properties", props)
+            .with("styles", Json::Arr(styles))
+            .with("header_footer_parts", Json::Arr(parts))
+            .with("positions", "a place is { \"p\": paragraph (flat, table cells included), \"o\": character offset }, or in a header or footer { \"h\": part, \"p\", \"o\" }; \"sel\" is { \"anchor\": place, \"focus\": place }")
     }
 
     fn read(&self, what: &Json) -> Result<Json, BusError> {
@@ -581,19 +683,85 @@ impl Document for ScrollDoc {
     }
 
     fn commands(&self) -> Vec<CommandSpec> {
-        vec![
+        let mut v = vec![
             CommandSpec::new("scroll.set_title", "Set the document's title (a core property; null removes it).", "{ \"title\": string | null }"),
             CommandSpec::new(
                 "scroll.set_paragraph_text",
                 "Replace one paragraph's text, keeping its paragraph formatting and its first run's character formatting. \\t is a tab, \\n a line break.",
                 "{ \"index\": number, \"text\": string }",
             ),
-        ]
+        ];
+        v.extend(write_specs());
+        v
     }
 
     fn resources(&self) -> Option<&Resources> {
         Some(&self.resources)
     }
+
+    fn editing(&self) -> Option<&dyn Editing> {
+        Some(self)
+    }
+
+    fn pdf_resources(&self) -> Option<PageResources> {
+        let mut r = PageResources::new();
+        for id in 1..=self.fonts.font_count() as u32 {
+            if let Some(f) = self.fonts.font(id) {
+                r.add_font(id, f.clone());
+            }
+        }
+        Some(r)
+    }
+}
+
+/// The writing commands, as the AI and the palette see them.
+fn write_specs() -> Vec<CommandSpec> {
+    const SEL: &str = "\"sel\": { \"anchor\": place, \"focus\": place }";
+    let c = |name: &str, summary: &str, args: &str| CommandSpec::new(name, summary, args.replace("SEL", SEL));
+    vec![
+        c("scroll.insert_text", "Type text at the selection (replacing it). \\n starts a new paragraph, \\u000b is a line break, \\t a tab.", "{ SEL, \"text\": string }"),
+        c("scroll.delete", "Delete the selection, or one character (a word with word:true) before (back:true) or after the caret; joins paragraphs at their edges.", "{ SEL, \"back\"?: bool, \"word\"?: bool }"),
+        c("scroll.enter", "Enter: a new paragraph (shift: a line break, ctrl: a page break).", "{ SEL, \"shift\"?: bool, \"ctrl\"?: bool }"),
+        c("scroll.tab", "Tab: a tab character, the next table cell (a new row after the last), or a list level down (back: up).", "{ SEL, \"back\"?: bool }"),
+        c("scroll.paste", "Paste text (or our own rich copy, or HTML as text) at the selection.", "{ SEL, \"text\": string, \"html\"?: string, \"rich\"?: object }"),
+        c("scroll.format", "Character formatting for the selection: bold, italic, underline (true/false or single, double, thick, dotted, dash, wave, words...), underline_color, strike, double_strike, caps, small_caps, hidden, color (hex or auto), highlight (yellow, green... or null), size (pt), font (family, +Body or +Headings), font_east_asian, vert (superscript, subscript, baseline), char_style (id), spacing (pt), clear (true removes all).", "{ SEL, ...properties }"),
+        c("scroll.toggle", "Turn a character property on or off for the selection (bold, italic, underline, strike, caps, small_caps, superscript, subscript).", "{ SEL, \"prop\": string }"),
+        c("scroll.font_size_step", "Grow (delta 1) or shrink (delta -1) the font size one step.", "{ SEL, \"delta\": 1 | -1 }"),
+        c("scroll.clear_format", "Clear direct character and paragraph formatting (lists and section breaks stay).", "{ SEL }"),
+        c("scroll.paragraph", "Paragraph formatting for the selected paragraphs: align (left, center, right, justify), line (multiple, or points with line_rule exact/atLeast), before, after, ind_left, ind_right, first_line, hanging (pt), keep_next, keep_lines, widow, page_break_before, contextual, bidi (bool), tabs [{pos, kind, leader}], add_tab, clear_tab (pt), clear_tabs, style (id), outline, shading (hex).", "{ SEL, ...properties }"),
+        c("scroll.align", "Align the selected paragraphs.", "{ SEL, \"value\": \"left\" | \"center\" | \"right\" | \"justify\" }"),
+        c("scroll.indent", "Increase (delta 1) or decrease (-1) the indent; in a list, the level.", "{ SEL, \"delta\": 1 | -1 }"),
+        c("scroll.style", "Apply a paragraph or character style by id or name (Heading 1, Title, Quote, Strong... are added when missing).", "{ SEL, \"style\": string }"),
+        c("scroll.list", "Make the selected paragraphs a list (again: back to plain), with an optional first-level number format (decimal, lowerLetter, upperRoman...) and level text (\"%1)\").", "{ SEL, \"kind\": \"bullet\" | \"number\" | \"multilevel\" | \"none\", \"format\"?: string, \"text\"?: string }"),
+        c("scroll.list_level", "Demote (delta 1) or promote (-1) list items one level.", "{ SEL, \"delta\": 1 | -1 }"),
+        c("scroll.list_restart", "Restart numbering at this list item (at start, default 1).", "{ SEL, \"start\"?: number }"),
+        c("scroll.find", "Find text from the selection (forward, or back with next:false); the match comes back as the selection.", "{ SEL, \"query\": string, \"next\": bool, \"case\"?: bool, \"whole\"?: bool }"),
+        c("scroll.replace", "Replace the selected match and go to the next, or every match with all:true (each keeps its first character's formatting).", "{ SEL, \"query\": string, \"with\": string, \"all\": bool, \"case\"?: bool, \"whole\"?: bool }"),
+        c("scroll.select", "Select the word, paragraph, cell, row, column, table or everything at the selection (changes nothing).", "{ SEL, \"what\": string }"),
+        c("scroll.insert_table", "Insert a table of rows x cols at the caret.", "{ SEL, \"rows\": number, \"cols\": number }"),
+        c("scroll.table_insert", "Insert rows above or below, or columns left or right of the selection.", "{ SEL, \"what\": \"row_above\" | \"row_below\" | \"col_left\" | \"col_right\", \"count\"?: number }"),
+        c("scroll.table_delete", "Delete the selected rows, columns or the whole table.", "{ SEL, \"what\": \"row\" | \"col\" | \"table\" }"),
+        c("scroll.merge_cells", "Merge the selected cells (across and down).", "{ SEL }"),
+        c("scroll.table_widths", "Set column widths (points), or AutoFit to the window or the contents, or fix them.", "{ SEL, \"widths\"?: [number], \"autofit\"?: \"window\" | \"contents\" | \"fixed\" }"),
+        c("scroll.row_height", "Row height in points (null: automatic), exact or at least.", "{ SEL, \"height\": number | null, \"exact\"?: bool }"),
+        c("scroll.row_break", "Allow or prevent the selected rows from breaking across pages.", "{ SEL, \"allow\": bool }"),
+        c("scroll.header_rows", "Repeat the rows from the top through the selection at the top of each page (on:false stops).", "{ SEL, \"on\": bool }"),
+        c("scroll.cell_align", "Align text in the selected cells: v (top, center, bottom) and h (left, center, right, justify).", "{ SEL, \"v\"?: string, \"h\"?: string }"),
+        c("scroll.shading", "Fill the selected cells with a colour (null removes it).", "{ SEL, \"color\": string | null }"),
+        c("scroll.borders", "Borders of the table or the selected cells: which (all, outside, inside, none, top, bottom, left, right, inside_h, inside_v), style (single, double, dashed, dotted, thick, none), size (pt), color, scope (table or cells).", "{ SEL, \"which\": string, \"style\"?: string, \"size\"?: number, \"color\"?: string, \"scope\"?: string }"),
+        c("scroll.table_align", "Place the table left, center or right (indent in points).", "{ SEL, \"align\": string, \"indent\"?: number }"),
+        c("scroll.page_break", "Insert a page break at the caret.", "{ SEL }"),
+        c("scroll.section_break", "End the section at the caret; the next one starts on a new page, continuously, or on an even or odd page.", "{ SEL, \"kind\": \"nextPage\" | \"continuous\" | \"evenPage\" | \"oddPage\" }"),
+        c("scroll.page_setup", "Margins (top, bottom, left, right, header, footer, gutter in pt), orientation (portrait, landscape) and size (Letter, A4, Legal... or width and height) of the selection's section, or every section with scope all.", "{ SEL, \"top\"?: number, ..., \"orientation\"?: string, \"size\"?: string, \"scope\"?: \"section\" | \"all\" }"),
+        c("scroll.header_footer", "Open the section's header or footer (default, first or even; created when missing), optionally replacing its text; the caret lands in it.", "{ SEL, \"which\": \"header\" | \"footer\", \"kind\"?: \"default\" | \"first\" | \"even\", \"text\"?: string }"),
+        c("scroll.page_number", "Insert a page number (plain, page_x, page_x_of_y, x_of_y) in the header, the footer (aligned) or here at the caret.", "{ SEL, \"where\": \"header\" | \"footer\" | \"here\", \"align\"?: string, \"format\"?: string }"),
+        c("scroll.page_numbering", "Restart page numbers at start in the section (no start: continue), with a format (decimal, lowerRoman, upperRoman, lowerLetter, upperLetter).", "{ SEL, \"start\"?: number, \"format\"?: string }"),
+        c("scroll.first_page", "A different first page header and footer for the section (on or off).", "{ SEL, \"on\": bool }"),
+        c("scroll.insert_picture", "Insert a picture (PNG, JPEG, GIF, BMP bytes as base64) at the caret; width or height alone keeps its proportions.", "{ SEL, \"data\": base64, \"name\": string, \"width\"?: number, \"height\"?: number }"),
+        c("scroll.picture_size", "Resize the selected picture (points); width or height alone keeps its proportions.", "{ SEL, \"width\"?: number, \"height\"?: number }"),
+        c("scroll.link", "Link the selection to a web address, mailto: or #bookmark (a caret in a link changes it; a caret elsewhere inserts text as a new link).", "{ SEL, \"url\": string, \"text\"?: string }"),
+        c("scroll.unlink", "Remove the links the selection touches (the text stays).", "{ SEL }"),
+    ]
 }
 
 // ---------------------------------------------------------------------------------------------------

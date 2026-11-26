@@ -7,8 +7,13 @@
 //! Inline pictures ride inside the line as one placeholder character that the measurer gives the
 //! picture's width and height, so lines grow around them like Word's do.
 //!
+//! Every laid line also leaves a [`LineBox`]: where it sits on its page and which characters of
+//! which paragraph each of its clusters shows (the editing position map). Pagination keeps a
+//! paragraph with the next (`w:keepNext`), keeps its lines together (`w:keepLines`) and avoids
+//! widows and orphans (`w:widowControl`, on unless a style turns it off).
+//!
 //! Honest limits (later milestones): floating objects and text wrap, footnotes and endnotes,
-//! multiple columns, widow/orphan control and keep-with-next, rows that split across pages,
+//! multiple columns, rows that split across pages,
 //! table-style conditional formatting (first row, banding), paragraph borders, auto-fit column
 //! widths (the grid is used as written), right-to-left text.
 
@@ -20,6 +25,77 @@ use crate::ground::text::{
     layout_paragraph, Align, FontCache, FontMetrics, LineSpacing, Measurer, ParaOptions, ParagraphLayout, ShapedGlyph, ShapedRun,
     StyledRun, TabStop, TextStyle,
 };
+use std::ops::Range;
+use std::sync::Arc;
+
+/// Which paragraph a laid line shows: a body paragraph (its flat index) or a paragraph of a header
+/// or footer part (the part's name and the paragraph's index in it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LineKey {
+    Body(usize),
+    Part(Arc<str>, usize),
+}
+
+/// One grapheme cluster of a laid line: its box on the page and the paragraph characters it shows
+/// (`a..b`, in the editing code's character offsets).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CBox {
+    pub x: f64,
+    pub w: f64,
+    pub a: usize,
+    pub b: usize,
+    /// A line break character.
+    pub brk: bool,
+}
+
+/// One laid line on a page: the editing code's position map.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineBox {
+    pub page: usize,
+    pub key: LineKey,
+    /// The paragraph's column (page points).
+    pub col_x: f64,
+    pub col_w: f64,
+    /// The line box (page points).
+    pub top: f64,
+    pub height: f64,
+    pub baseline: f64,
+    pub ascent: f64,
+    pub descent: f64,
+    /// The slice of the page the line answers clicks for (its share of the paragraph's spacing).
+    pub slot_top: f64,
+    pub slot_h: f64,
+    /// The characters on this line.
+    pub atoms: Range<usize>,
+    pub clusters: Vec<CBox>,
+    /// Where the line's content starts and ends (page points).
+    pub x_start: f64,
+    pub x_end: f64,
+    /// The paragraph's last line.
+    pub para_last: bool,
+    /// A table header row repeated on a later page.
+    pub repeat: bool,
+}
+
+fn shift_lines(lines: &mut [LineBox], dx: f64, dy: f64) {
+    for l in lines {
+        l.col_x += dx;
+        l.x_start += dx;
+        l.x_end += dx;
+        for c in &mut l.clusters {
+            c.x += dx;
+        }
+        l.top += dy;
+        l.baseline += dy;
+        l.slot_top += dy;
+    }
+}
+
+fn set_page(lines: &mut [LineBox], page: usize) {
+    for l in lines {
+        l.page = page;
+    }
+}
 
 /// One laid-out page.
 #[derive(Debug, Clone)]
@@ -36,12 +112,22 @@ pub struct Page {
     pub footer_text: String,
 }
 
+/// The paragraph flags pagination reads.
+#[derive(Debug, Clone, Copy, Default)]
+struct Keep {
+    next: bool,
+    lines: bool,
+    widow: bool,
+}
+
 /// The whole document laid out.
 #[derive(Debug, Clone, Default)]
 pub struct Laid {
     pub pages: Vec<Page>,
     /// The page each body paragraph starts on (by flat index).
     pub para_page: Vec<usize>,
+    /// Every laid line, page by page (headers and footers included).
+    pub lines: Vec<LineBox>,
 }
 
 /// Lay out the model. A document with `NUMPAGES` is laid twice when the first count was wrong.
@@ -179,9 +265,44 @@ struct Segment {
     runs: Vec<StyledRun>,
     meta: Vec<Meta>,
     break_after: bool,
+    /// For every byte offset of the segment's text (and its end), the paragraph character offset.
+    map: Vec<usize>,
+    /// Bytes of the list label at the start (no characters of the paragraph).
+    label_end: usize,
+    atom_start: usize,
+    atom_end: usize,
 }
 
 impl Segment {
+    fn starting_at(atom: usize) -> Segment {
+        Segment { atom_start: atom, ..Segment::default() }
+    }
+
+    /// Text shown for the paragraph characters `atoms`: one character each when `linear`, else as one
+    /// unit (a field's result, caps that changed the length).
+    fn push_mapped(&mut self, text: &str, style: &TextStyle, meta: &Meta, atoms: Range<usize>, linear: bool) {
+        if text.is_empty() {
+            return;
+        }
+        let linear = linear && text.chars().count() == atoms.len();
+        for (k, ch) in text.chars().enumerate() {
+            let a = if linear { atoms.start + k } else { atoms.start };
+            for _ in 0..ch.len_utf8() {
+                self.map.push(a);
+            }
+        }
+        self.push(text, style, meta);
+    }
+
+    fn finish(&mut self, atom_end: usize) {
+        self.atom_end = atom_end;
+        self.map.push(atom_end);
+    }
+
+    fn at(&self, byte: usize) -> usize {
+        self.map.get(byte).or(self.map.last()).copied().unwrap_or(self.atom_start)
+    }
+
     fn push(&mut self, text: &str, style: &TextStyle, meta: &Meta) {
         if text.is_empty() {
             return;
@@ -201,7 +322,7 @@ impl Segment {
 
 /// A piece of the flow the paginator places: a line (or a table row), or a forced page break.
 enum Slice {
-    Content { height: f64, items: Vec<Item>, text: String, flat: Option<usize> },
+    Content { height: f64, items: Vec<Item>, text: String, flat: Option<usize>, lines: Vec<LineBox> },
     PageBreak,
 }
 
@@ -212,6 +333,7 @@ struct RowOut {
     text: String,
     header: bool,
     flats: Vec<usize>,
+    lines: Vec<LineBox>,
 }
 
 /// A block flow laid out without pagination (cells, headers, footers).
@@ -221,6 +343,7 @@ struct FlowOut {
     height: f64,
     text: Vec<String>,
     flats: Vec<usize>,
+    lines: Vec<LineBox>,
 }
 
 struct Engine<'a> {
@@ -228,6 +351,18 @@ struct Engine<'a> {
     fonts: &'a mut FontCache,
     numpages: usize,
     counters: Counters,
+    /// The header or footer part being laid (its paragraphs' line keys).
+    cur_part: Option<Arc<str>>,
+    /// The paragraph styles before and after the paragraph being laid (contextual spacing).
+    around: (Option<String>, Option<String>),
+}
+
+/// A paragraph's effective style id.
+fn para_style(m: &Model, b: Option<&Block>) -> Option<String> {
+    match b {
+        Some(Block::Para(p)) => p.ppr.style.clone().or_else(|| m.styles.default_para.clone()),
+        _ => None,
+    }
 }
 
 fn is_symbol_font(f: &str) -> bool {
@@ -237,7 +372,7 @@ fn is_symbol_font(f: &str) -> bool {
 
 impl<'a> Engine<'a> {
     fn new(m: &'a Model, fonts: &'a mut FontCache, numpages: usize) -> Engine<'a> {
-        Engine { m, fonts, numpages, counters: Counters::default() }
+        Engine { m, fonts, numpages, counters: Counters::default(), cur_part: None, around: (None, None) }
     }
 
     fn text_style(&self, e: &RunProps) -> TextStyle {
@@ -326,11 +461,14 @@ impl<'a> Engine<'a> {
                 Suffix::Space => t.push(' '),
                 Suffix::Nothing => {}
             }
-            segs[0].push(&t, &style, &Meta::default());
+            segs[0].push_mapped(&t, &style, &Meta::default(), 0..0, false);
+            segs[0].label_end = segs[0].map.len();
         }
+        let mut at = 0usize;
         for run in &p.runs {
             let e = self.run_props(base, &run.rpr);
             if e.hidden == Some(true) {
+                at += run.items.iter().map(item_atoms).sum::<usize>();
                 continue;
             }
             let mut style = self.text_style(&e);
@@ -349,21 +487,25 @@ impl<'a> Engine<'a> {
             let caps = e.caps == Some(true);
             let small = e.small_caps == Some(true) && !caps;
             for item in &run.items {
+                let n_at = item_atoms(item);
+                let span = at..at + n_at;
                 let seg = segs.last_mut().expect("one segment");
                 match item {
                     RunItem::Text(t) => {
                         if caps {
-                            seg.push(&t.to_uppercase(), &style, &meta);
+                            seg.push_mapped(&t.to_uppercase(), &style, &meta, span.clone(), true);
                         } else if small {
                             let mut small_style = style.clone();
                             small_style.size_pt *= 0.8;
                             let mut buf = String::new();
                             let mut buf_lower = false;
-                            for ch in t.chars() {
+                            let mut buf_from = at;
+                            for (k, ch) in t.chars().enumerate() {
                                 let lower = ch.is_lowercase();
                                 if lower != buf_lower && !buf.is_empty() {
-                                    seg.push(&buf, if buf_lower { &small_style } else { &style }, &meta);
+                                    seg.push_mapped(&buf, if buf_lower { &small_style } else { &style }, &meta, buf_from..at + k, true);
                                     buf.clear();
+                                    buf_from = at + k;
                                 }
                                 buf_lower = lower;
                                 if lower {
@@ -372,39 +514,44 @@ impl<'a> Engine<'a> {
                                     buf.push(ch);
                                 }
                             }
-                            seg.push(&buf, if buf_lower { &small_style } else { &style }, &meta);
+                            seg.push_mapped(&buf, if buf_lower { &small_style } else { &style }, &meta, buf_from..span.end, true);
                         } else {
-                            seg.push(t, &style, &meta);
+                            seg.push_mapped(t, &style, &meta, span.clone(), true);
                         }
                     }
-                    RunItem::Tab => seg.push("\t", &style, &meta),
-                    RunItem::Break => seg.push("\n", &style, &meta),
+                    RunItem::Tab => seg.push_mapped("\t", &style, &meta, span.clone(), true),
+                    RunItem::Break => seg.push_mapped("\n", &style, &meta, span.clone(), true),
                     RunItem::Sym(c, font) => {
                         let mut s2 = style.clone();
                         if let Some(f) = font {
                             s2.family = f.clone();
                         }
-                        seg.push(&c.to_string(), &s2, &meta);
+                        seg.push_mapped(&c.to_string(), &s2, &meta, span.clone(), true);
                     }
                     RunItem::Pic(pic) => {
                         let mut s2 = style.clone();
                         s2.family = format!("{PIC_PREFIX}{}:{}", pic.w, pic.h);
                         let m2 = Meta { pic: Some(pic.clone()), highlight: None, ..meta.clone() };
-                        seg.push(&PIC_CHAR.to_string(), &s2, &m2);
+                        seg.push_mapped(&PIC_CHAR.to_string(), &s2, &m2, span.clone(), true);
                     }
                     RunItem::Field(FieldKind::Page) => {
                         // Each page break inside the paragraph moves its later text one page on.
                         let n = page.n + segs.len() as i64 - 1;
                         let seg = segs.last_mut().expect("one segment");
-                        seg.push(&Self::page_number_text(n, page.fmt), &style, &meta)
+                        seg.push_mapped(&Self::page_number_text(n, page.fmt), &style, &meta, span.clone(), false)
                     }
-                    RunItem::Field(FieldKind::NumPages) => seg.push(&self.numpages.to_string(), &style, &meta),
+                    RunItem::Field(FieldKind::NumPages) => seg.push_mapped(&self.numpages.to_string(), &style, &meta, span.clone(), false),
                     RunItem::PageBreak => {
                         seg.break_after = true;
-                        segs.push(Segment::default());
+                        seg.finish(at);
+                        segs.push(Segment::starting_at(at + 1));
                     }
                 }
+                at += n_at;
             }
+        }
+        if let Some(last) = segs.last_mut() {
+            last.finish(at);
         }
         // A trailing empty segment after a page break at the paragraph's end holds only the mark:
         // Word puts the rest of that paragraph (nothing) on the next page as an empty line.
@@ -420,7 +567,7 @@ impl<'a> Engine<'a> {
     }
 
     /// Lay out a paragraph into line slices at column `x` of width `width`.
-    fn para_slices(&mut self, p: &Para, x: f64, width: f64, tstyle: Option<&str>, page: Pg, body: bool) -> (Vec<Slice>, bool) {
+    fn para_slices(&mut self, p: &Para, x: f64, width: f64, tstyle: Option<&str>, page: Pg, body: bool) -> (Vec<Slice>, bool, Keep) {
         let mut local = Counters::default();
         let mut counters = std::mem::take(&mut self.counters);
         let (pp, base, label) = self.resolve(p, tstyle, Some(if body { &mut counters } else { &mut local }));
@@ -434,8 +581,24 @@ impl<'a> Engine<'a> {
         opts.line_spacing = pp.line.unwrap_or(LineSpacing::Single);
         opts.tab_stops = pp.tabs.iter().filter(|t| !t.clear).map(|t| TabStop { pos: t.pos, kind: t.kind, leader: t.leader }).collect();
         opts.default_tab_width = self.m.settings.default_tab;
-        let before = pp.before.unwrap_or(0.0).max(0.0);
-        let after = pp.after.unwrap_or(0.0).max(0.0);
+        let mut before = pp.before.unwrap_or(0.0).max(0.0);
+        let mut after = pp.after.unwrap_or(0.0).max(0.0);
+        if pp.contextual == Some(true) {
+            let mine = p.ppr.style.clone().or_else(|| self.m.styles.default_para.clone());
+            if mine.is_some() && self.around.0 == mine {
+                before = 0.0;
+            }
+            if mine.is_some() && self.around.1 == mine {
+                after = 0.0;
+            }
+        }
+        let key = if p.flat != usize::MAX {
+            Some(LineKey::Body(p.flat))
+        } else if p.hidx != usize::MAX {
+            self.cur_part.clone().map(|part| LineKey::Part(part, p.hidx))
+        } else {
+            None
+        };
         let shade = pp.shade.flatten();
         let mut slices = Vec::new();
         let n_segs = segs.len();
@@ -458,26 +621,62 @@ impl<'a> Engine<'a> {
                 items.extend(line_items(&lay, li, &seg.meta, x, -top_rel));
                 let line = &lay.lines[li];
                 let text: String = lay.text[line.range.clone()].chars().filter(|c| *c != PIC_CHAR && *c != '\n').collect();
-                slices.push(Slice::Content { height: (bot_rel - top_rel).max(0.0), items, text, flat: first_flat.take() });
+                let mut lines = Vec::new();
+                if let Some(k) = &key {
+                    let clusters: Vec<CBox> = line
+                        .clusters
+                        .iter()
+                        .filter(|c| c.range.start >= seg.label_end)
+                        .map(|c| CBox { x: x + c.x, w: c.width, a: seg.at(c.range.start), b: seg.at(c.range.end), brk: c.is_break })
+                        .collect();
+                    let a0 = seg.at(line.range.start.max(seg.label_end));
+                    let b0 = if li + 1 == n { seg.atom_end } else { seg.at(line.range.end) };
+                    let x_start = clusters.first().map(|c| c.x).unwrap_or(x + line.x);
+                    let x_end = clusters.iter().filter(|c| !c.brk).map(|c| c.x + c.w).fold(x_start, f64::max);
+                    lines.push(LineBox {
+                        page: 0,
+                        key: k.clone(),
+                        col_x: x,
+                        col_w: width,
+                        top: line.top - top_rel,
+                        height: line.height,
+                        baseline: line.y_baseline - top_rel,
+                        ascent: line.ascent,
+                        descent: line.descent,
+                        slot_top: 0.0,
+                        slot_h: (bot_rel - top_rel).max(0.0),
+                        atoms: a0.min(b0)..b0,
+                        clusters,
+                        x_start,
+                        x_end,
+                        para_last: li + 1 == n && si + 1 == n_segs,
+                        repeat: false,
+                    });
+                }
+                slices.push(Slice::Content { height: (bot_rel - top_rel).max(0.0), items, text, flat: first_flat.take(), lines });
             }
             if seg.break_after {
                 slices.push(Slice::PageBreak);
             }
         }
-        (slices, pp.page_break_before == Some(true))
+        let keep = Keep { next: pp.keep_next == Some(true), lines: pp.keep_lines == Some(true), widow: pp.widow != Some(false) };
+        (slices, pp.page_break_before == Some(true), keep)
     }
 
     /// Lay out blocks without pagination (a cell, a header, a footer) at column `x`.
     fn flow(&mut self, blocks: &[Block], x: f64, width: f64, tstyle: Option<&str>, page: Pg, body: bool) -> FlowOut {
         let mut out = FlowOut::default();
-        for b in blocks {
+        for (bi, b) in blocks.iter().enumerate() {
             match b {
                 Block::Para(p) => {
-                    let (slices, _) = self.para_slices(p, x, width, tstyle, page, body);
+                    self.around = (if bi > 0 { para_style(self.m, blocks.get(bi - 1)) } else { None }, para_style(self.m, blocks.get(bi + 1)));
+                    let (slices, _, _) = self.para_slices(p, x, width, tstyle, page, body);
                     for s in slices {
-                        if let Slice::Content { height, mut items, text, flat } = s {
+                        if let Slice::Content { height, mut items, text, flat, mut lines } = s {
                             shift_items(&mut items, 0.0, out.height);
+                            shift_lines(&mut lines, 0.0, out.height);
                             out.items.extend(items);
+                            out.lines.extend(lines);
                             out.height += height;
                             out.text.push(text);
                             if let Some(f) = flat {
@@ -489,8 +688,11 @@ impl<'a> Engine<'a> {
                 Block::Table(t) => {
                     for row in self.table_rows(t, x, width, page, body) {
                         let mut items = row.items;
+                        let mut lines = row.lines;
                         shift_items(&mut items, 0.0, out.height);
+                        shift_lines(&mut lines, 0.0, out.height);
                         out.items.extend(items);
+                        out.lines.extend(lines);
                         out.height += row.height;
                         out.text.push(row.text);
                         out.flats.extend(row.flats);
@@ -616,6 +818,7 @@ impl<'a> Engine<'a> {
             let mut lines = Vec::new();
             let mut texts = Vec::new();
             let mut flats = Vec::new();
+            let mut row_lines = Vec::new();
             for (ci, c) in cells.into_iter().enumerate() {
                 let extent = merge_extent[ri][ci];
                 let span_h: f64 = heights[ri..=(ri + extent).min(heights.len() - 1)].iter().sum();
@@ -634,6 +837,9 @@ impl<'a> Engine<'a> {
                     let mut items = c.flow.items;
                     shift_items(&mut items, 0.0, c.mt + off);
                     content.extend(items);
+                    let mut lines = c.flow.lines;
+                    shift_lines(&mut lines, 0.0, c.mt + off);
+                    row_lines.extend(lines);
                     texts.push(c.flow.text.join("\n"));
                     flats.extend(c.flow.flats);
                 }
@@ -667,7 +873,7 @@ impl<'a> Engine<'a> {
             let mut items = fills;
             items.extend(content);
             items.extend(lines);
-            out.push(RowOut { height: rh, items, text: texts.join("\t"), header: t.rows[ri].header, flats });
+            out.push(RowOut { height: rh, items, text: texts.join("\t"), header: t.rows[ri].header, flats, lines: row_lines });
         }
         out
     }
@@ -745,14 +951,20 @@ struct Pager {
     pages: Vec<Page>,
     body_text: Vec<Vec<String>>,
     y: f64,
+    /// The body's top on the current page.
+    top: f64,
     bottom: f64,
     has_content: bool,
     para_page: Vec<usize>,
+    lines: Vec<LineBox>,
 }
 
 impl Pager {
-    fn place(&mut self, height: f64, mut items: Vec<Item>, text: String) {
+    fn place(&mut self, height: f64, mut items: Vec<Item>, text: String, mut lines: Vec<LineBox>) {
         shift_items(&mut items, 0.0, self.y);
+        shift_lines(&mut lines, 0.0, self.y);
+        set_page(&mut lines, self.pages.len().saturating_sub(1));
+        self.lines.extend(lines);
         if let Some(p) = self.pages.last_mut() {
             p.body_items.extend(items);
         }
@@ -765,6 +977,11 @@ impl Pager {
 
     fn fits(&self, height: f64) -> bool {
         self.y + height <= self.bottom + 0.01 || !self.has_content
+    }
+
+    /// How tall the body of a fresh page is.
+    fn page_room(&self) -> f64 {
+        self.bottom - self.top
     }
 
     fn mark(&mut self, flat: usize) {
@@ -790,7 +1007,8 @@ impl<'a> Engine<'a> {
         }
         sections.push((cur, &m.final_sect));
 
-        let mut pager = Pager { pages: Vec::new(), body_text: Vec::new(), y: 0.0, bottom: 0.0, has_content: false, para_page: vec![0; m.flat.len()] };
+        let mut pager =
+            Pager { pages: Vec::new(), body_text: Vec::new(), y: 0.0, top: 0.0, bottom: 0.0, has_content: false, para_page: vec![0; m.flat.len()], lines: Vec::new() };
         let mut refs_h: [Option<String>; 3] = [None, None, None];
         let mut refs_f: [Option<String>; 3] = [None, None, None];
         let mut next_number: i64 = 1;
@@ -829,44 +1047,75 @@ impl<'a> Engine<'a> {
             }
             let x = sect.left;
             let width = (sect.page_w - sect.left - sect.right).max(10.0);
-            for b in blocks {
-                match b {
-                    Block::Para(p) => {
-                        let pg = Pg { n: pager.pages.last().map(|p| p.number).unwrap_or(1), fmt: sect.pg_fmt.as_deref() };
-                        let saved = self.counters.clone();
-                        let (mut slices, break_before) = self.para_slices(p, x, width, None, pg, true);
-                        if break_before && pager.has_content {
+            // Blocks are laid one ahead of where they are placed when a paragraph keeps with the next.
+            let mut ready: std::collections::VecDeque<Prep> = std::collections::VecDeque::new();
+            let mut bi = 0usize;
+            loop {
+                let mut prep = match ready.pop_front() {
+                    Some(p) => p,
+                    None => {
+                        if bi >= blocks.len() {
+                            break;
+                        }
+                        let p = self.prepare(blocks, bi, x, width, &pager, sect);
+                        bi += 1;
+                        p
+                    }
+                };
+                // A chain of keep-with-next paragraphs and the first line of what follows stay together.
+                if let Prep::Para { keep, slices, .. } = &prep {
+                    if keep.next && pager.has_content {
+                        let mut need = content_height(slices);
+                        let mut breaks = has_break(slices);
+                        let mut k = 0usize;
+                        loop {
+                            if k >= ready.len() {
+                                if bi >= blocks.len() {
+                                    break;
+                                }
+                                let p = self.prepare(blocks, bi, x, width, &pager, sect);
+                                bi += 1;
+                                ready.push_back(p);
+                            }
+                            match &ready[k] {
+                                Prep::Para { keep: kk, slices: ss, .. } => {
+                                    breaks |= has_break(ss);
+                                    if kk.next {
+                                        need += content_height(ss);
+                                        k += 1;
+                                        continue;
+                                    }
+                                    need += first_height(ss);
+                                }
+                                Prep::Table { rows } => need += rows.first().map(|r| r.height).unwrap_or(0.0),
+                            }
+                            break;
+                        }
+                        if !breaks && !pager.fits(need) && need <= pager.page_room() {
+                            self.new_page(&mut pager, &geom, next_number, false);
+                            next_number += 1;
+                        }
+                    }
+                }
+                match &mut prep {
+                    Prep::Para { p, slices, break_before, keep, saved } => {
+                        let p: &Para = p;
+                        let mut slices = std::mem::take(slices);
+                        if *break_before && pager.has_content {
                             self.new_page(&mut pager, &geom, next_number, false);
                             next_number += 1;
                             if has_page_field(p) {
                                 // Lay it again with the page it now starts on (the list counters too).
-                                self.counters = saved;
+                                let now = std::mem::replace(&mut self.counters, saved.clone());
                                 let pg = Pg { n: next_number - 1, fmt: sect.pg_fmt.as_deref() };
                                 slices = self.para_slices(p, x, width, None, pg, true).0;
+                                self.counters = now;
                             }
                         }
-                        for s in slices {
-                            match s {
-                                Slice::PageBreak => {
-                                    self.new_page(&mut pager, &geom, next_number, false);
-                                    next_number += 1;
-                                }
-                                Slice::Content { height, items, text, flat } => {
-                                    if !pager.fits(height) {
-                                        self.new_page(&mut pager, &geom, next_number, false);
-                                        next_number += 1;
-                                    }
-                                    if let Some(f) = flat {
-                                        pager.mark(f);
-                                    }
-                                    pager.place(height, items, text);
-                                }
-                            }
-                        }
+                        self.place_para(&mut pager, &geom, &mut next_number, slices, *keep);
                     }
-                    Block::Table(t) => {
-                        let pg = Pg { n: pager.pages.last().map(|p| p.number).unwrap_or(1), fmt: sect.pg_fmt.as_deref() };
-                        let rows = self.table_rows(t, x, width, pg, true);
+                    Prep::Table { rows } => {
+                        let rows = std::mem::take(rows);
                         let n_header = rows.iter().take_while(|r| r.header).count();
                         for i in 0..rows.len() {
                             if !pager.fits(rows[i].height) {
@@ -874,14 +1123,18 @@ impl<'a> Engine<'a> {
                                 next_number += 1;
                                 if i >= n_header && n_header > 0 {
                                     for h in &rows[..n_header] {
-                                        pager.place(h.height, h.items.clone(), h.text.clone());
+                                        let mut lines = h.lines.clone();
+                                        for l in &mut lines {
+                                            l.repeat = true;
+                                        }
+                                        pager.place(h.height, h.items.clone(), h.text.clone(), lines);
                                     }
                                 }
                             }
                             for f in &rows[i].flats {
                                 pager.mark(*f);
                             }
-                            pager.place(rows[i].height, rows[i].items.clone(), rows[i].text.clone());
+                            pager.place(rows[i].height, rows[i].items.clone(), rows[i].text.clone(), rows[i].lines.clone());
                         }
                     }
                 }
@@ -895,7 +1148,68 @@ impl<'a> Engine<'a> {
         for (p, t) in pages.iter_mut().zip(pager.body_text) {
             p.body_text = t.join("\n");
         }
-        Laid { pages, para_page: pager.para_page }
+        Laid { pages, para_page: pager.para_page, lines: pager.lines }
+    }
+
+    /// Lay block `bi` of a section (not placed yet).
+    fn prepare(&mut self, blocks: &[&'a Block], bi: usize, x: f64, width: f64, pager: &Pager, sect: &SectPr) -> Prep<'a> {
+        let pg = Pg { n: pager.pages.last().map(|p| p.number).unwrap_or(1), fmt: sect.pg_fmt.as_deref() };
+        let m = self.m;
+        match blocks[bi] {
+            Block::Para(p) => {
+                self.around = (if bi > 0 { para_style(m, blocks.get(bi - 1).copied()) } else { None }, para_style(m, blocks.get(bi + 1).copied()));
+                let saved = self.counters.clone();
+                let (slices, break_before, keep) = self.para_slices(p, x, width, None, pg, true);
+                Prep::Para { p, slices, break_before, keep, saved }
+            }
+            Block::Table(t) => Prep::Table { rows: self.table_rows(t, x, width, pg, true) },
+        }
+    }
+
+    /// Place a paragraph's lines: a page break where the page is full, keeping its lines together
+    /// when asked and never leaving one first or last line alone on a page (widow control).
+    fn place_para(&mut self, pager: &mut Pager, geom: &Geom, next_number: &mut i64, slices: Vec<Slice>, keep: Keep) {
+        let single = !has_break(&slices);
+        let n = slices.len();
+        if single && keep.lines && pager.has_content {
+            let total = content_height(&slices);
+            if !pager.fits(total) && total <= pager.page_room() {
+                self.new_page(pager, geom, *next_number, false);
+                *next_number += 1;
+            }
+        }
+        let heights: Vec<f64> = slices.iter().map(|s| if let Slice::Content { height, .. } = s { *height } else { 0.0 }).collect();
+        // The line before which this page ends (widow and orphan control), planned per page.
+        let mut plan: Option<usize> = None;
+        let mut planned_page = usize::MAX;
+        for (k, s) in slices.into_iter().enumerate() {
+            match s {
+                Slice::PageBreak => {
+                    self.new_page(pager, geom, *next_number, false);
+                    *next_number += 1;
+                }
+                Slice::Content { height, items, text, flat, lines } => {
+                    if single && keep.widow && n >= 2 && planned_page != pager.pages.len() {
+                        planned_page = pager.pages.len();
+                        plan = widow_plan(&heights, k, pager.bottom - pager.y, pager.has_content);
+                    }
+                    if plan == Some(k) || !pager.fits(height) {
+                        self.new_page(pager, geom, *next_number, false);
+                        *next_number += 1;
+                        planned_page = usize::MAX;
+                        plan = None;
+                        if single && keep.widow && n >= 2 {
+                            planned_page = pager.pages.len();
+                            plan = widow_plan(&heights, k, pager.bottom - pager.y, false);
+                        }
+                    }
+                    if let Some(f) = flat {
+                        pager.mark(f);
+                    }
+                    pager.place(height, items, text, lines);
+                }
+            }
+        }
     }
 
     /// Start a page: lay out its header and footer and set the body's top and bottom.
@@ -911,17 +1225,34 @@ impl<'a> Engine<'a> {
         let pg = Pg { n: number, fmt: s.pg_fmt.as_deref() };
         let x = s.left;
         let width = (s.page_w - s.left - s.right).max(10.0);
-        let mut header = match g.refs_h[which].as_ref().and_then(|n| self.m.headers.get(n)) {
-            Some(blocks) => self.flow(blocks, x, width, None, pg, false),
+        let mut header = match g.refs_h[which].as_ref().and_then(|n| self.m.headers.get(n).map(|b| (n, b))) {
+            Some((name, blocks)) => {
+                self.cur_part = Some(Arc::from(name.as_str()));
+                let f = self.flow(blocks, x, width, None, pg, false);
+                self.cur_part = None;
+                f
+            }
             None => FlowOut::default(),
         };
-        let mut footer = match g.refs_f[which].as_ref().and_then(|n| self.m.headers.get(n)) {
-            Some(blocks) => self.flow(blocks, x, width, None, pg, false),
+        let mut footer = match g.refs_f[which].as_ref().and_then(|n| self.m.headers.get(n).map(|b| (n, b))) {
+            Some((name, blocks)) => {
+                self.cur_part = Some(Arc::from(name.as_str()));
+                let f = self.flow(blocks, x, width, None, pg, false);
+                self.cur_part = None;
+                f
+            }
             None => FlowOut::default(),
         };
         shift_items(&mut header.items, 0.0, s.header);
+        shift_lines(&mut header.lines, 0.0, s.header);
         let footer_top = s.page_h - s.footer - footer.height;
         shift_items(&mut footer.items, 0.0, footer_top);
+        shift_lines(&mut footer.lines, 0.0, footer_top);
+        let page_index = pager.pages.len();
+        set_page(&mut header.lines, page_index);
+        set_page(&mut footer.lines, page_index);
+        pager.lines.extend(header.lines.drain(..));
+        pager.lines.extend(footer.lines.drain(..));
         // A negative top or bottom margin is fixed: the header or footer may not push the body.
         let top = if s.top < 0.0 { -s.top } else { s.top.max(if header.height > 0.0 { s.header + header.height } else { 0.0 }) };
         let bottom = if s.bottom < 0.0 {
@@ -942,6 +1273,7 @@ impl<'a> Engine<'a> {
         });
         pager.body_text.push(Vec::new());
         pager.y = top;
+        pager.top = top;
         pager.bottom = bottom.max(top + 10.0);
         pager.has_content = false;
     }
@@ -952,6 +1284,63 @@ impl<'a> Engine<'a> {
 struct Pg<'f> {
     n: i64,
     fmt: Option<&'f str>,
+}
+
+/// A block laid but not placed yet.
+enum Prep<'a> {
+    Para { p: &'a Para, slices: Vec<Slice>, break_before: bool, keep: Keep, saved: Counters },
+    Table { rows: Vec<RowOut> },
+}
+
+fn content_height(slices: &[Slice]) -> f64 {
+    slices.iter().map(|s| if let Slice::Content { height, .. } = s { *height } else { 0.0 }).sum()
+}
+
+fn first_height(slices: &[Slice]) -> f64 {
+    slices.iter().find_map(|s| if let Slice::Content { height, .. } = s { Some(*height) } else { None }).unwrap_or(0.0)
+}
+
+fn has_break(slices: &[Slice]) -> bool {
+    slices.iter().any(|s| matches!(s, Slice::PageBreak))
+}
+
+/// Widow and orphan control for the lines `k..` of a paragraph with `room` left on the page: the
+/// line before which the page should end, or `None` when the rest fits (or nothing can be done).
+pub(crate) fn widow_plan(heights: &[f64], k: usize, room: f64, has_content: bool) -> Option<usize> {
+    let n = heights.len();
+    let mut used = 0.0;
+    let mut m = 0usize;
+    for h in &heights[k..] {
+        if used + h > room + 0.01 {
+            break;
+        }
+        used += h;
+        m += 1;
+    }
+    if k + m >= n {
+        return None;
+    }
+    let mut split = m;
+    // A widow: the paragraph's last line alone on the next page takes one more with it.
+    if n - (k + split) == 1 && split >= 1 {
+        split -= 1;
+    }
+    // An orphan: the paragraph's first line alone at the foot of a page goes on with the rest.
+    if k == 0 && split < 2 {
+        split = 0;
+    }
+    if split == 0 && (k > 0 || !has_content) {
+        return None;
+    }
+    Some(k + split)
+}
+
+/// How many editing characters a run item is.
+pub fn item_atoms(item: &RunItem) -> usize {
+    match item {
+        RunItem::Text(t) => t.chars().count(),
+        _ => 1,
+    }
 }
 
 fn has_page_field(p: &Para) -> bool {

@@ -21,6 +21,10 @@ pub struct Style {
     pub name: String,
     pub kind: StyleKind,
     pub based_on: Option<String>,
+    /// `w:next`: the style a new paragraph after this one takes.
+    pub next: Option<String>,
+    /// `w:link`: the paired character (or paragraph) style.
+    pub link: Option<String>,
     pub ppr: ParaProps,
     pub rpr: RunProps,
     /// Table styles: `w:tblPr/w:tblBorders`.
@@ -161,6 +165,8 @@ impl Styles {
 fn parse_style(el: &Element, id: &str, kind: StyleKind, is_default: bool, ctx: &Ctx) -> Style {
     let name = el.child("name").and_then(val).unwrap_or("").to_string();
     let based_on = el.child("basedOn").and_then(val).map(str::to_string);
+    let next = el.child("next").and_then(val).map(str::to_string);
+    let link = el.child("link").and_then(val).map(str::to_string);
     let ppr = el.child("pPr").map(|p| ParaProps::parse(p, ctx)).unwrap_or_default();
     let rpr = el.child("rPr").map(|r| RunProps::parse(r, ctx)).unwrap_or_default();
     let (borders, cell_mar) = match el.child("tblPr") {
@@ -170,5 +176,5 @@ fn parse_style(el: &Element, id: &str, kind: StyleKind, is_default: bool, ctx: &
         ),
         None => (Borders::default(), Margins::default()),
     };
-    Style { id: id.to_string(), name, kind, based_on, ppr, rpr, borders, cell_mar, is_default }
+    Style { id: id.to_string(), name, kind, based_on, next, link, ppr, rpr, borders, cell_mar, is_default }
 }

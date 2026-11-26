@@ -18,7 +18,7 @@ const NS: &str = concat!(
 const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /// An invented .docx, part by part.
-struct Docx {
+pub(super) struct Docx {
     body: String,
     styles: Option<String>,
     numbering: Option<String>,
@@ -33,21 +33,21 @@ struct Docx {
 }
 
 impl Docx {
-    fn new(body: &str) -> Docx {
+    pub(super) fn new(body: &str) -> Docx {
         Docx { body: body.to_string(), styles: None, numbering: None, settings: None, title: None, hf: Vec::new(), media: Vec::new(), unknown: false }
     }
 
-    fn styles(mut self, inner: &str) -> Docx {
+    pub(super) fn styles(mut self, inner: &str) -> Docx {
         self.styles = Some(inner.to_string());
         self
     }
 
-    fn numbering(mut self, inner: &str) -> Docx {
+    pub(super) fn numbering(mut self, inner: &str) -> Docx {
         self.numbering = Some(inner.to_string());
         self
     }
 
-    fn settings(mut self, inner: &str) -> Docx {
+    pub(super) fn settings(mut self, inner: &str) -> Docx {
         self.settings = Some(inner.to_string());
         self
     }
@@ -57,27 +57,27 @@ impl Docx {
         self
     }
 
-    fn header(mut self, id: &str, file: &str, inner: &str) -> Docx {
+    pub(super) fn header(mut self, id: &str, file: &str, inner: &str) -> Docx {
         self.hf.push((id.into(), file.into(), inner.into(), true));
         self
     }
 
-    fn footer(mut self, id: &str, file: &str, inner: &str) -> Docx {
+    pub(super) fn footer(mut self, id: &str, file: &str, inner: &str) -> Docx {
         self.hf.push((id.into(), file.into(), inner.into(), false));
         self
     }
 
-    fn media(mut self, id: &str, file: &str, bytes: Vec<u8>) -> Docx {
+    pub(super) fn media(mut self, id: &str, file: &str, bytes: Vec<u8>) -> Docx {
         self.media.push((id.into(), file.into(), bytes));
         self
     }
 
-    fn unknown_part(mut self) -> Docx {
+    pub(super) fn unknown_part(mut self) -> Docx {
         self.unknown = true;
         self
     }
 
-    fn bytes(&self) -> Vec<u8> {
+    pub(super) fn bytes(&self) -> Vec<u8> {
         let mut ct = String::from(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
              <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
@@ -170,15 +170,15 @@ impl Docx {
     }
 }
 
-fn p(text: &str) -> String {
+pub(super) fn p(text: &str) -> String {
     format!("<w:p><w:r><w:t xml:space=\"preserve\">{text}</w:t></w:r></w:p>")
 }
 
-fn styled_p(style: &str, text: &str) -> String {
+pub(super) fn styled_p(style: &str, text: &str) -> String {
     format!("<w:p><w:pPr><w:pStyle w:val=\"{style}\"/></w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>")
 }
 
-const SECT: &str = "<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>";
+pub(super) const SECT: &str = "<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>";
 
 fn page_text(doc: &ScrollDoc, page: usize) -> String {
     doc.read(&Json::obj().with("page", page)).unwrap().get("text").and_then(Json::as_str).unwrap().to_string()
@@ -335,7 +335,7 @@ const NUMBERING: &str = concat!(
     "<w:num w:numId=\"4\"><w:abstractNumId w:val=\"2\"/></w:num>",
 );
 
-fn list_p(num: u32, lvl: u32, text: &str) -> String {
+pub(super) fn list_p(num: u32, lvl: u32, text: &str) -> String {
     format!("<w:p><w:pPr><w:numPr><w:ilvl w:val=\"{lvl}\"/><w:numId w:val=\"{num}\"/></w:numPr></w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>")
 }
 
@@ -515,7 +515,7 @@ fn a_long_table_repeats_its_header_row() {
     assert!(page_text(&doc, 0).contains("Row 0"));
 }
 
-fn png_bytes() -> Vec<u8> {
+pub(super) fn png_bytes() -> Vec<u8> {
     png::encode_rgba8(2, 2, &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255])
 }
 

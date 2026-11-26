@@ -173,6 +173,8 @@ pub struct RunProps {
     /// Character spacing in points.
     pub spacing: Option<f64>,
     pub hidden: Option<bool>,
+    /// `w:u w:val` as written (`single`, `double`, `wave`...), for the ribbon.
+    pub underline_style: Option<String>,
 }
 
 fn theme_font(theme: &Theme, name: &str) -> Option<String> {
@@ -218,7 +220,10 @@ impl RunProps {
                 "sz" => p.size = num_attr(c, "val").map(|h| h / 2.0),
                 "b" => p.bold = Some(on_off(c)),
                 "i" => p.italic = Some(on_off(c)),
-                "u" => p.underline = Some(!matches!(val(c).map(str::trim), Some("none") | Some("0") | Some("false"))),
+                "u" => {
+                    p.underline = Some(!matches!(val(c).map(str::trim), Some("none") | Some("0") | Some("false")));
+                    p.underline_style = Some(val(c).unwrap_or("single").trim().to_string());
+                }
                 "strike" | "dstrike" => {
                     let on = on_off(c);
                     if on || p.strike.is_none() {
@@ -250,7 +255,7 @@ impl RunProps {
         macro_rules! take {
             ($($f:ident),*) => { $( if top.$f.is_some() { self.$f = top.$f.clone(); } )* };
         }
-        take!(style, font, font_ea, size, bold, italic, underline, strike, color, highlight, shade, caps, small_caps, vert, spacing, hidden);
+        take!(style, font, font_ea, size, bold, italic, underline, strike, color, highlight, shade, caps, small_caps, vert, spacing, hidden, underline_style);
     }
 
     /// Lay a character style's properties over the paragraph level: the toggle properties (bold,
@@ -312,6 +317,16 @@ pub struct ParaProps {
     pub outline: Option<u8>,
     /// Paragraph shading fill.
     pub shade: Option<Option<Color>>,
+    /// `w:keepNext`: stays on the page of the next paragraph.
+    pub keep_next: Option<bool>,
+    /// `w:keepLines`: never split across pages.
+    pub keep_lines: Option<bool>,
+    /// `w:widowControl`: no single first or last line alone on a page (on when never said).
+    pub widow: Option<bool>,
+    /// `w:contextualSpacing`: no space between paragraphs of the same style.
+    pub contextual: Option<bool>,
+    /// `w:bidi`: a right-to-left paragraph.
+    pub bidi: Option<bool>,
 }
 
 impl ParaProps {
@@ -403,6 +418,11 @@ impl ParaProps {
                     }
                 }
                 "pageBreakBefore" => p.page_break_before = Some(on_off(c)),
+                "keepNext" => p.keep_next = Some(on_off(c)),
+                "keepLines" => p.keep_lines = Some(on_off(c)),
+                "widowControl" => p.widow = Some(on_off(c)),
+                "contextualSpacing" => p.contextual = Some(on_off(c)),
+                "bidi" => p.bidi = Some(on_off(c)),
                 "outlineLvl" => p.outline = num_attr(c, "val").map(|v| v.clamp(0.0, 9.0) as u8),
                 "shd" => p.shade = Some(word_color(c, ctx, "fill", "themeFill", "themeFillTint", "themeFillShade")),
                 _ => {}
@@ -417,7 +437,7 @@ impl ParaProps {
         macro_rules! take {
             ($($f:ident),*) => { $( if top.$f.is_some() { self.$f = top.$f.clone(); } )* };
         }
-        take!(style, align, ind_left, ind_right, ind_first, before, after, line, num_id, ilvl, page_break_before, outline, shade);
+        take!(style, align, ind_left, ind_right, ind_first, before, after, line, num_id, ilvl, page_break_before, outline, shade, keep_next, keep_lines, widow, contextual, bidi);
         for t in &top.tabs {
             self.tabs.retain(|s| (s.pos - t.pos).abs() > 0.05);
             if !t.clear {
