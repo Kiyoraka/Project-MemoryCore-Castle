@@ -11,9 +11,30 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 const body = ref(null)
+const win = ref(null)
+let before = null
 watch(() => props.bodyKey, () => { if (body.value) body.value.scrollTop = 0 }, { flush: 'post' })
 
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+// Tab and Shift+Tab stay inside the window while it is open
+function trap(event) {
+  const items = [...(win.value?.querySelectorAll(FOCUSABLE) ?? [])].filter((el) => el.offsetParent !== null || el === document.activeElement)
+  if (!items.length) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  const inside = win.value.contains(document.activeElement)
+  if (event.shiftKey && (document.activeElement === first || !inside)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 function onKey(event) {
+  if (event.key === 'Tab') return trap(event)
   // a field that records a shortcut ([data-takes-keys]) uses Esc itself, to leave without a change
   if (event.key === 'Escape' && !event.target?.closest?.('[data-takes-keys]')) {
     event.preventDefault()
@@ -22,14 +43,22 @@ function onKey(event) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKey, true))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
+onMounted(() => {
+  before = document.activeElement
+  window.addEventListener('keydown', onKey, true)
+  // the window takes the focus unless its content already put it somewhere inside
+  requestAnimationFrame(() => { if (!win.value?.contains(document.activeElement)) win.value?.querySelector(FOCUSABLE)?.focus() })
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey, true)
+  before?.focus?.({ preventScroll: true })
+})
 </script>
 
 <template>
   <Teleport to="body">
     <div class="sheet-backdrop" role="dialog" aria-modal="true" :aria-label="title || tag" @click.self="emit('close')">
-      <article class="sheet-window">
+      <article ref="win" class="sheet-window">
         <header class="sheet-head">
           <span v-if="tag" class="sheet-tag">{{ tag }}</span>
           <span class="sheet-title">{{ title }}</span>

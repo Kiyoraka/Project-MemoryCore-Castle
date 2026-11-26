@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { chatHistory, chatMediaOpen, chatPlanFile, chatPoll, chatPromptHolds, claudeVoice, getSettings, onPhoneReaction, phoneReactions, queuedMessageAction, queuedMessages, sendMessage } from '../api/castle.js'
 import { clearNotSent, localSend, markNotSent, mergeEntries, resetEntries, stillSending } from './ticks.js'
 import { isMicShortcut, micOffer, voiceMic } from './voicehold.js'
@@ -15,6 +15,7 @@ import ChatComposer from './ChatComposer.vue'
 import ChatEntries from './ChatEntries.vue'
 import ImageViewer from './ImageViewer.vue'
 import PlanViewer from './PlanViewer.vue'
+import TableSheet from './TableSheet.vue'
 import { worldSignals } from '../world3d/signals.js'
 import { readsClaudeScreen, readsCodexAsk } from './providers.js'
 
@@ -536,7 +537,14 @@ onBeforeUnmount(() => {
 
 /** Files dropped on Chat: their paths go into the box. */
 const addPaths = (paths) => composer.value?.addPaths(paths)
-const addText = (text) => composer.value?.addText(text)
+const addText = (text, options) => composer.value?.addText(text, options)
+// a table in the conversation opened to be answered (TableSheet); what it sends lands in the box
+const replyTable = ref(null)
+provide('chatTable', (table) => { replyTable.value = table })
+function tableToBox(text) {
+  replyTable.value = null
+  addText(text, { block: true })
+}
 
 defineExpose({ poll, addPaths, addText })
 </script>
@@ -580,6 +588,7 @@ defineExpose({ poll, addPaths, addText })
     <ImageViewer v-if="viewerStart !== null" :pictures="allPictures" :start="viewerStart" @close="viewerStart = null" />
     <PlanViewer v-if="planOpen !== null" :plan="planOpen" @close="planOpen = null" />
 
+    <TableSheet v-if="replyTable" :table="replyTable" @send="tableToBox" @close="replyTable = null" />
     <ChatComposer ref="composer" :running="running" :placeholder="placeholder" :companion="companion" :media="media" :load-path="loadPath" :send="send" :mic="mic" :visible="visible" />
 
     <div v-if="running && isClaude" class="modes" role="group" aria-label="Claude Code's mode">

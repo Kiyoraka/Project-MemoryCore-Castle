@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { parseBlocks, parseSpans } from './markdown.js'
 import { linkEvents, linkWay } from './links.js'
 
@@ -11,6 +11,8 @@ const props = defineProps({
 })
 
 const blocks = computed(() => parseBlocks(props.text))
+// a chat (ChatView) lets a table open in its own window to be answered; elsewhere no button
+const openTable = inject('chatTable', null)
 </script>
 
 <template>
@@ -19,7 +21,8 @@ const blocks = computed(() => parseBlocks(props.text))
     <template v-for="(block, n) in blocks" :key="n">
       <pre v-if="block.kind === 'code'" class="code">{{ block.text }}</pre>
       <hr v-else-if="block.kind === 'rule'" />
-      <div v-else-if="block.kind === 'table'" class="table-wrap">
+      <div v-else-if="block.kind === 'table'" class="table-wrap" :class="{ answerable: openTable && size === 'chat' }">
+        <button v-if="openTable && size === 'chat'" type="button" class="table-open" title="Open this table to edit, pick or tick rows and reply" aria-label="Open this table to reply" @click="openTable({ head: block.head, rows: block.rows })">⤢ Reply</button>
         <table>
           <thead>
             <tr>
@@ -51,6 +54,31 @@ const blocks = computed(() => parseBlocks(props.text))
 </template>
 
 <style scoped>
+.table-wrap.answerable {
+  position: relative;
+}
+.table-open {
+  position: sticky;
+  left: 0;
+  display: block;
+  width: fit-content;
+  margin: 0 0 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.table-open:hover,
+.table-open:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+
 .md > * + * {
   margin-top: 6px;
 }

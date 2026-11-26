@@ -10,13 +10,14 @@ const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/
 
+// A row's cells; an escaped pipe (\|) stays inside its cell as |.
 function cells(line) {
   return line
     .trim()
     .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim())
+    .replace(/(?<!\\)\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.replace(/\\\|/g, '|').trim())
 }
 
 /**

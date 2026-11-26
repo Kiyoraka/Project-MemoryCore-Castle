@@ -111,13 +111,22 @@ async function addPaths(paths) {
   box.value?.focus()
 }
 
-/** Words into the box at the cursor (a page's address from the BROWSER window's Put in chat). */
-async function addText(text) {
+/** Words into the box at the cursor (a page's address from the BROWSER window's Put in chat).
+ *  `block`: a table from TableSheet, kept on lines of its own with a blank line around it. */
+async function addText(text, { block = false } = {}) {
   const el = box.value
   const start = el?.selectionStart ?? draft.value.length
   const end = el?.selectionEnd ?? draft.value.length
   const before = draft.value.slice(0, start)
-  draft.value = before + (before && !/\s$/.test(before) ? ' ' : '') + text + ' ' + draft.value.slice(end)
+  const after = draft.value.slice(end)
+  if (block) {
+    draft.value = (before.trim() ? `${before.replace(/\s+$/, '')}\n\n` : '') + text + (after.trim() ? `\n\n${after.replace(/^\s+/, '')}` : '\n')
+    await nextTick()
+    grow()
+    box.value?.focus()
+    return
+  }
+  draft.value = before + (before && !/\s$/.test(before) ? ' ' : '') + text + ' ' + after
   await nextTick()
   grow()
   box.value?.focus()
