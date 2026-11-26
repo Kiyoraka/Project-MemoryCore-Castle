@@ -130,6 +130,9 @@ onMounted(async () => {
         <SettingRow id="browser-remember" label="Remember sign-ins" description="Stay signed in to sites (claude.ai for Artifacts, for one) in the browser window only. Applies to pages opened after the change.">
           <SettingSwitch :model-value="valueOf(settings, 'browserRemember')" label="Remember sign-ins" :disabled="locked" @update:model-value="(on) => saveRow('browser-remember', { browserRemember: on })" />
         </SettingRow>
+        <SettingRow id="browser-restore" label="Bring my tabs back when Castle opens" description="Your tabs come back after you close the browser, quit, or update, like Chrome. Private tabs never do, and nothing is kept while Remember sign-ins is off. Pages load when you open them.">
+          <SettingSwitch :model-value="valueOf(settings, 'browserRestore')" label="Bring my tabs back when Castle opens" :disabled="locked" @update:model-value="(on) => saveRow('browser-restore', { browserRestore: on })" />
+        </SettingRow>
         <SettingRow id="browser-profile-read" label="MY PROFILE reads your browsing" :description="`Each month's profile reading also looks at the sites you visited and what you searched for in Castle's browser, from your own memory database on this PC. ${companionLabel} never quotes an address or a search, it shapes only your reading, and nothing leaves your computer.`">
           <SettingSwitch :model-value="valueOf(settings, 'browserProfileRead')" label="MY PROFILE reads your browsing" :disabled="locked" @update:model-value="(on) => saveRow('browser-profile-read', { browserProfileRead: on })" />
         </SettingRow>

@@ -74,6 +74,7 @@ mod alerts;
 mod bridges;
 mod browser;
 mod browser_out;
+mod browser_session;
 mod browser_library;
 mod browser_private;
 mod browser_read;

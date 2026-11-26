@@ -464,6 +464,9 @@ pub struct Settings {
     pub link_open: String,
     /// The BROWSER window's pages keep their sign-ins between runs (off: every page is private).
     pub browser_remember: bool,
+    /// BROWSER's tabs come back after the window closes, Castle quits, crashes or updates, like Chrome
+    /// (browser_session.rs): private tabs never, and nothing while Remember sign-ins is off. On at first.
+    pub browser_restore: bool,
     /// Private browsing (Remember sign-ins off) is remembered for the member's own companion: kept in
     /// their own memory database for 30 days, never in any history, read only for their profile.
     /// Off until the member turns it on.
@@ -692,6 +695,7 @@ impl Default for Settings {
             unknown: BTreeMap::new(),
             link_open: "castle".into(),
             browser_remember: true,
+            browser_restore: true,
             browser_private_remember: false,
             browser_profile_read: true,
             browser_welcome: BTreeMap::new(),
@@ -1257,6 +1261,7 @@ mod tests {
             unknown: BTreeMap::from([("aNewerSetting".to_string(), serde_json::json!(1))]),
             link_open: "system".into(),
             browser_remember: false,
+            browser_restore: false,
             browser_private_remember: true,
             browser_profile_read: false,
             browser_welcome: BTreeMap::from([("history".to_string(), "yes".to_string())]),
@@ -1490,6 +1495,7 @@ mod tests {
         assert_eq!(Settings { browser_opens: "sideways".into(), ..Settings::default() }.normalized().browser_opens, "window");
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!((old.link_open.as_str(), old.browser_remember), ("castle", true), "a settings file from before has the defaults");
+        assert!(d.browser_restore && old.browser_restore, "the tabs come back from the start, an older settings file too");
         assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");
         assert!(d.browser_profile_read && old.browser_profile_read, "normal browsing feeds MY PROFILE from the start, an older settings file too");
         assert!(old.browser_welcome.is_empty() && !old.browser_site_check, "the welcome is offered and the site check waits for a yes");

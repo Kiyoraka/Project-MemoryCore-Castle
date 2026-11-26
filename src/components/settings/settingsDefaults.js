@@ -36,6 +36,7 @@ export const SETTINGS_DEFAULTS = {
   shareFallback: true,
   linkOpen: 'castle',
   browserRemember: true,
+  browserRestore: true,
   browserPrivateRemember: false,
   browserProfileRead: true,
   browserNewTab: 'shortcuts',
