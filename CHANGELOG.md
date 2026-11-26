@@ -6,6 +6,7 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 - Your browser tabs come back like Chrome's: close the browser window, quit or update, and they return in order with the pages side by side as you left them; pages load only when opened, private tabs never come back, and Settings > Rooms > BROWSER has the switch.
 - Sweep frees the Rust build caches: the `target` folders cargo leaves in your projects (only ones carrying cargo's own tag), starting unticked and skipped while a build runs.
+- WORLDSMITH, a new room (off at first): your companion reads a screenshot of your own offline single-player game, finds its numbers and changes or locks them; the small helper downloads only when you press Get it, online and anti-cheat games are always refused, and F9 sends a screenshot while a game is attached.
 
 ## 0.7.0 - 2026-11-26
 

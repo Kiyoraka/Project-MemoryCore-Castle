@@ -27,6 +27,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 19. [Messaging](#19-messaging)
 20. [Finance](#20-finance)
 21. [The browser](#21-the-browser)
+22. [Worldsmith](#22-worldsmith)
 
 ---
 
@@ -1244,6 +1245,54 @@ Browsing** (its **Test** says whether Google accepts it). Castle then keeps Goog
 computer as short codes and checks each address here. Only when an address matches does Castle ask
 Google, and then only with a short hash of it, never the address itself. Without a key, the other
 guards still run.
+
+## 22. Worldsmith
+
+**WORLDSMITH** (in APPS, under Create) is a cheat engine your companion drives, for **your own
+offline single-player games**: you play and take screenshots, and your companion finds the numbers in
+the game's memory and changes them when you ask. It is off to begin with: switch it on in
+**Settings > Rooms** (Make and play). Windows only.
+
+### First use
+
+WORLDSMITH needs a small helper that reads and changes numbers in the one game you pick. It is not
+part of Castle's installer: the first time, the room explains what it is and offers **Get it**, and
+nothing is downloaded or started before you press it. Castle keeps the helper only when it is exactly
+the published file (its checksum is checked, and checked again every time it starts). Antivirus apps
+sometimes flag tools like this one; it touches only the game you pick.
+
+### Finding a value
+
+1. Start your game, then open WORLDSMITH. Your open games are the round tiles at the bottom; press
+   yours to attach. A game you played before is marked **remembered**.
+2. Press **F9** in the game (or **Screenshot** in the room). The picture fills the room and goes to
+   your companion, who reads every number on it (health, gold, ammo) and searches for all of them.
+3. Change something in the game (take a hit, spend some gold) and press **F9** again. Each search
+   narrows (`1,284 → 3 → 1`) until one is found; its tag sits on the picture where that number is.
+4. Ask in the chat: "infinite health" holds the value, "gold to 9,999" sets it once. Or press **Lock**
+   on a tag to hold it yourself, **Unlock** to let it go. **Details** shows every value with its
+   address.
+
+For something the screen does not show (speed, a cooldown), your companion leads a guided search:
+"run faster now, then take a screenshot". You can also paste or drop a picture into the chat.
+
+F9 is taken only while a game is attached; if another app holds F9, the room says so and the
+**Screenshot** button works instead.
+
+### Recipes and memory
+
+What your companion finds is kept in your own memory database, per game (a patched game counts as a
+new one), so the next visit starts from it. Your companion may propose a **recipe** ("Gold to 9,999");
+it waits in the dock with **Keep** and **No**, and a kept recipe is one press next time.
+
+### What it never does
+
+- **Online games and anti-cheat are always refused.** When a game runs anti-cheat or is connected to a
+  server, attaching is refused in one line. No account is ever put at risk by an experiment.
+- It never installs a driver or puts code into a game; it reads and writes the game you picked with
+  your own permissions.
+- Closing the room, switching it off, or the game ending lets the game go, and every held value stops.
+- Screenshots stay on your computer, except what your own companion reads.
 
 ## Alerts
 
