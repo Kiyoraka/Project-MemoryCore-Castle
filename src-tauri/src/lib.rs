@@ -72,6 +72,8 @@ mod page_reader;
 mod oneshot;
 mod paint;
 mod photo;
+mod photo_door;
+mod photo_files;
 mod resume;
 mod quota;
 mod alerts;
@@ -342,6 +344,8 @@ pub fn run() {
         // Must come first: a second launch only brings the running Castle forward.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             tray::show_main(app);
+            // a project's terminal asking PHOTO to edit a picture (--photo-edit ... --say ... --ask ...)
+            photo_door::from_args(app, &args);
             // a clicked notification starts Castle with its own address: show CHAT
             if let Some(room) = roomalert::wanted_room(args) {
                 roomalert::open_room(app, &room);
@@ -672,6 +676,17 @@ pub fn run() {
             photo::photo_redraw,
             photo::photo_result,
             photo::photo_export,
+            photo_files::photo_export_many,
+            photo_files::photo_pick_folder,
+            photo_files::photo_batch_list,
+            photo_files::photo_batch_write,
+            photo_files::photo_actions_load,
+            photo_files::photo_actions_save,
+            photo_files::photo_read_bytes,
+            photo_door::photo_open_from_dev,
+            photo_door::photo_request_take,
+            photo_door::photo_door_done,
+            photo_door::photo_save_back,
             voicestudio::voicestudio_status,
             bridges::telegram::telegram_bridge_status,
             bridges::telegram::telegram_bridge_approve,

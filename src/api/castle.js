@@ -159,22 +159,37 @@ export const scriptoriumSave = (doc, path = null) => invoke('scriptorium_save', 
 export const scriptoriumRecent = () => invoke('scriptorium_recent')
 // { doc }: the companion changed a document through the door
 export const onScriptoriumChanged = (handler) => listen('scriptorium-changed', (event) => handler(event.payload))
-// PHOTO (photo.rs): open a picture (the picker, or a dropped path) -> { name, dataUrl } (null when cancelled)
+// PHOTO (photo.rs): the picker (png, jpg, webp, psd) -> the picked path, or null when cancelled
 export const photoOpenDialog = () => invoke('photo_open_dialog')
+// a picture by its path -> { png: dataURL, width, height, name }
 export const photoRead = (path) => invoke('photo_read', { path })
-// a project in media-generation/photo/<name>/: doc (JSON without pixels), layers [{ id, png }], thumb -> the name kept
-export const photoSave = (name, doc, layers, thumb) => invoke('photo_save', { name, doc: JSON.stringify(doc), layers, thumb })
-// -> [{ name, at, thumb }], newest first
+// save { name, doc (without the picture layers' pixels), layers: [{ id, png: base64 }] } in media-generation/photo/<name>/ -> { name }
+export const photoSave = (save) => invoke('photo_save', { save })
+// -> [{ name, savedAt, thumb }], newest first
 export const photoRecent = () => invoke('photo_recent')
-// -> { name, doc, pngs: { [layerId]: dataUrl } }
+// -> { doc, layers: [{ id, png: dataURL }] }
 export const photoLoad = (name) => invoke('photo_load', { name })
-// one chat line: the flattened picture (PNG data URL) and the document -> { say, ops }
-export const photoAsk = (words, picture, doc, history = []) => invoke('photo_ask', { words, picture, doc: JSON.stringify(doc), history })
-// a redrawing edit on the image queue -> { id, size }; photoResult(id) -> the finished picture's data URL
-export const photoRedraw = (kind, { prompt = null, region = null, picture, width, height }) => invoke('photo_redraw', { kind, prompt, region, picture, width, height })
+// one chat line: ask { flat: base64 PNG, doc (without pixels), message, history? } -> { say, ops }
+export const photoAsk = (ask) => invoke('photo_ask', { ask })
+// drawing something new into the photo on the image queue -> { id, size }; photoResult(id) -> the finished picture's data URL
+export const photoRedraw = (kind, { prompt = null, picture, width, height }) => invoke('photo_redraw', { kind, prompt, picture, width, height })
 export const photoResult = (id) => invoke('photo_result', { id })
-// Export: the flattened picture (kind 'png' or 'jpg', a data URL encoded in the page) saved where the member picks -> the path, or null
-export const photoExport = (name, kind, data) => invoke('photo_export', { name, kind, data })
+// Export: out { image: base64 encoded in the page, format: png | jpeg | webp } saved where the member picks -> the path, or null
+export const photoExport = (out) => invoke('photo_export', { out })
+// PHOTO's files (photo_files.rs): Export As into one picked folder, a batch into a folder's PHOTO out, the actions, a file's raw bytes (psd)
+export const photoExportMany = (out) => invoke('photo_export_many', { out })
+export const photoPickFolder = () => invoke('photo_pick_folder')
+export const photoBatchList = (folder) => invoke('photo_batch_list', { folder })
+export const photoBatchWrite = (item) => invoke('photo_batch_write', { item })
+export const photoActionsLoad = () => invoke('photo_actions_load')
+export const photoActionsSave = (actions) => invoke('photo_actions_save', { actions })
+export const photoReadBytes = (path) => invoke('photo_read_bytes', { path })
+// PHOTO and DEV (photo_door.rs): "→photo" on a picture in DEV's FILES, the waiting request, a door edit's answer, Save back (.bak kept once)
+export const photoOpenFromDev = (path) => invoke('photo_open_from_dev', { path })
+export const photoRequestTake = () => invoke('photo_request_take')
+export const onPhotoRequest = (handler) => listen('photo-request', (event) => handler(event.payload))
+export const photoDoorDone = (done) => invoke('photo_door_done', done)
+export const photoSaveBack = (path, image) => invoke('photo_save_back', { path, image })
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 

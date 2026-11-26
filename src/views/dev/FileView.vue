@@ -1,13 +1,15 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { devFile, devReveal } from '../../api/devfiles.js'
+import { photoOpenFromDev } from '../../api/castle.js'
 import ModalSheet from '../../components/ModalSheet.vue'
 import { absPath, fileFacts, textLines } from './tree.js'
 import { isMac } from '../../platform.js'
 
 // A project file in Castle's reader: text with line numbers in a monospace block (shown as plain
 // text, never as markup), a picture as itself, or one line saying why not. Read only; Put in chat
-// hands its whole path to the chat, Reveal in Explorer shows it in its folder.
+// hands its whole path to the chat, Reveal in Explorer shows it in its folder, and →photo opens a
+// png, jpg or webp in PHOTO with "Save back to <file>" (the first save keeps <name>.bak.<ext>).
 const props = defineProps({
   // the DEV tab's slot
   slot: { type: Number, required: true },
@@ -22,6 +24,9 @@ const emit = defineEmits(['put', 'close'])
 const shown = ref(null)
 const problem = ref('')
 const revealing = ref(false)
+const toPhoto = ref(false)
+// the pictures PHOTO saves back in their own format
+const editable = computed(() => /\.(png|jpe?g|webp)$/i.test(props.entry.name))
 
 const lines = computed(() => (shown.value?.kind === 'text' ? textLines(shown.value.text) : []))
 const facts = computed(() => fileFacts(shown.value, props.entry.name))
@@ -47,6 +52,19 @@ async function reveal() {
   }
 }
 
+async function openInPhoto() {
+  toPhoto.value = true
+  problem.value = ''
+  try {
+    await photoOpenFromDev(absPath(props.folder, props.entry.rel))
+    emit('close')
+  } catch (reason) {
+    problem.value = String(reason)
+  } finally {
+    toPhoto.value = false
+  }
+}
+
 watch(() => [props.slot, props.entry.rel], read, { immediate: true })
 </script>
 
@@ -61,6 +79,7 @@ watch(() => [props.slot, props.entry.rel], read, { immediate: true })
     <footer class="foot">
       <span class="facts">{{ facts }}</span>
       <span class="spacer"></span>
+      <button v-if="editable" class="small" :disabled="toPhoto" title="Open it in PHOTO, with Save back to this file" @click="openInPhoto">&rarr;photo</button>
       <button class="small" @click="emit('put', absPath(folder, entry.rel))">Put in chat</button>
       <button class="small" :disabled="revealing" @click="reveal">{{ isMac ? 'Reveal in Finder' : 'Reveal in Explorer' }}</button>
     </footer>
