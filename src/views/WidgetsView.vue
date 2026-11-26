@@ -1,17 +1,19 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { getSettings, keyStatus, saveSettings } from '../api/castle.js'
-import { hasItsKey, isOn, resetPatch, roomIsOn, sizeOf, sizePatch, switchPatch, WIDGETS } from '../components/widgets/widgetplaces.js'
+import SettingSwitch from '../components/settings/SettingSwitch.vue'
+import { hasItsKey, isOn, resetPatch, roomIsOn, sizeOf, sizePatch, snapOn, snapPatch, switchPatch, WIDGETS } from '../components/widgets/widgetplaces.js'
 
 // WIDGETS: HOME's widgets, each switched on or off and given a size; Arrange takes the member to
-// HOME to drag them into place (one arrangement for every theme).
+// HOME to drag them into place (one arrangement for every theme), Arrange for me lays them out so
+// none overlaps, and Snap to grid lines them up as they are put down.
 const props = defineProps({
   themeId: { type: String, default: '' },
   themeName: { type: String, default: '' },
   // the theme's own widget places: a card or USAGE the theme has no place for is not drawn
   themeWidgets: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['arrange', 'changed'])
+const emit = defineEmits(['arrange', 'tidy', 'changed'])
 
 const settings = ref({})
 const savedKeys = ref([])
@@ -48,9 +50,11 @@ onMounted(load)
   <section class="widgets-room" aria-label="Widgets">
     <header class="top">
       <!-- the page's title and subtitle are Settings' own (SettingsPage) -->
-      <p class="dim">Arrange moves them on HOME. They stay where you put them, whichever theme you choose.</p>
+      <p class="dim">Arrange moves them on HOME. They stay where you put them, whichever theme you choose. Arrange for me lays them out so none overlaps, making some smaller only if they would not fit.</p>
       <div class="actions">
+        <label class="switch snap">Snap to grid <SettingSwitch :model-value="snapOn(settings)" label="Snap to grid" @update:model-value="save(snapPatch($event))" /></label>
         <button :disabled="!hasPlaces()" @click="save(resetPatch(), 'The layout is reset: each widget takes the theme\'s place once and stays there.')">Reset the layout</button>
+        <button @click="emit('tidy')">Arrange for me</button>
         <button class="primary" @click="emit('arrange')">Arrange on HOME</button>
       </div>
     </header>
@@ -124,7 +128,13 @@ h3 {
 .actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.switch.snap {
+  margin-right: 6px;
+  white-space: nowrap;
 }
 
 .grid {

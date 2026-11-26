@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import TopBar from './components/TopBar.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import LinkMenu from './components/LinkMenu.vue'
+import SettingSwitch from './components/settings/SettingSwitch.vue'
 import ClockWidget from './components/widgets/ClockWidget.vue'
 import GaugeWidget from './components/widgets/GaugeWidget.vue'
 import WeatherWidget from './components/widgets/WeatherWidget.vue'
@@ -63,7 +64,7 @@ import ThemeSound from './components/ThemeSound.vue'
 import WhatsNew from './components/WhatsNew.vue'
 import { sectionFor, unseenSections } from './components/changelog.js'
 import { moveTab, orderTabs } from './components/taborder.js'
-import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn } from './components/widgets/widgetplaces.js'
+import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn, GRID_PX, snapOn, snapPatch, snapPx, sizeOf, themeScaleOf, arrangeWidgets, anyOverlap, arrangePatch } from './components/widgets/widgetplaces.js'
 import { isCreditWidget } from './components/widgets/credits.js'
 import changelog from '../CHANGELOG.md?raw'
 import { version as appVersion } from '../package.json'
@@ -202,6 +203,9 @@ const usageCard = ref(true)
 const widgetPrefs = ref({})
 const arranging = ref(false)
 const drag = ref(null) // { id, x, y, dx, dy, box }
+// what "Arrange for me" last said, and the layout before it (Undo puts it back)
+const arrangeNote = ref('')
+const beforeArrange = ref(null)
 const homeEl = ref(null)
 // the member's own tab order (dragged in the top bar); empty = Castle's order
 const tabOrder = ref([])
@@ -311,15 +315,99 @@ async function keepPlaces() {
   const home = el.getBoundingClientRect()
   if (!home.width || !home.height) return
   const found = {}
-  for (const id of unplaced(widgetPrefs.value, theme.value.id, shownWidgets.value)) {
+  const fresh = unplaced(widgetPrefs.value, theme.value.id, shownWidgets.value)
+  for (const id of fresh) {
     const slot = el.querySelector(`[data-widget="${id}"]`)
     if (!slot) continue
     const r = slot.getBoundingClientRect()
     if (!r.width || !r.height) continue
     found[id] = dropPlace({ left: r.left - home.left, top: r.top - home.top, width: r.width, height: r.height }, { width: home.width, height: home.height })
   }
+  if (!Object.keys(found).length) return
+  // The theme's places only fit a large enough HOME: when a new widget lands on another widget or on
+  // the companion's panel (a smaller screen, many widgets on), the new ones are arranged instead,
+  // around the widgets already kept, made smaller only if that is what makes room.
+  const measured = measureHome()
+  const freshBoxes = measured.boxes.filter((b) => found[b.id])
+  // (only the panel and the other widgets count here: the corner button is kept clear when arranging)
+  if (anyOverlap(freshBoxes) || freshBoxes.some((f) => [...measured.walls, ...measured.boxes.filter((b) => !found[b.id])].some((o) => anyOverlap([f, o])))) {
+    const kept = measured.boxes.filter((b) => !found[b.id])
+    const done = arrangeWidgets(measured.items.filter((it) => found[it.id]), measured.area, [...measured.blocked, ...kept], { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0 })
+    // a widget with no room anywhere still keeps the theme's spot, so it is never lost
+    const places = { ...done.places }
+    for (const id of done.left) {
+      const b = measured.boxes.find((x) => x.id === id)
+      if (b) places[id] = { left: b.left, top: b.top }
+    }
+    await saveWidgets(arrangePatch(widgetPrefs.value, theme.value.id, places, measured.home, done.sizes))
+    return
+  }
   const patch = adoptPatch(widgetPrefs.value, theme.value.id, found)
   if (patch) await saveWidgets(patch)
+}
+
+// HOME measured for "Arrange for me", in pixels relative to HOME: the room widgets may use (a margin
+// all round), what they keep clear of (the companion's panel at the width the member gave it, and
+// the button in the corner), and each shown widget's box now and at size M.
+const HOME_MARGIN = 16
+function measureHome() {
+  const el = homeEl.value
+  const home = el.getBoundingClientRect()
+  const rel = (r) => ({ left: r.left - home.left, top: r.top - home.top, width: r.width, height: r.height })
+  const walls = []
+  const panel = el.querySelector('.terminal-panel')
+  if (panel) {
+    const r = panel.getBoundingClientRect()
+    // a panel widened to the whole of HOME is not a wall: the widgets would have nowhere to go
+    if (r.width && r.width < home.width * 0.9) walls.push(rel(r))
+  }
+  const blocked = [...walls]
+  // the button that sits in the bottom-right corner (Manage widgets); in arrange mode it is hidden,
+  // so its place is kept clear by size
+  blocked.push({ left: home.width - HOME_MARGIN - 150, top: home.height - HOME_MARGIN - 40, width: 150, height: 40 })
+  const themeScale = themeScaleOf(theme.value)
+  const items = []
+  const boxes = []
+  for (const id of shownWidgets.value) {
+    const slot = el.querySelector(`[data-widget="${id}"]`)
+    if (!slot || !slot.offsetWidth || !slot.offsetHeight) continue
+    // offsetWidth/Height are the box before scale(): times the theme's scale it is size M
+    items.push({ id, size: sizeOf(id, widgetPrefs.value), unit: { width: slot.offsetWidth * themeScale, height: slot.offsetHeight * themeScale } })
+    boxes.push({ id, ...rel(slot.getBoundingClientRect()) })
+  }
+  // widgets are laid out in the order the member reads them now: top to bottom, then left to right
+  const at = Object.fromEntries(boxes.map((b) => [b.id, b]))
+  items.sort((a, b) => at[a.id].top - at[b.id].top || at[a.id].left - at[b.id].left)
+  const area = { left: HOME_MARGIN, top: HOME_MARGIN, right: home.width - HOME_MARGIN, bottom: home.height - HOME_MARGIN }
+  return { home: { width: home.width, height: home.height }, area, walls, blocked, items, boxes }
+}
+
+// ARRANGE FOR ME: every shown widget laid out so none overlaps another or the companion's panel.
+// Widgets are made smaller only when they would not all fit otherwise; Undo puts the layout back.
+async function arrangeForMe() {
+  if (!homeEl.value) return
+  const measured = measureHome()
+  if (!measured.items.length) return
+  const done = arrangeWidgets(measured.items, measured.area, measured.blocked, { gap: GRID_PX, grid: snapOn(widgetPrefs.value) ? GRID_PX : 0 })
+  beforeArrange.value = { widgetPlaces: widgetPrefs.value.widgetPlaces ?? {}, widgetSizes: widgetPrefs.value.widgetSizes ?? {} }
+  await saveWidgets(arrangePatch(widgetPrefs.value, theme.value?.id, done.places, measured.home, done.sizes))
+  const name = (id) => WIDGETS.find((w) => w.id === id)?.name ?? id
+  const said = []
+  said.push(done.left.length ? `Arranged ${measured.items.length - done.left.length} of ${measured.items.length} widgets.` : 'Arranged: no widget overlaps another.')
+  if (done.shrunk.length) said.push(`Made smaller to fit: ${done.shrunk.map(name).join(', ')}.`)
+  if (done.left.length) said.push(`No room for ${done.left.map(name).join(', ')}: narrow the chat, make widgets smaller or switch some off.`)
+  arrangeNote.value = said.join(' ')
+}
+
+async function undoArrange() {
+  if (!beforeArrange.value) return
+  await saveWidgets(beforeArrange.value)
+  beforeArrange.value = null
+  arrangeNote.value = 'The layout is back as it was.'
+}
+
+function toggleSnap() {
+  saveWidgets(snapPatch(!snapOn(widgetPrefs.value)))
 }
 watch([shownWidgets, theme, active, () => widgetPrefs.value.widgetPlaces], keepPlacesSoon)
 
@@ -355,7 +443,14 @@ function beginDrag() {
 function moveDrag(event) {
   if (pressed && !drag.value && dragBegins(event.clientX - pressed.x, event.clientY - pressed.y)) beginDrag()
   if (!drag.value) return
-  drag.value = { ...drag.value, dx: event.clientX - drag.value.x, dy: event.clientY - drag.value.y }
+  let dx = event.clientX - drag.value.x
+  let dy = event.clientY - drag.value.y
+  // with the grid on, the widget jumps from grid point to grid point as it follows the pointer
+  if (snapOn(widgetPrefs.value)) {
+    dx = snapPx(drag.value.box.left + dx) - drag.value.box.left
+    dy = snapPx(drag.value.box.top + dy) - drag.value.box.top
+  }
+  drag.value = { ...drag.value, dx, dy }
 }
 
 async function endDrag() {
@@ -369,13 +464,21 @@ async function endDrag() {
   window.addEventListener('click', swallow, { capture: true, once: true })
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
   const home = homeEl.value.getBoundingClientRect()
-  const place = dropPlace({ ...d.box, left: d.box.left + d.dx, top: d.box.top + d.dy }, { width: home.width, height: home.height })
+  const place = dropPlace({ ...d.box, left: d.box.left + d.dx, top: d.box.top + d.dy }, { width: home.width, height: home.height }, snapOn(widgetPrefs.value) ? GRID_PX : 0)
   await saveWidgets(placePatch(widgetPrefs.value, theme.value?.id, d.id, place))
 }
 
 function arrange() {
   active.value = 'home'
   arranging.value = true
+  arrangeNote.value = ''
+  beforeArrange.value = null
+}
+
+// Settings > Widgets > Arrange for me: HOME in arrange mode, laid out at once (Undo is in the bar).
+function arrangeFromSettings() {
+  arrange()
+  nextTick(() => setTimeout(arrangeForMe, 50))
 }
 
 const onArrangeKey = (event) => event.key === 'Escape' && arranging.value && (arranging.value = false)
@@ -425,7 +528,7 @@ async function loadSettingsAndTheme() {
     usageCard.value = view.settings.showUsageCard !== false
     wallpaperMotion.value = view.settings.livingWallpaper !== false
     wallpaperSound.value = view.settings.wallpaperSound !== false
-    widgetPrefs.value = { widgetsOff: view.settings.widgetsOff ?? [], widgetsOn: view.settings.widgetsOn ?? [], widgetSizes: view.settings.widgetSizes ?? {}, widgetPlaces: view.settings.widgetPlaces ?? {} }
+    widgetPrefs.value = { widgetsOff: view.settings.widgetsOff ?? [], widgetsOn: view.settings.widgetsOn ?? [], widgetSizes: view.settings.widgetSizes ?? {}, widgetPlaces: view.settings.widgetPlaces ?? {}, widgetSnap: view.settings.widgetSnap !== false }
     tabOrder.value = view.settings.tabOrder ?? []
     pins.value = cleanPins(view.settings.pinnedRooms ?? DEFAULT_PINS)
     browserOpens.value = view.settings.browserOpens === 'castle' ? 'castle' : 'window'
@@ -767,7 +870,7 @@ watch(settingsStamp, () => {
       @hide="hideCastle().catch(() => {})"
     />
     <main class="screen">
-      <div v-show="active === 'home'" ref="homeEl" class="home" :class="[theme?.widgetStyle ?? 'glass', skinClass(theme), { arranging, still: !wallpaperMotion || active !== 'home' }]">
+      <div v-show="active === 'home'" ref="homeEl" class="home" :class="[theme?.widgetStyle ?? 'glass', skinClass(theme), { arranging, snapping: arranging && snapOn(widgetPrefs), still: !wallpaperMotion || active !== 'home' }]">
         <UsageReveal v-if="theme?.usageReveal" :theme="theme" :visible="active === 'home'" />
         <ThemeMotion v-if="theme?.motion" :theme="theme" :visible="active === 'home'" :enabled="wallpaperMotion" />
         <ThemeVideo v-if="theme?.motionVideoUrl" :theme="theme" :visible="active === 'home'" :enabled="wallpaperMotion" />
@@ -809,8 +912,11 @@ watch(settingsStamp, () => {
         </div>
         <button v-if="!arranging" class="manage-widgets" @click="openSettings('widgets')">Manage widgets</button>
         <div v-if="arranging" class="arrange-bar" role="toolbar" aria-label="Arrange HOME">
-          <span>Drag a widget to move it. It stays where you put it, whatever the theme.</span>
-          <button @click="saveWidgets(resetPatch()).then(keepPlacesSoon)">Reset the layout</button>
+          <span class="arrange-say" aria-live="polite">{{ arrangeNote || 'Drag a widget to move it. It stays where you put it, whatever the theme.' }}</span>
+          <label class="snap">Snap to grid <SettingSwitch :model-value="snapOn(widgetPrefs)" label="Snap to grid" @update:model-value="toggleSnap" /></label>
+          <button @click="arrangeForMe">Arrange for me</button>
+          <button v-if="beforeArrange" @click="undoArrange">Undo</button>
+          <button @click="saveWidgets(resetPatch()).then(keepPlacesSoon); arrangeNote = ''; beforeArrange = null">Reset the layout</button>
           <button class="primary" @click="arranging = false">Done</button>
         </div>
       </div>
@@ -847,6 +953,7 @@ watch(settingsStamp, () => {
         :theme-name="theme?.name ?? ''"
         :theme-widgets="widgets"
         @arrange="settingsOpen = false; arrange()"
+        @tidy="settingsOpen = false; arrangeFromSettings()"
         :version="updateInfo?.version ?? ''"
         :update-line="updateInfo?.message ?? ''"
         @close="settingsOpen = false"
@@ -952,6 +1059,17 @@ body {
   transform-origin: top left;
 }
 
+/* Snap to grid in arrange mode: the grid's points show faintly, from HOME's top-left corner. */
+.home.snapping::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text) 28%, transparent) 1px, transparent 1.5px);
+  background-size: 16px 16px;
+  background-position: -8px -8px;
+}
+
 /* Arrange mode: every widget shows its edge and follows the pointer; nothing inside is pressed. */
 .widget-slot.movable {
   cursor: grab;
@@ -995,14 +1113,30 @@ body {
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 40px);
+  padding: 8px 12px;
   background: var(--panel-background);
   border: 1px solid var(--line);
   border-radius: 12px;
   -webkit-backdrop-filter: blur(var(--glass-blur)); backdrop-filter: blur(var(--glass-blur));
   color: var(--text);
   font-size: 0.9rem;
+}
+
+.arrange-say {
+  max-width: 300px;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.arrange-bar .snap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .arrange-bar button {
@@ -1013,6 +1147,7 @@ body {
   border-radius: 8px;
   padding: 6px 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .arrange-bar button.primary {
