@@ -60,6 +60,8 @@ mysql = { version = "28.0.4", default-features = false, features = ["minimal-rus
 trash = "5"
 # the Discord bridge's Gateway connection (its REST calls stay on reqwest, same as every other bridge)
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# SCRIPTORIUM, our own office suite: its own crate in this repo, standard library only (scriptorium_host.rs is its edge)
+scriptorium = { path = "../scriptorium" }
 
 [target.'cfg(windows)'.dependencies]
 # the chat alert's toast is built here (not through the notification plugin) so a click on it can

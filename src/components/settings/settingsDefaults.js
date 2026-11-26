@@ -41,6 +41,7 @@ export const SETTINGS_DEFAULTS = {
   browserProfileRead: true,
   browserNewTab: 'shortcuts',
   browserOpens: 'window',
+  scriptoriumLayout: 'classic',
   // the download folder's default (null: the system's Downloads folder) is not listed: valueOf gives
   // undefined for it either way, and the core-defaults test reads only literal values
   downloadsSort: true,

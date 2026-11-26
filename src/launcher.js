@@ -23,7 +23,7 @@ export const LAUNCHER_TAB = { id: 'launcher', label: 'APPS', fixed: true, title:
 // Quiet group labels; group order and membership live here and nowhere else.
 export const GROUPS = [
   { id: 'companion', label: 'Companion', rooms: ['home', 'chat', 'myprofile', 'diary', 'appearance', 'finance'] },
-  { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'automations', 'calendar', 'browser', 'artifacts'] },
+  { id: 'work', label: 'Work', rooms: ['projects', 'dev', 'scriptorium', 'automations', 'calendar', 'browser', 'artifacts'] },
   { id: 'create', label: 'Create', rooms: ['studio', 'story', 'world', 'library', 'worldsmith'] },
   { id: 'connect', label: 'Connect', rooms: ['messaging', 'market'] },
   { id: 'system', label: 'System', rooms: ['theme', 'apps'] },
@@ -39,6 +39,7 @@ export const HINTS = {
   appearance: "Your companion's look and wardrobe",
   projects: 'Your projects and tasks',
   dev: 'Terminals for your projects',
+  scriptorium: 'Your own documents, sheets, slides and PDFs',
   automations: 'Jobs that run on a schedule or a trigger',
   calendar: 'Everything with a date, and your events',
   finance: 'Receipts your companion reads, kept on this computer',

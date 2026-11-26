@@ -3,7 +3,7 @@ import { windowRoom as windowRoomOf } from './launcher.js'
 import { DEFAULT_PINS, FIXED, GROUPS, HINTS, LAUNCHER_TAB, cleanPins, pinRows, groupRooms, headerTabs, initialOf, setPinned, tipDelay, TIP_FIRST_MS, windowRoom } from './launcher.js'
 
 const room = (id, label = id.toUpperCase()) => ({ id, label })
-const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'browser', 'artifacts', 'worldsmith'].map((id) => room(id))
+const all = ['home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'appearance', 'studio', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'browser', 'artifacts', 'worldsmith', 'scriptorium'].map((id) => room(id))
 const ids = (groups) => groups.flatMap((g) => g.tabs.map((t) => t.id))
 
 describe('the launcher groups', () => {
@@ -52,6 +52,12 @@ describe('window rooms', () => {
   })
   it('both sit in Work', () => {
     expect(GROUPS.find((g) => g.id === 'work').rooms).toEqual(expect.arrayContaining(['browser', 'artifacts']))
+  })
+  it('SCRIPTORIUM sits in Work, right after DEV, with its hint', () => {
+    const work = GROUPS.find((g) => g.id === 'work').rooms
+    expect(work.indexOf('scriptorium')).toBe(work.indexOf('dev') + 1)
+    expect(HINTS.scriptorium).toBe('Your own documents, sheets, slides and PDFs')
+    expect(windowRoom('scriptorium')).toBe(null)
   })
 })
 

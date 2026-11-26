@@ -66,6 +66,13 @@ describe('defaults', () => {
     expect(valueOf({ roomPicturesPerDay: 0 }, 'roomPicturesPerDay')).toBe(0)
   })
 
+  it('opens SCRIPTORIUM in the classic layout until the member picks Studio', () => {
+    expect(SETTINGS_DEFAULTS.scriptoriumLayout).toBe('classic')
+    expect(valueOf({}, 'scriptoriumLayout')).toBe('classic')
+    expect(valueOf({ scriptoriumLayout: 'studio' }, 'scriptoriumLayout')).toBe('studio')
+    expect(differsFromDefault({ scriptoriumLayout: 'studio' }, 'scriptoriumLayout')).toBe(true)
+  })
+
   it('knows when a value differs from its default', () => {
     expect(differsFromDefault({ clockFormat: '24h' }, 'clockFormat')).toBe(false)
     expect(differsFromDefault({ clockFormat: '12h' }, 'clockFormat')).toBe(true)

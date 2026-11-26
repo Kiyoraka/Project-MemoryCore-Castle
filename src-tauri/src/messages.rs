@@ -1,7 +1,7 @@
 //! Messages accepted during a provider switch or image job, separate from either CLI queue.
 use crate::{
     providers::{Control, Images},
-    session::{MainHost, StoryHost, WorldsmithHost},
+    session::{MainHost, ScriptoriumHost, StoryHost, WorldsmithHost},
     settings::SettingsStore,
 };
 use serde::{Deserialize, Serialize};
@@ -102,7 +102,7 @@ fn send_story(app: &AppHandle, text: &str) -> Result<(), String> {
     send_room::<StoryHost>(app, text, |h| &h.0)
 }
 
-/// A room of its own (STORY, WORLDSMITH): the words pasted whole, Enter after the pictures land.
+/// A room of its own (STORY, WORLDSMITH, SCRIPTORIUM): the words pasted whole, Enter after the pictures land.
 fn send_room<H: Send + Sync + 'static>(app: &AppHandle, text: &str, pty: fn(&H) -> &crate::pty::PtyHost) -> Result<(), String> {
     let state = app.state::<H>();
     let host = pty(&state);
@@ -132,6 +132,10 @@ pub fn send_message(text: String, room: Option<String>, app: AppHandle) -> Resul
         }
         Some(crate::session::Room::Worldsmith) => {
             send_room::<WorldsmithHost>(&app, &text, |h| &h.0)?;
+            return Ok(Sent { queued: false });
+        }
+        Some(crate::session::Room::Scriptorium) => {
+            send_room::<ScriptoriumHost>(&app, &text, |h| &h.0)?;
             return Ok(Sent { queued: false });
         }
         Some(crate::session::Room::Main) => {}
@@ -328,6 +332,7 @@ pub fn chat_prompt_holds(room: Option<String>, text: String, app: AppHandle) -> 
         None | Some("") | Some("main") => claude_screen(&app.state::<MainHost>().0),
         Some("story") => claude_screen(&app.state::<StoryHost>().0),
         Some("worldsmith") => claude_screen(&app.state::<WorldsmithHost>().0),
+        Some("scriptorium") => claude_screen(&app.state::<ScriptoriumHost>().0),
         Some(other) => other
             .strip_prefix("dev:")
             .and_then(|n| n.parse::<usize>().ok())

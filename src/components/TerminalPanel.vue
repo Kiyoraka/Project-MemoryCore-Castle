@@ -29,6 +29,8 @@ import {
   onTerminalOutput,
   onWorldsmithExit,
   onWorldsmithOutput,
+  onScriptoriumExit,
+  onScriptoriumOutput,
   onWakeRequest,
   takeAutoWake,
   terminalResize,
@@ -93,8 +95,8 @@ const session = isDev
       start: (cols, rows, greet, fresh) => terminalStart(cols, rows, props.room, greet, fresh),
       write: (data) => terminalWrite(data, props.room),
       resize: (cols, rows) => terminalResize(cols, rows, props.room),
-      onOutput: props.room === 'story' ? onStoryOutput : props.room === 'worldsmith' ? onWorldsmithOutput : onTerminalOutput,
-      onExit: props.room === 'story' ? onStoryExit : props.room === 'worldsmith' ? onWorldsmithExit : onTerminalExit,
+      onOutput: props.room === 'story' ? onStoryOutput : props.room === 'worldsmith' ? onWorldsmithOutput : props.room === 'scriptorium' ? onScriptoriumOutput : onTerminalOutput,
+      onExit: props.room === 'story' ? onStoryExit : props.room === 'worldsmith' ? onWorldsmithExit : props.room === 'scriptorium' ? onScriptoriumExit : onTerminalExit,
     }
 
 const WIDTH_KEY = 'castle.panelWidth'

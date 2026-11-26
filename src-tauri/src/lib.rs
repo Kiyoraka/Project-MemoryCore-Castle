@@ -25,6 +25,7 @@ mod fetch;
 mod node_runtime;
 mod sweep;
 mod worldsmith;
+mod scriptorium_host;
 mod dev;
 mod dev_files;
 mod dev_git;
@@ -377,6 +378,9 @@ pub fn run() {
         .manage(chat::StoryChat::default())
         .manage(chat::WorldsmithChat::default())
         .manage(session::WorldsmithHost::default())
+        .manage(chat::ScriptoriumChat::default())
+        .manage(session::ScriptoriumHost::default())
+        .manage(scriptorium_host::ScriptoriumState::default())
         .manage(chat::MemberPictures::default())
         .manage(projectdb::Held::default())
         .manage(markup::MarkedCopies::default())
@@ -500,6 +504,22 @@ pub fn run() {
             session::story_close,
             session::worldsmith_close,
             worldsmith::room::worldsmith_prepare,
+            scriptorium_host::scriptorium_prepare,
+            scriptorium_host::scriptorium_close,
+            scriptorium_host::scriptorium_new,
+            scriptorium_host::scriptorium_display,
+            scriptorium_host::scriptorium_glyphs,
+            scriptorium_host::scriptorium_image,
+            scriptorium_host::scriptorium_command,
+            scriptorium_host::scriptorium_undo,
+            scriptorium_host::scriptorium_redo,
+            scriptorium_host::scriptorium_history,
+            scriptorium_host::scriptorium_door,
+            scriptorium_host::scriptorium_open_dialog,
+            scriptorium_host::scriptorium_save_dialog,
+            scriptorium_host::scriptorium_open,
+            scriptorium_host::scriptorium_save,
+            scriptorium_host::scriptorium_recent,
             commands::system_meters,
             gpu::gpu_meters,
             gpu::gpu_gauges_save,

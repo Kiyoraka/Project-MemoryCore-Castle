@@ -46,6 +46,7 @@ import StudioView from './views/StudioView.vue'
 import AppearanceView from './views/AppearanceView.vue'
 import StoryView from './views/StoryView.vue'
 import WorldsmithView from './views/WorldsmithView.vue'
+import ScriptoriumView from './views/ScriptoriumView.vue'
 import WorldView from './views/WorldView.vue'
 import ChatRoomView from './views/ChatRoomView.vue'
 import BrowserWindow from './browser/BrowserWindow.vue'
@@ -93,6 +94,7 @@ const allTabs = [
   { id: 'automations', label: 'AUTOMATIONS' },
   { id: 'calendar', label: 'CALENDAR' },
   { id: 'worldsmith', label: 'WORLDSMITH' },
+  { id: 'scriptorium', label: 'SCRIPTORIUM' },
   { id: 'finance', label: 'FINANCE' },
   // tiles that open the BROWSER window instead of a room (launcher.js windowRoom)
   { id: 'browser', label: 'BROWSER' },
@@ -135,13 +137,17 @@ const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
 // Rooms that are built; any other room shows its name until its phase lands.
-const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith'])
+const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith', 'scriptorium'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
 const marks = ref([])
 const memberName = ref('')
 const storyOpened = ref(active.value === 'story')
 // WORLDSMITH stays mounted once opened, so a frozen value keeps holding while the member plays
 const worldsmithOpened = ref(active.value === 'worldsmith')
+// SCRIPTORIUM stays mounted once opened, so the open documents and their undo stay while the member is elsewhere
+const scriptoriumOpened = ref(active.value === 'scriptorium')
+// Settings > Rooms > SCRIPTORIUM's Layout: 'classic' or 'studio'
+const scriptoriumLayout = ref('classic')
 const chatOpened = ref(active.value === 'chat')
 // DEV stays mounted once opened, so its project sessions keep going behind the other rooms
 const devOpened = ref(active.value === 'dev')
@@ -159,6 +165,7 @@ watch(active, (room, was) => {
   if (room !== 'home') arranging.value = false
   if (room === 'story') storyOpened.value = true
   if (room === 'worldsmith') worldsmithOpened.value = true
+  if (room === 'scriptorium') scriptoriumOpened.value = true
   if (room === 'chat') chatOpened.value = true
   if (room === 'dev') devOpened.value = true
   if (room === 'browser') browserOpened.value = true
@@ -222,6 +229,7 @@ watch(tabs, (list) => {
   if (!ids.has(active.value) && active.value !== 'launcher') active.value = 'home'
   if (!ids.has('story')) storyOpened.value = false
   if (!ids.has('worldsmith')) worldsmithOpened.value = false
+  if (!ids.has('scriptorium')) scriptoriumOpened.value = false
   if (!ids.has('chat')) chatOpened.value = false
   if (!ids.has('dev')) devOpened.value = false
   marks.value = marks.value.filter((m) => ids.has(m))
@@ -397,6 +405,7 @@ async function loadSettingsAndTheme() {
     tabOrder.value = view.settings.tabOrder ?? []
     pins.value = cleanPins(view.settings.pinnedRooms ?? DEFAULT_PINS)
     browserOpens.value = view.settings.browserOpens === 'castle' ? 'castle' : 'window'
+    scriptoriumLayout.value = view.settings.scriptoriumLayout === 'studio' ? 'studio' : 'classic'
     // back to its own window: the room closes (its pages were closed by Settings)
     if (browserOpens.value !== 'castle') {
       browserOpened.value = false
@@ -789,6 +798,7 @@ watch(settingsStamp, () => {
       <WorldView v-if="active === 'world'" :active="active === 'world'" :companion="companion" @show-chat="active = 'home'" />
       <StoryView v-show="active === 'story'" v-if="storyOpened" :companion="companion" :member="memberName" :cli="cli" :visible="active === 'story'" />
       <WorldsmithView v-show="active === 'worldsmith'" v-if="worldsmithOpened" :companion="companion" :cli="cli" :visible="active === 'worldsmith'" />
+      <ScriptoriumView v-show="active === 'scriptorium'" v-if="scriptoriumOpened" :layout="scriptoriumLayout" :companion="companion" :cli="cli" :visible="active === 'scriptorium'" />
       <AppearanceView v-if="active === 'appearance'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
       <StudioView v-if="active === 'studio'" :companion="companion" :stamp="memoryStamp" @keys="openKeys" />
       <ThemeView v-if="active === 'theme'" :companion="companion" @changed="themeChanged" @show-chat="active = 'home'" />

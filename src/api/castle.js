@@ -118,6 +118,30 @@ export const worldsmithModeSet = (mode) => invoke('worldsmith_mode_set', { mode 
 export const worldsmithAutoSet = (on) => invoke('worldsmith_auto_set', { on: Boolean(on) })
 // a Translation, { hidden: true } or { error } - heard by the room and the overlay window
 export const onWorldsmithLines = (handler) => listen('worldsmith-lines', (event) => handler(event.payload))
+// SCRIPTORIUM, our own office suite: its session, its open documents (the Rust command bus) and the door's
+// inbox. Display, glyphs, image, command, undo, redo, history and door answer JSON text.
+export const scriptoriumPrepare = () => invoke('scriptorium_prepare')
+export const scriptoriumClose = () => invoke('scriptorium_close')
+// kind: 'scroll' | 'ledger' | 'stage' | 'folio' -> the new document's id
+export const scriptoriumNew = (kind) => invoke('scriptorium_new', { kind })
+export const scriptoriumDisplay = (doc, page = 0) => invoke('scriptorium_display', { doc, page })
+export const scriptoriumGlyphs = (doc, font, gids) => invoke('scriptorium_glyphs', { doc, font, gids: Array.from(gids ?? []) })
+export const scriptoriumImage = (doc, id) => invoke('scriptorium_image', { doc, id })
+export const scriptoriumCommand = (doc, name, args = {}) => invoke('scriptorium_command', { doc, name, argsJson: typeof args === 'string' ? args : JSON.stringify(args ?? {}) })
+export const scriptoriumUndo = (doc) => invoke('scriptorium_undo', { doc })
+export const scriptoriumRedo = (doc) => invoke('scriptorium_redo', { doc })
+export const scriptoriumHistory = (doc) => invoke('scriptorium_history', { doc })
+export const scriptoriumDoor = (doc, verb, args = {}) => invoke('scriptorium_door', { doc, verb, argsJson: typeof args === 'string' ? args : JSON.stringify(args ?? {}) })
+// -> a path, or null when the picker was closed
+export const scriptoriumOpenDialog = () => invoke('scriptorium_open_dialog')
+export const scriptoriumSaveDialog = (name) => invoke('scriptorium_save_dialog', { name: name ?? null })
+// -> { doc, editor } (files arrive in the next milestone: until then it answers why not)
+export const scriptoriumOpen = (path) => invoke('scriptorium_open', { path })
+export const scriptoriumSave = (doc, path) => invoke('scriptorium_save', { doc, path })
+// -> [{ path, name, editor, openedAt }], newest first
+export const scriptoriumRecent = () => invoke('scriptorium_recent')
+// { doc }: the companion changed a document through the door
+export const onScriptoriumChanged = (handler) => listen('scriptorium-changed', (event) => handler(event.payload))
 // True once, when Windows started Castle and the start-session switch is on.
 export const takeAutoWake = () => invoke('take_auto_wake')
 
@@ -314,6 +338,8 @@ export const onStoryOutput = on('story-output')
 export const onStoryExit = on('story-exit')
 export const onWorldsmithOutput = on('worldsmith-output')
 export const onWorldsmithExit = on('worldsmith-exit')
+export const onScriptoriumOutput = on('scriptorium-output')
+export const onScriptoriumExit = on('scriptorium-exit')
 // APPEARANCE. -> { folder, canon, portrait, wardrobe: [{ id, name, note, sheet, savedPrompt }], hairstyles, current: { outfit, hair } }
 export const appearanceLook = () => invoke('appearance_look')
 export const appearanceNew = (kind, name, description) => invoke('appearance_new', { kind, name, description })

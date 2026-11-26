@@ -132,12 +132,12 @@ pub fn used_by_newer(settings: &Settings) -> Option<String> {
 
 /// The rooms the member may switch off in Settings (HOME is always on). Off = not available:
 /// the tab is gone and nothing runs for it, but nothing is removed.
-pub const ROOMS: [&str; 19] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance", "worldsmith"];
+pub const ROOMS: [&str; 20] = ["widgets", "theme", "apps", "myprofile", "diary", "projects", "library", "appearance", "studio", "story", "world", "chat", "dev", "market", "messaging", "automations", "calendar", "finance", "worldsmith", "scriptorium"];
 /// Tiles that open the BROWSER window rather than a room (launcher.js windowRoom): pinnable too.
 const WINDOW_TILES: [&str; 2] = ["browser", "artifacts"];
 /// Rooms that wait for the member's own switch in Settings > Rooms, for a new Castle and for one
 /// that never stored a choice for them.
-const ROOMS_OFF_AT_FIRST: [&str; 7] = ["library", "market", "messaging", "automations", "calendar", "finance", "worldsmith"];
+const ROOMS_OFF_AT_FIRST: [&str; 8] = ["library", "market", "messaging", "automations", "calendar", "finance", "worldsmith", "scriptorium"];
 
 pub const DEFAULT_WORLD: &str = "3d/floating-isles";
 pub const CAMERAS: [&str; 4] = ["director", "follow", "wide", "orbit"];
@@ -486,6 +486,8 @@ pub struct Settings {
     /// Where the browser opens: one of BROWSER_OPENS - `window` its own window beside Castle,
     /// `castle` a room inside Castle's own window.
     pub browser_opens: String,
+    /// How SCRIPTORIUM is laid out: one of SCRIPTORIUM_LAYOUTS (`classic` at first).
+    pub scriptorium_layout: String,
     /// The language the browser translates pages into (browser_translate::LANGUAGES), English first.
     pub browser_language: String,
     /// Sites whose pages are translated by themselves (the browser's Always switch); never added
@@ -608,6 +610,9 @@ pub const LINK_OPENS: [&str; 3] = ["castle", "system", "ask"];
 pub const BROWSER_NEW_TABS: [&str; 3] = ["shortcuts", "artifacts", "blank"];
 /// Where the browser opens: its own window beside Castle, or a room inside Castle.
 pub const BROWSER_OPENS: [&str; 2] = ["window", "castle"];
+/// How SCRIPTORIUM is laid out: `classic` (a ribbon, the page, the chat on the right) or `studio`
+/// (an icon rail, the page, an inspector, the chat docked along the bottom).
+pub const SCRIPTORIUM_LAYOUTS: [&str; 2] = ["classic", "studio"];
 /// How long a talk may be quiet before `rested` starts a fresh session instead.
 pub const REST_HOURS: u64 = 6;
 pub const PROFILE_LOOKS: [&str; 2] = ["cards", "constellation"];
@@ -702,6 +707,7 @@ impl Default for Settings {
             browser_site_check: false,
             browser_new_tab: "shortcuts".into(),
             browser_opens: "window".into(),
+            scriptorium_layout: "classic".into(),
             browser_language: "en".into(),
             browser_translate_sites: Vec::new(),
             downloads_folder: None,
@@ -814,6 +820,9 @@ impl Settings {
         }
         if !BROWSER_OPENS.contains(&self.browser_opens.as_str()) {
             self.browser_opens = "window".into();
+        }
+        if !SCRIPTORIUM_LAYOUTS.contains(&self.scriptorium_layout.as_str()) {
+            self.scriptorium_layout = "classic".into();
         }
         if !BROWSER_NEW_TABS.contains(&self.browser_new_tab.as_str()) {
             self.browser_new_tab = "shortcuts".into();
@@ -1268,6 +1277,7 @@ mod tests {
             browser_site_check: true,
             browser_new_tab: "blank".into(),
             browser_opens: "castle".into(),
+            scriptorium_layout: "studio".into(),
             downloads_folder: Some("D:/Downloads".into()),
             downloads_sort: false,
             downloads_video_pick: Some("720p".into()),
@@ -1431,6 +1441,7 @@ mod tests {
         assert!(!fresh.room_on("library"), "the Library waits for the member's switch");
         assert!(!fresh.room_on("market"), "the Market waits for the member's switch");
         assert!(!fresh.room_on("worldsmith"), "WORLDSMITH waits for the member's switch");
+        assert!(!fresh.room_on("scriptorium"), "SCRIPTORIUM waits for the member's switch while it is early");
         let mut rooms = std::collections::BTreeMap::new();
         rooms.insert("story".to_string(), false);
         rooms.insert("home".to_string(), false);
@@ -1500,6 +1511,16 @@ mod tests {
         assert!(!d.browser_private_remember && !old.browser_private_remember, "private browsing is remembered only once the member turns it on");
         assert!(d.browser_profile_read && old.browser_profile_read, "normal browsing feeds MY PROFILE from the start, an older settings file too");
         assert!(old.browser_welcome.is_empty() && !old.browser_site_check, "the welcome is offered and the site check waits for a yes");
+    }
+
+    #[test]
+    fn the_scriptorium_layout_is_classic_or_studio_and_classic_at_first() {
+        assert_eq!(Settings::default().scriptorium_layout, "classic");
+        assert_eq!(Settings { scriptorium_layout: "studio".into(), ..Settings::default() }.normalized().scriptorium_layout, "studio");
+        assert_eq!(Settings { scriptorium_layout: "Studio ".into(), ..Settings::default() }.normalized().scriptorium_layout, "classic");
+        assert_eq!(Settings { scriptorium_layout: String::new(), ..Settings::default() }.normalized().scriptorium_layout, "classic");
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.normalized().scriptorium_layout, "classic", "an older settings file opens the classic layout");
     }
 
     #[test]

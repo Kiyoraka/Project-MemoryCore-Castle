@@ -33,11 +33,16 @@ pub async fn rooms_apply(app: AppHandle, rooms: BTreeMap<String, bool>, store: S
     let story = (before.room_on("story"), next.room_on("story"));
     let world = (before.room_on("world"), next.room_on("world"));
     let worldsmith = (before.room_on(crate::worldsmith::ROOM), next.room_on(crate::worldsmith::ROOM));
+    let scriptorium = (before.room_on(crate::scriptorium_host::ROOM), next.room_on(crate::scriptorium_host::ROOM));
     *store.current.lock().unwrap() = next;
     if worldsmith == (true, false) {
         // the game let go, every frozen value stopped, the helper ended
         crate::worldsmith::pipe::stop(&app);
         app.state::<crate::session::WorldsmithHost>().0.kill();
+    }
+    if scriptorium == (true, false) {
+        // the companion's session ends and the door's inbox stops being read
+        crate::scriptorium_host::stop(&app);
     }
     if story == (true, false) {
         app.state::<StoryHost>().0.kill();

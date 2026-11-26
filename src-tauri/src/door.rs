@@ -33,6 +33,8 @@
 //!  castle-memory trait set --number 3 [--name ..] [--line ..] [--audience ..] [--file ..] | trait retire --number 3
 //!  castle-memory finance propose --shop ".." --total 12.50 --currency MYR --date 2026-11-24 --category food --picture <file> [--last4 1234] [--note ".."] [--source drop|whatsapp|telegram|chat]
 //!  castle-memory finance list [--month 2026-11] [--state proposed|kept|dismissed] | finance show --id 4
+//!  castle-memory scriptorium describe | read [--file q.json] | do --file change.json [--label ..] | shot [--page N]
+//!                                            the document open in SCRIPTORIUM (through the room's inbox)
 //!  castle-memory export --to <folder>        the memory back out as markdown
 //!  castle-memory dump --to backup/memory.sql | restore --from backup/memory.sql
 //! ```
@@ -253,7 +255,7 @@ pub fn run(conn: &mut Conn, ask: &Ask, memory: &Path) -> Result<String, String> 
         ["export"] => export(conn, Path::new(ask.need("to")?)),
         ["dump"] => dump(conn, Path::new(ask.need("to")?)),
         ["restore"] => restore(conn, Path::new(ask.need("from")?)),
-        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, worldsmith, export, dump, restore.", words.join(" "))),
+        _ => Err(format!("castle-memory does not know `{}`. Verbs: boot, memory, session, skill, diary, reminder, project, link, plan, trait, look, library, worldsmith, scriptorium, export, dump, restore.", words.join(" "))),
     }
 }
 
@@ -1071,6 +1073,10 @@ pub fn main(args: &[String]) -> i32 {
             return Err("castle-memory needs a verb: diary, reminder, project, task, link, plan, trait, export, dump, restore.".to_string());
         }
         let memory = find_memory(&ask, &std::env::current_dir().map_err(|_| "This folder could not be read.".to_string())?)?;
+        // SCRIPTORIUM's door speaks to the open room through its inbox, never the database
+        if ask.words.first().map(String::as_str) == Some("scriptorium") {
+            return crate::scriptorium_host::door_cli(&ask, &memory);
+        }
         let mut conn = memdb::open_for(&memory)?;
         run(&mut conn, &ask, &memory)
     })();

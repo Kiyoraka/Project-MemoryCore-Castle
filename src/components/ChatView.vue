@@ -228,8 +228,8 @@ const typing = computed(() => {
 
 // The WORLD on the other screens knows when the companion works and when it rests - in the main
 // room only: a DEV tab's session is work in a project, not her presence in the WORLD.
-// the WORLD reacts to the main and STORY sessions, never to a DEV tab or WORLDSMITH
-const signalsWorld = () => !String(props.room ?? '').startsWith('dev:') && props.room !== 'worldsmith'
+// the WORLD reacts to the main and STORY sessions, never to a DEV tab, WORLDSMITH or SCRIPTORIUM
+const signalsWorld = () => !String(props.room ?? '').startsWith('dev:') && props.room !== 'worldsmith' && props.room !== 'scriptorium'
 watch(
   typing,
   (on) => {

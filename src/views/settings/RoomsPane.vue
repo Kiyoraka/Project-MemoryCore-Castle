@@ -65,6 +65,7 @@ const ROOM_GROUPS = [
       { id: 'chat', label: 'CHAT', line: 'Off stops reading the room. Its files stay.', tip: 'Turning CHAT off stops reading the room. Its files stay.' },
       { id: 'market', label: 'MARKET' },
       { id: 'dev', label: 'DEV' },
+      { id: 'scriptorium', label: 'SCRIPTORIUM', line: 'Off at first: early - opening files first.', tip: 'Off to begin with: SCRIPTORIUM is your own office - documents, sheets, slides and PDFs - with your companion beside the page. It is early: each editor opens a blank page while opening files comes first. Your documents never leave this computer. Off ends its session.' },
       { id: 'automations', label: 'AUTOMATIONS', line: 'Off at first: private briefings on your schedule.', tip: 'Jobs run while Castle is open. New jobs start switched off. Pause all stops new runs and delivery.' },
       { id: 'calendar', label: 'CALENDAR', line: 'Off at first: everything with a date on one page.', tip: 'Off to begin with: CALENDAR shows your reminders, project tasks, diary pages and automation runs by date. It only shows them; each is changed where it lives.' },
       { id: 'finance', label: 'FINANCE', line: 'Off at first: receipts your companion reads, kept on this computer only.', tip: 'Off to begin with: drop receipt pictures on FINANCE or send them to your companion from your phone. Your companion reads each one and proposes it; nothing is kept until you press Keep. Your receipts never leave this computer.' },
@@ -84,6 +85,8 @@ const pinnable = computed(() => pinRows(Object.fromEntries([...ROOM_GROUPS.flatM
 const pinnedNow = computed(() => settings.value?.pinnedRooms ?? DEFAULT_PINS)
 // BROWSER's fold-out panel: the chevron opens it, and pinning BROWSER opens it by itself
 const browserPanel = ref(false)
+// SCRIPTORIUM's fold-out under its room row: the Layout
+const scriptoriumPanel = ref(false)
 function setPin(id, on) {
   if (id === 'browser') browserPanel.value = panelAfterPin(pinnedNow.value.includes('browser'), on, browserPanel.value)
   return saveRow('pins', { pinnedRooms: setPinned(pinnedNow.value, id, on, pinnable.value.map((r) => r.id)) })
@@ -112,7 +115,18 @@ onMounted(async () => {
 <template>
   <SettingGroup v-for="g in ROOM_GROUPS" :id="g.id" :key="g.id" :title="g.title" :note="roomsNote">
     <SettingRow v-for="r in g.rooms" :id="`room-${r.id}`" :key="r.id" :label="r.label" :description="r.line || ''" :tip="r.tip || ''">
+      <!-- SCRIPTORIUM's own settings fold out under its row, like BROWSER's -->
+      <button v-if="r.id === 'scriptorium'" class="chevron" :class="{ open: scriptoriumPanel }" :aria-expanded="scriptoriumPanel" aria-controls="scriptorium" :title="scriptoriumPanel ? 'Hide SCRIPTORIUM\'s settings' : 'Show SCRIPTORIUM\'s settings'" @click="scriptoriumPanel = !scriptoriumPanel">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
       <SettingSwitch :model-value="settings.rooms?.[r.id] !== false" :label="r.label" :disabled="locked" @update:model-value="(on) => switchRoom(r.id, on)" />
+      <template v-if="r.id === 'scriptorium' && scriptoriumPanel" #below>
+        <div id="scriptorium" class="browser-panel" role="group" aria-label="SCRIPTORIUM's settings">
+          <SettingRow id="scriptorium-layout" label="Layout" description="Classic: a ribbon over the page and the chat on the right. Studio: an icon rail and your recent files, an inspector on the right, and the chat along the bottom.">
+            <SettingChoice :model-value="valueOf(settings, 'scriptoriumLayout')" :options="[{ value: 'classic', label: 'Classic' }, { value: 'studio', label: 'Studio' }]" label="Layout" :disabled="locked" @update:model-value="(v) => saveRow('scriptorium-layout', { scriptoriumLayout: v })" />
+          </SettingRow>
+        </div>
+      </template>
     </SettingRow>
   </SettingGroup>
 
