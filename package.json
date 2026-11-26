@@ -1,7 +1,7 @@
 {
   "name": "memorycore-castle",
   "private": true,
-  "version": "0.8.1",
+  "version": "0.8.2",
   "type": "module",
   "description": "MemoryCore Castle - a full-screen desktop for your MemoryCore companion, with Claude Code or Codex inside it",
   "license": "MIT",

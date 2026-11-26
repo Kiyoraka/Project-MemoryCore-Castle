@@ -4,7 +4,10 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+## 0.8.2 - 2026-11-26
+
 - SCRIPTORIUM's page shows in Scroll, Ledger and Folio (a one-page document had no room to draw in), and WORLDSMITH's screenshot area takes the whole window.
+- Stage keeps its slide strip on the left, and every document opens at its own size (a zoom from another one never carries over).
 
 ## 0.8.1 - 2026-11-26
 

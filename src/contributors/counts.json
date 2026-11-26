@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-26T14:54:20.080Z",
-  "merged": 91,
+  "at": "2026-11-26T15:12:17.074Z",
+  "merged": 92,
   "people": [
     {
       "login": "Brian-C69",
@@ -40,8 +40,9 @@
     },
     {
       "login": "ashranhelmi",
-      "merged": 1,
+      "merged": 2,
       "built": [
+        "Mark WORLDSMITH's LOCALAPPDATA read as Windows-only",
         "Stop leaving companion room keys on the Portfolio"
       ]
     },
