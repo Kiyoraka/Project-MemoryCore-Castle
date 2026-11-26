@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-25T16:13:21.586Z",
-  "merged": 82,
+  "at": "2026-11-26T14:18:01.460Z",
+  "merged": 91,
   "people": [
     {
       "login": "Brian-C69",
@@ -16,26 +16,40 @@
     },
     {
       "login": "OneNonly148",
-      "merged": 16,
+      "merged": 22,
       "built": [
-        "A browser window beside Castle, and the Artifacts tile",
-        "A real Full screen, Full width and layout keys",
-        "Links in the chats open on click",
-        "A session whose project fell off the list gets its project back",
-        "Say when a project status is too long",
-        "Projects stay on the list, sessions are the tabs"
+        "The companion is told where a picture it makes is kept",
+        "TODAY and PROJECTS show every item and scroll; tick a reminder from HOME",
+        "Pictures drawn for the CHAT room are kept in STUDIO too",
+        "Answer a table in its own window - edit it, pick or tick rows, add your words",
+        "A link written in bold or italic opens on click",
+        "A refused Keychain read is asked again, not kept for the whole run"
       ]
     },
     {
       "login": "NecroSlav",
-      "merged": 6,
+      "merged": 7,
       "built": [
+        "Pick the prompt in a ComfyUI workflow, no JSON editing",
         "Draw STUDIO's plain pictures with your own ComfyUI",
         "A download answer that is only part of the release no longer counts as all of it",
         "Say Install will continue when a database download was interrupted",
         "Carry the database download on from where it stopped",
-        "A long project status no longer stops moving the memory into the database",
-        "Keep the database install's progress when Settings closes and reopens"
+        "A long project status no longer stops moving the memory into the database"
+      ]
+    },
+    {
+      "login": "ashranhelmi",
+      "merged": 1,
+      "built": [
+        "Stop leaving companion room keys on the Portfolio"
+      ]
+    },
+    {
+      "login": "luqzainal",
+      "merged": 1,
+      "built": [
+        "Text boxes and the PROJECTS / FILES switch follow the theme"
       ]
     }
   ]
