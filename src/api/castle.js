@@ -289,6 +289,8 @@ export const onTerminalOutput = on('terminal-output')
 export const onTerminalExit = on('terminal-exit')
 export const onStoryOutput = on('story-output')
 export const onStoryExit = on('story-exit')
+export const onWorldsmithOutput = on('worldsmith-output')
+export const onWorldsmithExit = on('worldsmith-exit')
 // APPEARANCE. -> { folder, canon, portrait, wardrobe: [{ id, name, note, sheet, savedPrompt }], hairstyles, current: { outfit, hair } }
 export const appearanceLook = () => invoke('appearance_look')
 export const appearanceNew = (kind, name, description) => invoke('appearance_new', { kind, name, description })

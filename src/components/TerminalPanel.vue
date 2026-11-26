@@ -27,6 +27,8 @@ import {
   onStoryOutput,
   onTerminalExit,
   onTerminalOutput,
+  onWorldsmithExit,
+  onWorldsmithOutput,
   onWakeRequest,
   takeAutoWake,
   terminalResize,
@@ -61,8 +63,10 @@ const props = defineProps({
 const emit = defineEmits(['settings', 'setup', 'view', 'running', 'state', 'busy', 'context'])
 
 const isDev = props.devSlot !== null && props.devSlot !== undefined
-// HOME's panel has a PROFILE tab (the emotion engine); STORY and DEV tabs do not
-const hasProfile = !isDev && props.room !== 'story'
+// the companion's own main session: no room (STORY and WORLDSMITH have their own) and no DEV tab
+const isMain = !isDev && !props.room
+// HOME's panel has a PROFILE tab (the emotion engine); STORY, WORLDSMITH and DEV tabs do not
+const hasProfile = isMain
 // the room Chat reads: a DEV tab's is routed to its own session (see castle.js)
 const chatRoom = isDev ? devRoom(props.devSlot) : props.room
 
@@ -89,8 +93,8 @@ const session = isDev
       start: (cols, rows, greet, fresh) => terminalStart(cols, rows, props.room, greet, fresh),
       write: (data) => terminalWrite(data, props.room),
       resize: (cols, rows) => terminalResize(cols, rows, props.room),
-      onOutput: props.room === 'story' ? onStoryOutput : onTerminalOutput,
-      onExit: props.room === 'story' ? onStoryExit : onTerminalExit,
+      onOutput: props.room === 'story' ? onStoryOutput : props.room === 'worldsmith' ? onWorldsmithOutput : onTerminalOutput,
+      onExit: props.room === 'story' ? onStoryExit : props.room === 'worldsmith' ? onWorldsmithExit : onTerminalExit,
     }
 
 const WIDTH_KEY = 'castle.panelWidth'
@@ -351,8 +355,7 @@ onMounted(async () => {
   observer.observe(surface.value)
 
   // the tray's Wake and the start-up wake are the companion's main session's only
-  const mainSession = !isDev && props.room !== 'story'
-  if (mainSession) stopListening.push(await onWakeRequest(wake))
+  if (isMain) stopListening.push(await onWakeRequest(wake))
   try {
     stopListening.push(await getCurrentWebview().onDragDropEvent(onDragDrop))
   } catch {
@@ -415,9 +418,9 @@ if (isDev) {
 }
 
 // A session that keeps filling up: the watch's one line for this panel (unstick.rs), cleared by an
-// empty line or the close button. STORY has no such line.
+// empty line or the close button. STORY and WORLDSMITH have no such line.
 const fullLine = ref('')
-if (props.room !== 'story') {
+if (isMain || isDev) {
   onSessionFull((payload) => {
     if (fullLineFor(payload, isDev ? props.devSlot : null) !== null) fullLine.value = payload.line
   }).then((stop) => stopListening.push(stop))
@@ -427,7 +430,7 @@ if (props.room !== 'story') {
 // main session only, Claude Code's meter only; a draft in Chat's box is untouched by it.
 const contextPercent = ref(null)
 const freshState = ref('watching')
-if (!isDev && props.room !== 'story') {
+if (isMain) {
   watch([contextPercent, busy, running], () => {
     freshState.value = nextCard(freshState.value, { percent: contextPercent.value, busy: busy.value, running: running.value })
   })
@@ -505,7 +508,7 @@ defineExpose({ wake, screenLines, writeToSession, addPaths, addText })
       </div>
     </div>
 
-    <QuickActions v-if="!isDev && room !== 'story' && view !== 'profile'" :running="running" :write="writeToSession" :settings-stamp="settingsStamp" />
+    <QuickActions v-if="isMain && view !== 'profile'" :running="running" :write="writeToSession" :settings-stamp="settingsStamp" />
 
     <p v-if="running && noticeLine()" class="model-notice" role="status">
       <span>{{ noticeLine() }}</span>
