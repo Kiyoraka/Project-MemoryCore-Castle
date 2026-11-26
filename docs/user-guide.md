@@ -30,6 +30,7 @@ MemoryCore Castle is a full-screen desktop for your MemoryCore companion. It ope
 22. [Worldsmith](#22-worldsmith)
 23. [Scriptorium](#23-scriptorium)
 24. [Photo](#24-photo)
+25. [Music Studio](#25-music-studio)
 
 ---
 
@@ -199,7 +200,7 @@ Castle reads what your memory already holds, so you are never asked twice:
 |-----|--------------|------------|
 | **ChatGPT (OpenAI)** | Your companion can draw pictures (Claude Code only - Codex draws by itself, so this key is hidden for Codex) | The picture's description is saved instead, and Castle tells you |
 | **Seedance** | Short videos | The video's description is saved instead |
-| **Suno** | Songs sung from lyrics | The lyrics are saved instead |
+| **Suno** (sunoapi.org) | Songs sung from lyrics, and MUSIC STUDIO's paid steps (chapter 25) | The lyrics are saved instead |
 | **ElevenLabs** | A speaking voice | The words are saved instead |
 
 Keys are kept **encrypted by Windows** (Credential Manager, tied to your Windows sign-in). They never go into your memory folder and are only handed to your companion's session while it runs.
@@ -341,6 +342,8 @@ Each project sits on a shelf. Above an open project, its chip says where it is a
 **Grouped names.** Projects named like *Castle · Update chip* only look grouped. When there are some, the list shows **Make sub-projects…**: tick the ones to move and press **Make N sub-projects**. Each goes under its parent (made for you when it does not exist yet) with the short name; nothing is renamed without your tick. **Not now** hides it until new grouped names appear.
 
 The HOME **PROJECTS** card lists the active projects at the top of the tree, with their tasks done (`3/8`).
+
+**Plans.** The plans your companion makes for a project, with their ticked steps, live in your memory database too. **Export** and **Move back to files** (Settings > Database) write every plan out as a file under `plans/`, each step ticked as it was, and moving in again brings the plans back with their progress (a box you ticked by hand in the file counts).
 
 ### LIBRARY
 
@@ -1341,19 +1344,19 @@ program, and only reads the one picture it is given.
 
 **SCRIPTORIUM** (in APPS, under Work) is your own office: documents, sheets, slides and PDFs, with
 your companion in a chat beside the page. Everything in it is ours, written for Castle from the ground
-up - the file readers, the page layout, the drawing and the PDF writer - with no outside office
-program behind it. It has four editors:
+up - the file readers, the page layout, the drawing, the formula engine and the PDF writer - with no
+outside office program behind it. It has four editors:
 
 - **Scroll** - documents (.docx, and .docm)
-- **Ledger** - sheets (.xlsx, and .xlsm)
+- **Ledger** - sheets (.xlsx, and .xlsm; .csv and .txt open here too)
 - **Stage** - slides (.pptx, and .pptm)
 - **Folio** - PDFs (.pdf)
 
 ### Switching it on
 
-SCRIPTORIUM is off to begin with: switch it on in **Settings > Rooms** (Work). It is early - the badge
-in its title bar says **Early - open and see**: files open, show and save, and editing by hand grows
-with each step. Switching it off ends its chat session and closes its documents.
+SCRIPTORIUM is off to begin with: switch it on in **Settings > Rooms** (Work). It is still young - the
+badge in its title bar says so - but you can now write in all four editors by hand. Switching it off
+ends its chat session and closes its documents.
 
 ### Two layouts
 
@@ -1361,8 +1364,9 @@ The chevron beside SCRIPTORIUM in **Settings > Rooms** opens its **Layout**:
 
 - **Classic** (the default) - a ribbon over the page and the chat on the right. **Open** has a small
   **▾** beside it with your recent files.
-- **Studio** - an icon rail of the editors, your recent files on the left, an inspector on the right
-  and the chat along the bottom.
+- **Studio** - an icon rail of the editors, your recent files on the left, an **inspector** on the
+  right and the chat along the bottom. The inspector holds the same buttons as the ribbon, as cards
+  (Text, Paragraph, Cell, Number, Shape, Fields...).
 
 In both, the editor buttons (Scroll, Ledger, Stage, Folio) switch editors. Each editor keeps its own
 document, so switching back finds it as you left it; an editor you have not used yet starts with a
@@ -1374,7 +1378,8 @@ new blank one.
   Folio). A recent file opens with one press. Big files open without freezing the room; files up to
   300 MB open.
 - **Save** (or **Ctrl+S**) writes back to the file it came from. **Save as** (or **Ctrl+Shift+S**)
-  asks where; a new document's first Save asks too. A document keeps its type: a .docm stays a .docm.
+  asks where; a new document's first Save asks too. A document keeps its type: a .docm stays a .docm,
+  a .csv stays a .csv.
 - Saving over a file keeps the version before it beside it as **name.bak** (one, replaced at the next
   save). The file is written whole first and only then put in place, so a failed save never leaves a
   half-written file.
@@ -1384,70 +1389,289 @@ new blank one.
   added after it, the way PDF intends.
 - A dot after the file's name in the title bar means unsaved changes. New or Open over a document with
   unsaved changes asks for a second press first.
+- **Export as PDF** (beside Undo and Redo) writes the document, sheet or deck as a PDF wherever you
+  choose, with real text you can search and copy. **Print** (or **Ctrl+P**) sends it to your printer.
 
 Moving around: Ledger shows a tab for each sheet above the grid; Stage shows a strip of the slides on
 the left; Scroll and Folio show **Page N of M** with **‹ ›** (or **Page Up** / **Page Down**).
 
+### Writing by hand
+
+Click on the page to put the caret there and type. The keys work the way you expect in every editor:
+
+- **Arrows** move the caret, **Ctrl+arrows** a word (in a sheet, to the edge of the data), **Home** and
+  **End** the line, **Ctrl+Home** and **Ctrl+End** the start and the end. Hold **Shift** to select;
+  drag with the mouse to select too. **Ctrl+A** selects all.
+- **Backspace** and **Delete** (with **Ctrl**, a whole word), **Enter**, **Shift+Enter** for a line
+  break, **Tab** and **Shift+Tab**.
+- **Ctrl+B**, **Ctrl+I**, **Ctrl+U** for bold, italic and underline. **Ctrl+C**, **Ctrl+X** and
+  **Ctrl+V** copy, cut and paste: a copy inside SCRIPTORIUM keeps its formatting; a copy out to another
+  app is plain text. Typing in other languages through your keyboard's input method works too.
+- **Ctrl+Z** undoes and **Ctrl+Y** (or **Ctrl+Shift+Z**) brings it back. Every step is undone exactly:
+  undo all the way back and the file is byte for byte what you opened.
+
+The ribbon's buttons light up for what is under the caret (bold pressed inside bold text, the style of
+the paragraph you are in).
+
+### Find and replace
+
+**Ctrl+F** (or the **Find** button) opens the find bar over the page: type, then **Enter** for the next
+match and **Shift+Enter** for the one before; the match is selected on the page, and the search wraps
+round. **Ctrl+H** opens it with **Replace with**: **Replace** changes this match and goes to the next,
+**All** changes every one. **Esc** closes it. Folio finds but does not replace yet.
+
+### Scroll: documents
+
+- **Home** - Clipboard (cut, copy, undo, redo), Font (typeface, size, bold, italic, underline and
+  double underline, strikethrough, subscript, superscript, font colour, highlight, grow and shrink,
+  **Clear formatting**), Paragraph (alignment, line spacing, space after, keep with next, indents,
+  **Bullets**, **Numbering**, **Multilevel list**, **Restart numbering at 1**), **Styles** (Normal,
+  Title, Heading 1 to 3, Quote, Strong, Emphasis - a style the file lacks is added), Find, Replace and
+  Select all.
+- **Insert** - tables (a 3 x 3 to start, then rows and columns), **Picture from a file** (PNG, JPEG,
+  GIF, BMP), **Link** and **Remove link** (a web address, an email or a place in the document), page
+  breaks (**Ctrl+Enter**), **Header**, **Footer**, page numbers (**Page X of Y** at the bottom, or one
+  right where you are) and **Different first page**.
+- **Layout** - **Page setup**: margins (Normal, Narrow, Wide), Portrait or Landscape, and A4, Letter or
+  Legal; section breaks (next page, continuous, even or odd page); and, inside a table, deleting rows,
+  columns or the table, **Merge cells**, AutoFit, **Repeat header rows**, row height, cell alignment,
+  shading and borders. A selected picture can be resized.
+
+Lists behave as you expect: **Tab** at the start of a list item moves it a level down, **Enter** on an
+empty item ends the list, and a new paragraph after a heading is ordinary text. Pages follow the
+file's own rules for keeping a heading with its next paragraph and lines together.
+
+### Ledger: sheets
+
+- **Typing in a cell**: numbers, percentages, money, dates, times, true/false and text are each
+  recognised as you type them, and the cell gets a fitting format. **Enter** goes down, **Tab** goes
+  right; **Ctrl+Enter** puts what you typed into every selected cell.
+- **Formulas calculate live.** Type `=` and a formula: Ledger has its own formula engine with **over a
+  hundred common functions** (sums and averages, IF and its friends, text, dates, lookups like
+  VLOOKUP and XLOOKUP, arrays, finance). Change a number and every cell that depends on it updates at
+  once. A loop between cells is reported, and a cell Ledger cannot calculate yet keeps the value saved
+  in the file.
+- **Home** - Clipboard with **Format Painter**, Font (bold, italic, underline, strikethrough, size,
+  text colour, fill), Alignment (top, middle, bottom, left, centre, right, **Wrap text**, **Merge &
+  Center**, **Unmerge**), Number (General, Number, Currency, Accounting, Percentage, Comma style, Short
+  and Long date, Time, Text, more or fewer decimals), Cells (insert and delete rows and columns,
+  AutoFit), and Editing (**AutoSum**, Fill down and right, Clear contents or formats, Sort, Filter,
+  Find, Replace). Borders sit in Studio's inspector.
+- **Insert** - rows, columns and cells (shifting down or right), deleting the same, and **New sheet**.
+  Inserting or deleting rows and columns rewrites every formula that points past them.
+- **Formulas** - **AutoSum** as Sum, Average, Count numbers, Max or Min.
+- **Data** - **Sort A to Z** and **Z to A** (a header row is found and stays on top), **Filter** (puts a
+  filter on the data; ask your companion to show only the rows holding what you name), **Clear the
+  filter** (every row back), **Remove the filter**, Find and Replace.
+- **View** - **Freeze panes** at the active cell, **Freeze top row**, **Freeze first column**,
+  **Unfreeze panes**; hide and unhide rows and columns, AutoFit and default widths.
+- **Sheets** can be added, renamed, deleted and moved with their tabs; formulas that name a sheet follow
+  a rename.
+- **Pasting** a table copied from a web page or another app splits it into cells and reads each one as
+  if typed. A copy inside Ledger keeps its formats, and its formulas move with it. Cutting and pasting
+  moves cells, and formulas that point at them follow.
+- **CSV**: a .csv or .txt file opens as a sheet (the separator is found by itself, and leading zeros
+  and long codes stay as text) and saves back as CSV.
+
+### Stage: slides
+
+- **Text**: click into a placeholder or a text box and type. **Home** has Font (bold, italic,
+  underline, strikethrough, bigger and smaller) and Paragraph (bullets, numbering, list levels with
+  **Tab** and **Shift+Tab**, alignment, line spacing 1.0, 1.5 or 2.0).
+- **Insert** - **Text box**, shapes (rectangle, rounded rectangle, oval, triangle, block arrow, star,
+  line and arrow), **Picture from a file** (into an empty picture placeholder when one is selected), and
+  tables (2 x 2 to 4 x 4, then rows and columns).
+- **Arranging**: click a shape to select it, and the arrow keys nudge it.
+  **Arrange** has bring to front, send to back, group, ungroup and regroup, rotate and flip; **Align**
+  lines shapes up with each other or the slide and distributes them evenly. Studio's inspector also
+  sets fill, outline, text colour, exact size and position, how text fits its shape (shrink on overflow
+  or resize the shape) and wrap. A picture can be cropped.
+- **Slides**: **New slide** (on a layout you choose in **Design**), **Duplicate slide**, **Delete slide**,
+  and **Move slide earlier** or **later**. A slide can be copied into another open deck.
+- **The slide show**: **Slide Show > From beginning** (**F5**) or **From current slide**
+  (**Shift+F5**) fills the screen. Click, **→**, **↓**, **Space**, **Enter** or **Page Down** goes on;
+  **←**, **↑**, **Page Up** or **Backspace** goes back; type a slide's number and **Enter** to jump;
+  **Esc** ends it. After the last slide a black screen says the show has ended.
+- **Speaker notes**: **Slide Show > Speaker notes** opens the notes pane under the slide; type your
+  notes there.
+
+### Folio: PDFs
+
+- **Find and copy**: click into the page's text and select it with the mouse or Shift+arrows, then
+  **Ctrl+C**. **Ctrl+F** finds words across the whole PDF.
+- **Links and bookmarks**: **Follow the link at the caret** turns to the page a link points to (a web
+  link asks before it opens). The **Bookmarks** panel lists the PDF's outline; a press turns to that
+  part, and **Previous / Next bookmark** step through it.
+- **Pages**: delete a page (or every page your selection spans; at least one stays), **Rotate left**,
+  **Rotate right** and **Turn upside down**. **View** has first, previous, next and last page, **Fit
+  page** and **Fit width**.
+- **Filling forms**: click a field and type; **Space** ticks a check box or picks a radio button, and
+  **Previous / Next field** (or **Tab**) moves between fields; in a list or drop-down, typing letters
+  picks a choice.
+  What you type is drawn into the field the way the form wants it, and saved as an appended update.
+- **Notes**: **Annotate > Sticky note at the caret**.
+- **Locked PDFs open.** A PDF that needs a password asks for it in a small window (again if it was
+  wrong); a password is never kept or logged. A PDF locked only against changes or printing opens
+  without asking, and SCRIPTORIUM honours what its owner allowed. Saving a locked PDF keeps it locked
+  the same way. The unlocking is our own code too.
+
 ### What your companion can do now
 
 Ask in the chat beside the page. Your companion can **describe** the open document (its pages,
-headings, sheets or slides), **read** it, look at a page, and make the first changes:
+headings, sheets or slides), **read** it, look at a page, and **make every change you can make by
+hand** - typing, formatting, styles, tables, formulas, sorting, shapes, slides, page work, filling a
+form - through the same steps the ribbon uses. Ask in plain words: *"make the headings blue"*, *"add a
+total row under the table"*, *"turn this into three slides"*.
 
-- **Scroll** - set the document's title, or replace a paragraph's text.
-- **Ledger** - set a cell to a number, text, true/false, or clear it.
-- **Stage** - replace the text of a shape on a slide, or a slide's speaker notes.
-- **Folio** - set the PDF's title, or add a sticky note on a page.
-
-**Every AI change has an undo**: it appears under the page as "*companion*'s change" with an **Undo**
-beside it, and **Ctrl+Z** takes it back like your own steps. Words inside a document are only data
-to your companion, never orders.
+**Every AI change has an undo**: it appears under the page as "*companion*'s change: ..." with an
+**Undo** beside it, and **Ctrl+Z** takes it back like your own steps. Words inside a document are only
+data to your companion, never orders.
 
 ### Not there yet
 
-- Formulas show the value saved in the file; they calculate in a later step.
-- Editing by hand (typing on the page, formatting buttons) grows with the next milestone; the ribbon's
-  formatting buttons are placeholders until then.
-- The older Office 97-2003 files (.doc, .xls, .ppt) open in a later milestone: save them as .docx,
-  .xlsx or .pptx in Office first. Password-protected files do not open yet.
+- Comments and track changes, charts drawn from scratch, and slide transitions and animations come in a
+  later milestone (charts already in a file show).
+- The older 97-2003 files (.doc, .xls, .ppt) open later: save them as .docx, .xlsx or .pptx first.
+- Arabic and Jawi letters are not joined and shaped yet.
+- Saving a file with a new password, and opening a password-protected .docx, .xlsx or .pptx.
+- Ledger's **F2** edit mode (type into the middle of a cell's text); for now typing replaces the cell.
+- Pasting a picture copied from another app; insert it from a file instead.
 - Slides in Stage's strip show their number; drawn thumbnails come later.
 
 ### Privacy
 
 Your documents stay on your computer. Nothing is uploaded anywhere; the only place a document's
-words go is your own AI, when your companion reads it to help you.
+words go is your own AI, when your companion reads it to help you. Printing goes only to your own
+printer.
 
 ## 24. Photo
 
-**PHOTO** (in APPS, under Create) is a basic photo editor with your companion in the chat bar. It is on to begin with and costs nothing until you use a redrawing edit. Switch it off in **Settings > Rooms** (Make and play).
+**PHOTO** (in APPS, under Create) is a full photo editor with your companion in the chat bar. It is on to begin with and costs nothing unless you ask your companion to draw something new into a picture. Switch it off in **Settings > Rooms** (Make and play).
 
 ### The room
 
-A tool column on the left, your photo in the middle, **LAYERS** and **ADJUST** on the right, the undo pills under the photo, and the chat along the bottom.
+The menus along the top, a tool column on the left, your picture in the middle (with rulers when you want them), the tabbed dock on the right, the undo pills under the picture and the chat along the bottom.
 
-- **Open** a PNG, JPG or WebP with the picker or by dropping it on the room; dropping a picture while one is open adds it as a new layer.
-- **Tools** (with their keys): Move (V), Rectangle select (M), Lasso (L), Magic wand (W), Crop (C - drag, then Enter), Brush (B) and Eraser (E) with size, hardness and opacity, Clone stamp (S - Alt+click sets where it copies from), Text (T, an editable layer) and Eyedropper (I). A selection keeps the brush inside it. **Rotate**, **Flip** and **Resize** sit in the tool bar.
-- **Moving around**: Ctrl+wheel zooms, Space+drag pans. Ctrl+A selects all, Ctrl+D drops the selection, [ and ] change the brush size, Delete clears the selected area.
-- **LAYERS**: eye, small picture, rename, opacity, blend (normal, multiply, screen, overlay, darken, lighten), order, duplicate, delete and new.
-- **ADJUST**: exposure, brightness, contrast, highlights, shadows, warmth, saturation and sharpness, from -100 to 100, with **Reset**. They never change your pixels: they are applied when the photo is drawn and exported.
+- **Open** (**Ctrl+O**) a PNG, JPG, WebP, GIF, BMP or **.psd** with the picker, or drop it on the room; dropping a picture while one is open adds it as a new layer. **New** (**Ctrl+N**) starts a blank canvas.
+- **Moving around**: Ctrl+wheel zooms, Space+drag pans, **Ctrl++** and **Ctrl+-** zoom, **Ctrl+0** fits the picture on screen and **Ctrl+1** shows it at 100%. The **NAVIGATOR** tab shows where you are.
+
+### The menus
+
+- **File** - New, Open, Open recent, Save (**Ctrl+S**), **Export As** (**Alt+Shift+Ctrl+W**), and quick export as PNG or JPG.
+- **Edit** - Undo (**Ctrl+Z**), Redo (**Ctrl+Y**), fill with the primary colour (**Alt+Backspace**), **Content-aware fill** (**Shift+F5** - fills the selection from what is around it) and **Free transform** (**Ctrl+T**).
+- **Image** - Adjustments, new artboards, Crop, rotate 90° left or right, flip, **Image size** (**Ctrl+Alt+I**) and **Canvas size** (**Ctrl+Alt+C**).
+- **Layer** - new layer (**Ctrl+Shift+N**), duplicate (**Ctrl+J**), delete, new group (**Ctrl+G**), ungroup (**Ctrl+Shift+G**), clipping mask (**Ctrl+Alt+G**), **Layer style**, new adjustment layer, invert or delete a mask, merge down (**Ctrl+E**) and flatten.
+- **Select** - All (**Ctrl+A**), Deselect (**Ctrl+D**), Inverse (**Ctrl+Shift+I**), **Subject**, **Sky**, **Colour range**, **Quick mask** (**Q**) and **Select and Mask** (**Ctrl+Alt+R**).
+- **Filter** - the filters (below) and **Liquify** (**Shift+Ctrl+X**).
+- **View** - zoom, **Rulers** (**Ctrl+R**), show and lock guides, new guide, clear guides, grid and grid size, and **Snap** (**Shift+Ctrl+;**).
+- **Window** - each dock tab on or off, and **Reset the workspace**.
+
+### The tools
+
+Each tool has its key; **Shift** with the key steps through the tools that share it.
+
+- **Move** (V), **Rectangle select** (M), **Lasso** (L), **Magic wand** (W) with **Quick select** and **Object select** (Shift+W), **Crop** (C - Enter applies).
+- **Brush** (B), **Eraser** (E), **Gradient** (G), **Shape** (U - rectangle, ellipse, line, polygon) and **Text** (T, an editable layer).
+- **Retouch**: **Healing brush** (J - Alt+click sets the source) with **Spot healing** and **Patch** (Shift+J), **Clone stamp** (S - Alt+click sets the source), **Dodge**, **Burn** and **Sponge** (O), and **Blur**, **Sharpen** and **Smudge** brushes (R).
+- **Pen** (P): click to lay a path; **Enter** turns it into a selection and **Shift+Enter** into a shape. Paths are kept in the **PATHS** tab.
+- **Eyedropper** (I), **Hand** (H) and **Zoom** (Z - click in, Alt+click out). The two colour squares under the tools are the primary and secondary colours; **X** swaps them. **[** and **]** change the brush size, Delete clears the selected area.
+
+### The dock
+
+Four groups of tabs on the right:
+
+- **LAYERS**, **CHANNELS**, **PATHS** - the layers with their eye, picture, name, opacity, blend mode, mask and order; groups fold open and closed, and a layer can be clipped to the one below. CHANNELS shows the red, green and blue on their own.
+- **PROPERTIES** - whatever is selected: a layer's settings, or an adjustment layer's controls, with **Curves** (**Ctrl+M**), **Levels** (**Ctrl+L**) and **Hue/Saturation** per colour range (**Ctrl+U**).
+- **ADJUSTMENTS**, **STYLES**, **SWATCHES** - one press adds an adjustment layer; STYLES holds ready looks; SWATCHES your colours.
+- **ACTIONS**, **HISTORY**, **NAVIGATOR** - recorded actions (below), every step so far, and the small map of the picture.
+
+### Layers, blending and adjustments
+
+- **Groups and clipping**: put layers in a group to move, hide or fade them together; a clipped layer shows only where the layer under it has pixels (an adjustment clipped to one photo changes only that photo).
+- **Layer styles**: drop shadow, inner shadow, outer glow, inner glow, stroke, colour overlay and gradient overlay, each with its own settings.
+- **27 blend modes**, from Normal and Dissolve through Multiply, Screen, Overlay, Soft Light, the Dodge and Burn family, Difference, to Hue, Saturation, Colour and Luminosity.
+- **Adjustment layers** never change your pixels and can be changed or removed any time: Brightness/Contrast, Levels, Curves, Exposure, Vibrance, Hue/Saturation, Colour Balance, Black & White, Photo Filter, Channel Mixer, Colour Lookup (film looks), Invert, Posterize, Threshold, Gradient Map, Selective Colour and Shadows/Highlights. A layer mask limits any of them to part of the picture.
+- **Filters**: Gaussian, Motion, Radial, Surface and Lens Blur; Unsharp Mask and High Pass; Add Noise, Film Grain and Reduce Noise; Mosaic; Emboss, Find Edges and Oil Paint; Develop and Vignette. A filter works inside the selection when there is one.
+
+### Liquify and Select and Mask
+
+Both open as their own workspace over the picture, with **Cancel** to leave unchanged.
+
+- **Liquify** pushes, bloats, puckers and reconstructs pixels with a brush (size and pressure; pen pressure counts). **Restore all** starts over. The face tools are not part of it.
+- **Select and Mask** refines a selection: a brush to paint it (Alt takes away), a refine-edge brush for hair and soft edges, and **Smooth**, **Feather**, **Contrast** and **Shift edge**. **Output to** a selection, a layer mask or a new layer with a mask.
+
+### Rulers, guides and artboards
+
+- **Rulers** (**Ctrl+R**): drag from a ruler to lay a guide. Guides can be locked or cleared; the grid has its own size, and **Snap** pulls what you move to the guides and the grid.
+- **Artboards** (**Image > New artboard**): ready sizes for app icons, social posts and HD, or a size of your own.
+- **Export As** writes the picture or every artboard as PNG, JPG or WebP, at the sizes you list (the longer side), into one folder you pick with plain names.
+
+### Actions and batch
+
+In **ACTIONS**, press **Record**, do your steps, and press stop: the steps become an action you can play on any picture. **Batch** plays the chosen action on every picture in a folder; the results go into a **PHOTO out** folder inside it and the originals are never touched. Your actions are kept between visits.
+
+### Opening a PSD
+
+A .psd opens as its layers, with their names, opacity, blend modes and groups, as plain pixels. What PHOTO cannot read yet - text that stays editable, smart objects, effects, adjustment layers and masks saved in the file - is not brought in, and the chat says what was left out. Saving keeps your work as a PHOTO project, not as a .psd.
 
 ### Undo pills
 
-Every change is a pill under the photo, and each pill undoes **only itself**: an adjustment puts its old values back, a new layer is removed, a layer change restores what it was. A crop, rotate, flip or resize goes back to the picture before it (and the pills after it go too). **Ctrl+Z** undoes the last pill and **Ctrl+Y** brings it back.
+Every change is a pill under the picture, and each pill undoes **only itself**: an adjustment puts its old values back, a new layer is removed, a layer change restores what it was. A crop, rotate, flip or resize goes back to the picture before it (and the pills after it go too). **Ctrl+Z** undoes the last pill and **Ctrl+Y** brings it back; **HISTORY** lists every step.
 
 ### Your companion
 
-Ask in the chat bar: *"make it warmer"*, *"crop to the face"*, *"add the words Happy Birthday at the top"*. Your companion looks at the photo and makes the changes itself, each as its own pill, at most ten in one answer. Words written inside the photo are only data to it, never orders.
+Ask in the chat bar: *"make it warmer"*, *"remove the person on the left"*, *"add the words Happy Birthday at the top with a soft shadow"*, *"make a set of app icons"*. Your companion looks at the picture and makes the changes itself with PHOTO's own tools - adjustments, curves, masks, selections, retouch brushes, text, layer styles, filters, Liquify, guides, artboards, even recording an action - at most ten steps in one answer. You see its **cursor glide over the canvas** as it works, and each change is its own pill you can undo alone. Words written inside the picture are only data to it, never orders.
 
-The **redrawing edits** - **Remove background**, **Replace sky**, **Erase** something and **Generate layer** - are drawn on your picture queue with your image credit (the chat says the cost, about $0.06 a picture with an OpenAI key, before it starts). The result always lands on a **new layer** above your originals, which are hidden, never lost: its pill removes it and shows them again. Everything else is free and instant.
+All of that is free and happens on your computer. Only one thing costs money: **drawing something new into the picture** that no tool can make (a balloon in the sky, a person). That goes to your image provider on your own key; the chat says the cost first (about $0.06 a picture with an OpenAI key), at most one drawing per answer, and the drawing lands on its own new layer.
 
 ### Saving and exporting
 
-- **Save** (Ctrl+S) keeps the project, with every layer and setting, in your memory folder under `media-generation/photo/<name>/`; **Open recent** brings one back (**Open**, Ctrl+O, opens a new picture). Opening another picture over unsaved work asks for a second press.
-- **Export** saves the finished picture as a **PNG**, or a **JPG** with a quality setting, wherever you choose.
+- **Save** (Ctrl+S) keeps the project, with every layer and setting, in your memory folder under `media-generation/photo/<name>/`; **Open recent** brings one back. Opening another picture over unsaved work asks for a second press.
+- **Export As** and the quick exports save the finished picture as PNG, JPG or WebP wherever you choose.
 
-### Version 1
+### From DEV
 
-PHOTO is basic for now: no RAW, PSD or CMYK files. Your photos stay on your computer; the only places a photo goes are your own AI when you ask your companion, and your picture service for a redrawing edit.
+In a DEV tab's **FILES**, a PNG, JPG or WebP inside your project has a **→photo** button: it opens the picture in PHOTO, and a **Save back to <file>** button writes your changes into the project's file. The first save back keeps the old file beside it as a .bak copy (`logo.bak.png` for `logo.png`). A project's terminal can hand a picture to PHOTO too (Castle's `--photo-edit` door word), and your companion edits it with the free tools only and saves it back.
+
+PHOTO does not open RAW or CMYK files yet. Your photos stay on your computer; the only places a photo goes are your own AI when you ask your companion, and your image provider when you ask for something new to be drawn.
+
+## 25. Music Studio
+
+**MUSIC STUDIO** (in APPS, under Create) is where you and your companion make whole songs together, from a first idea to a finished track. It is on to begin with; switch it off in **Settings > Rooms** (Make and play). Switching it off ends its chat session; your songs stay.
+
+### The six steps
+
+The step rail along the top walks a song through six steps. You can go back to any step.
+
+1. **SEED** - drop or paste what the song grows from: pictures, a hummed or played melody, a MIDI file or a short clip. A song can grow from words alone too.
+2. **DRAFT** - the **TITLE**, the **STYLE** (*city pop, soft female vocal, rain*), the lyrics and what to **AVOID**, written with your companion in the chat. Your companion writes the lyrics with you itself.
+3. **SING** - **Sing two takes** gives you two versions of the song to choose from.
+4. **FIX** - select a part on the timeline and **Re-sing this part** with new words, **Extend** the song from the playhead, or make a **Cover in a style**.
+5. **DRESS** - **Split** the song into stems (vocals + music, or up to 12 stems), set each lane, and **Lay a loop** or a sound under the intro or the outro.
+6. **FINISH** - **Word timing** lights the lyrics up as they are sung, **karaoke**, the **WAV**, **Cover art** and a **Music video**. Then **Approve take**.
+
+### The timeline and the lanes
+
+- The **TIMELINE** shows the song in its sections (verse, chorus, bridge). Click to move the playhead; drag to select a part (the words sung under it are shown). **Clear selection** lets it go.
+- Once the song is split, each stem has its own **lane** with **mute**, **solo** and a **volume** slider. **karaoke** silences every vocal stem at once.
+- The **dials** set how the next take is sung: **MODEL**, **LENGTH**, **STYLE** weight, **WEIRDNESS**, **AUDIO REF** weight, **VARIETY**, the voice and a **PERSONA**.
+- The undo button takes back the last change; many turns of one knob in a row are one undo.
+
+### The album shelf
+
+Your albums sit on the shelf: a press opens one, and a song in it opens at its step. Songs are saved in your memory folder under `music/<album>/` (the takes, the words, the cover), so they show on **STUDIO's Songs shelf** too. A blank song starts at SEED.
+
+### Your companion beside you
+
+The chat sits beside the studio. **Every control on the page is one your companion can press too**: *"make the second chorus softer and bring the drums down a little"* becomes the same moves on the page, and you see them happen, lit up as your companion's.
+
+### What costs money
+
+Singing, re-singing a part, extending, a cover, splitting stems, a sound or loop, word timing, the WAV, cover art, the music video and expanding the style are made by the song service on **your own sunoapi.org key** (the **Suno** key in **Settings > Keys**). These buttons are marked **(paid)**. Pressing one never spends anything by itself: it asks your companion, who **tells you the cost first and does it only after your yes**. The first time for each kind, your companion says plainly that this first one measures the cost.
+
+The **credits meter** shows your sunoapi.org balance, read every minute. Without a key, the studio says so and points to Settings > Keys.
+
+**Approve take** is yours alone: your companion never approves a take, and playing a take does not approve it.
 
 ## Alerts
 

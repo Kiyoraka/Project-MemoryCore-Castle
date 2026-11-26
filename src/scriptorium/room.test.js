@@ -42,7 +42,7 @@ describe('the editors and the layouts', () => {
     expect(EDITORS.map((e) => e.ext)).toEqual(['docx', 'xlsx', 'pptx', 'pdf'])
     expect(editorOf('ledger').label).toBe('Ledger')
     expect(editorOf('word').id).toBe('scroll')
-    expect(EARLY_BADGE).toBe('Early - open and see')
+    expect(EARLY_BADGE).toBe('Writing - tier 1')
   })
   it('names the title bar and the ribbon by the editor', () => {
     expect(titleFor('scroll')).toBe('Scriptorium · Scroll')

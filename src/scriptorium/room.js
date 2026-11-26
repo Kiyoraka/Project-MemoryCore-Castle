@@ -11,8 +11,8 @@ export const EDITORS = [
 
 export const LAYOUTS = ['classic', 'studio']
 
-// M1: files open, show and save; editing by hand grows with the next milestone.
-export const EARLY_BADGE = 'Early - open and see'
+// M2: the first tier written by hand and by chat in all four editors; the next tiers follow.
+export const EARLY_BADGE = 'Writing - tier 1'
 
 // The ribbon's tabs and buttons live with each editor (editors/<editor>/index.js, read by ribbon.js).
 
