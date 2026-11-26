@@ -341,7 +341,7 @@ code {
   opacity: 0.7;
 }
 
-.field > :deep(*:not(span)) {
+.field > *:not(span) {
   flex: 1;
   min-width: 0;
 }
