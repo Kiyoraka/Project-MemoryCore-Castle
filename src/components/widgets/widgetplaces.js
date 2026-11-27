@@ -75,9 +75,13 @@ export function sizeOf(id, settings = {}) {
 // ("widgetScale" in theme.json, for a theme whose design draws its widgets larger; 1 when it has
 // none, and kept between 0.75 and 1.6 so no theme can make HOME unusable).
 export function scaleOf(id, settings = {}, theme = null) {
+  return Math.round(SIZES[sizeOf(id, settings)] * themeScaleOf(theme) * 1000) / 1000
+}
+
+// The theme's starting scale alone ("widgetScale", kept between 0.75 and 1.6; 1 when it has none).
+export function themeScaleOf(theme = null) {
   const wanted = Number(theme?.widgetScale)
-  const themeScale = Number.isFinite(wanted) && wanted > 0 ? Math.min(1.6, Math.max(0.75, wanted)) : 1
-  return Math.round(SIZES[sizeOf(id, settings)] * themeScale * 1000) / 1000
+  return Number.isFinite(wanted) && wanted > 0 ? Math.min(1.6, Math.max(0.75, wanted)) : 1
 }
 
 // The corner a widget grows from when it is drawn larger: the corner it is anchored to, so a widget
@@ -133,17 +137,142 @@ export function adoptPatch(settings = {}, themeId, found = {}) {
   return { widgetPlaces: all }
 }
 
-const round = (n) => Math.round(n * 10) / 10
+// places are kept to 0.01 percent (a fraction of a pixel), so a widget put on the grid stays on it
+const round = (n) => Math.round(n * 100) / 100
+
+// SNAP TO GRID: a widget put down lands on an even grid of GRID_PX pixels, so widgets line up
+// without pixel hunting. The grid is counted from the companion's panel (its
+// top border, and one gap past its side), so widgets line up with the chat too. On unless the member
+// turned it off.
+export const GRID_PX = 16
+
+export function snapOn(settings = {}) {
+  return settings.widgetSnap !== false
+}
+
+export function snapPatch(on) {
+  return { widgetSnap: !!on }
+}
+
+// A length in pixels on the grid counted from `origin` (`grid` 0 or less leaves it as it is).
+export function snapPx(n, grid = GRID_PX, origin = 0) {
+  return grid > 0 ? Math.round((n - origin) / grid) * grid + origin : n
+}
+
+// Where the grid starts, in pixels relative to HOME: level with the panel's top border, and one
+// `gap` past the panel's side that faces the widgets. No panel: HOME's top-left corner.
+export function gridOrigin(panel, home, gap = GRID_PX) {
+  if (!panel?.width || !home?.width) return { x: 0, y: 0 }
+  const onLeft = panel.left + panel.width / 2 < home.width / 2
+  return { x: onLeft ? panel.left + panel.width + gap : panel.left - gap, y: panel.top }
+}
 
 // A dropped widget's corner in percent, kept wholly on HOME: `box` is where the widget now is
-// (left, top, width, height in pixels, relative to HOME), `home` is HOME's width and height.
-export function dropPlace(box, home) {
+// (left, top, width, height in pixels, relative to HOME), `home` is HOME's width and height. With
+// `grid`, the corner lands on the grid first (and stays on HOME).
+export function dropPlace(box, home, grid = 0, origin = { x: 0, y: 0 }) {
   if (!home?.width || !home?.height) return { left: 0, top: 0 }
   const maxLeft = Math.max(0, home.width - box.width)
   const maxTop = Math.max(0, home.height - box.height)
-  const left = Math.min(Math.max(0, box.left), maxLeft)
-  const top = Math.min(Math.max(0, box.top), maxTop)
+  const left = Math.min(Math.max(0, snapPx(box.left, grid, origin.x)), maxLeft)
+  const top = Math.min(Math.max(0, snapPx(box.top, grid, origin.y)), maxTop)
   return { left: round((left / home.width) * 100), top: round((top / home.height) * 100) }
+}
+
+// ARRANGE FOR ME: the widgets laid out on HOME so none overlaps another or the companion's panel.
+// All in pixels relative to HOME. `boxes` is [{ id, width, height }] in the order they are wanted
+// (the first takes the top-left free spot); `area` is { left, top, right, bottom }, the room they may
+// use; `blocked` is [{ left, top, width, height }] they must keep clear of (the panel, a button).
+// Each widget takes the highest free spot, then the leftmost, `gap` apart from everything; with
+// `grid`, every spot is on the grid counted from `origin`. Returns the corners found and the ids
+// that did not fit anywhere (`left`).
+export function packBoxes(boxes = [], area, blocked = [], { gap = GRID_PX, grid = 0, origin = { x: 0, y: 0 } } = {}) {
+  const taken = blocked.map((b) => ({ left: b.left, top: b.top, width: b.width, height: b.height }))
+  const upOn = (n, o) => (grid > 0 ? Math.ceil((n - o) / grid) * grid + o : n)
+  const upX = (n) => upOn(n, origin.x)
+  const upY = (n) => upOn(n, origin.y)
+  const clear = (a, b) => a.left >= b.left + b.width + gap || b.left >= a.left + a.width + gap || a.top >= b.top + b.height + gap || b.top >= a.top + a.height + gap
+  const places = {}
+  const left = []
+  for (const box of boxes) {
+    // the spots worth trying: the area's own edges and just past every edge already taken
+    const xs = new Set([upX(area.left)])
+    const ys = new Set([upY(area.top)])
+    for (const t of taken) {
+      xs.add(upX(t.left + t.width + gap))
+      ys.add(upY(t.top + t.height + gap))
+    }
+    const spots = []
+    for (const y of ys) for (const x of xs) spots.push({ left: x, top: y })
+    spots.sort((a, b) => a.top - b.top || a.left - b.left)
+    const spot = spots.find((s) => {
+      const r = { left: s.left, top: s.top, width: box.width, height: box.height }
+      return r.left >= area.left && r.top >= area.top && r.left + r.width <= area.right && r.top + r.height <= area.bottom && taken.every((t) => clear(r, t))
+    })
+    if (!spot) {
+      left.push(box.id)
+      continue
+    }
+    places[box.id] = spot
+    taken.push({ ...spot, width: box.width, height: box.height })
+  }
+  return { places, left }
+}
+
+// ARRANGE FOR ME with the sizes in mind: `items` is [{ id, size, unit: { width, height } }], `unit`
+// being the widget's box at size M, in the order the member reads them. First every widget keeps its
+// size; when some do not fit, L widgets become M, then every widget S. At each step the member's
+// order is tried first, then tallest, largest and widest first (which pack tighter), so a widget is
+// made smaller only when no order makes room. The try that leaves out the fewest wins.
+// Returns { places, sizes, left, shrunk }.
+const ORDERS = [
+  () => 0,
+  (a, b) => b.height - a.height,
+  (a, b) => b.width * b.height - a.width * a.height,
+  (a, b) => b.width - a.width,
+]
+export function arrangeWidgets(items = [], area, blocked = [], options = {}) {
+  const tries = [(size) => size, (size) => (size === 'l' ? 'm' : size), () => 's']
+  let best = null
+  search: for (const shrink of tries) {
+    const sizes = Object.fromEntries(items.map((it) => [it.id, shrink(it.size in SIZES ? it.size : 'm')]))
+    const boxes = items.map((it) => ({ id: it.id, width: it.unit.width * SIZES[sizes[it.id]], height: it.unit.height * SIZES[sizes[it.id]] }))
+    for (const order of ORDERS) {
+      const got = packBoxes([...boxes].sort(order), area, blocked, options)
+      if (!best || got.left.length < best.left.length) best = { ...got, sizes }
+      if (!got.left.length) break search
+    }
+  }
+  // the widgets left out keep their size: only a move that found them room changes it
+  for (const id of best.left) best.sizes[id] = items.find((it) => it.id === id).size
+  best.shrunk = items.filter((it) => !best.left.includes(it.id) && SIZES[best.sizes[it.id]] < SIZES[it.size in SIZES ? it.size : 'm']).map((it) => it.id)
+  return best
+}
+
+// Does any box overlap another (`gap` 0: touching is fine)?
+export function anyOverlap(boxes = []) {
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i]
+      const b = boxes[j]
+      if (a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height) return true
+    }
+  }
+  return false
+}
+
+// The settings change for an arrangement: `places` maps a widget id to its corner in pixels, `home`
+// is HOME's width and height, `sizes` the size each arranged widget now has. Every other widget's
+// place and size stay as they were.
+export function arrangePatch(settings = {}, themeId, places = {}, home, sizes = {}) {
+  let patch = { widgetPlaces: settings.widgetPlaces ?? {} }
+  for (const [id, px] of Object.entries(places)) {
+    const place = { left: round((px.left / home.width) * 100), top: round((px.top / home.height) * 100) }
+    patch = { ...patch, ...placePatch({ ...settings, ...patch }, themeId, id, place) }
+  }
+  let withSizes = { ...settings, ...patch }
+  for (const [id, size] of Object.entries(sizes)) withSizes = { ...withSizes, ...sizePatch(id, size, withSizes) }
+  return { widgetPlaces: patch.widgetPlaces, widgetSizes: withSizes.widgetSizes ?? {} }
 }
 
 // The settings change for one widget put down: it is kept for every theme. (`themeId` is only used

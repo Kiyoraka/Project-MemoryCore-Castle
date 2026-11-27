@@ -536,6 +536,8 @@ pub struct Settings {
     /// Where the member put HOME's widgets, per theme id: the widget's top-left corner as
     /// percentages of HOME. A widget not listed keeps the theme's own place.
     pub widget_places: std::collections::BTreeMap<String, std::collections::BTreeMap<String, WidgetPlace>>,
+    /// HOME's widgets snap to an even grid when they are put down (on unless the member turned it off).
+    pub widget_snap: bool,
     /// The gauges' gear: watch CPU and RAM, and the value each trips at. Changed only by its own
     /// command (meter_watch_save), never by the Settings page.
     pub meter_watch: crate::meter_watch::MeterWatch,
@@ -730,6 +732,7 @@ impl Default for Settings {
             widgets_on: Vec::new(),
             widget_sizes: std::collections::BTreeMap::new(),
             widget_places: std::collections::BTreeMap::new(),
+            widget_snap: true,
             meter_watch: crate::meter_watch::MeterWatch::default(),
             gpu_gauges: crate::gpu::GpuGauges::default(),
             weather: crate::weather::WeatherSettings::default(),
@@ -1095,6 +1098,9 @@ mod tests {
     fn the_widgets_keep_known_ids_sizes_and_places_on_home() {
         let old: Settings = serde_json::from_str(r#"{"cli":"claude"}"#).unwrap();
         assert!(old.widgets_off.is_empty() && old.widget_sizes.is_empty() && old.widget_places.is_empty(), "a settings file from before WIDGETS shows every widget where its theme puts it");
+        assert!(old.widget_snap, "a settings file from before the grid snaps HOME's widgets");
+        let unsnapped: Settings = serde_json::from_str(r#"{"widgetSnap":false}"#).unwrap();
+        assert!(!unsnapped.normalized().widget_snap, "the member's own choice is kept");
         let odd: Settings = serde_json::from_str(
             r#"{"widgetsOff":["diary","usage","nonsense","diary"],
                 "widgetSizes":{"clock":"l","gauges":"m","today":"xl","ghost":"s"},
@@ -1372,6 +1378,7 @@ mod tests {
             widgets_on: vec!["weather".into()],
             widget_sizes: [("clock".to_string(), "l".to_string())].into_iter().collect(),
             widget_places: [("seed".to_string(), [("today".to_string(), WidgetPlace { left: 12.5, top: 40.0 })].into_iter().collect())].into_iter().collect(),
+            widget_snap: false,
             meter_watch: crate::meter_watch::MeterWatch { on: false, cpu: 75, memory: 85 },
             gpu_gauges: crate::gpu::GpuGauges { on: false },
             weather: crate::weather::WeatherSettings { place: Some(crate::weather::Place { name: "Ipoh".into(), region: "Perak, Malaysia".into(), lat: 4.6, lon: 101.08 }), units: "imperial".into() },

@@ -42,7 +42,7 @@ const props = defineProps({
   version: { type: String, default: '' },
   updateLine: { type: String, default: '' },
 })
-const emit = defineEmits(['close', 'saved', 'setup', 'whatsnew', 'open-room', 'arrange'])
+const emit = defineEmits(['close', 'saved', 'setup', 'whatsnew', 'open-room', 'arrange', 'tidy'])
 
 // The few words that name the computer's own parts: Windows' wording, or the Mac's.
 const words = isMac
@@ -311,7 +311,7 @@ onMounted(async () => {
           </template>
 
           <!-- ============ Widgets ============ -->
-          <WidgetsView v-else-if="tab === 'widgets'" :theme-id="themeId" :theme-name="themeName" :theme-widgets="themeWidgets" @arrange="emit('arrange')" @changed="widgetsChanged" />
+          <WidgetsView v-else-if="tab === 'widgets'" :theme-id="themeId" :theme-name="themeName" :theme-widgets="themeWidgets" @arrange="emit('arrange')" @tidy="emit('tidy')" @changed="widgetsChanged" />
 
           <!-- ============ Alerts ============ -->
           <AlertsPane v-else-if="tab === 'alerts'" :settings="settings" :busy="locked ? 'busy' : ''" :companion-label="companionLabel" :named-tip="namedTip" @save="(patch, row) => saveRow(row, patch)" @open-room="(room) => emit('open-room', room)" />
