@@ -13,7 +13,7 @@ import SettingRow from '../components/settings/SettingRow.vue'
 import SettingSwitch from '../components/settings/SettingSwitch.vue'
 import SettingText from '../components/settings/SettingText.vue'
 import { ROW_STATUS, createRowStatus } from '../components/settings/rowstatus.js'
-import { DEFAULT_ADDRESS, FIELD_GROUPS, bindingsLine, checkpointOptions, comfyOf, connectionLine, connectionPill, fieldKey, fieldLabel, fieldNote, fileName, initialPicks, limitOptions, modelLine, picksToBindings, startLine, toggled } from '../components/comfy.js'
+import { DEFAULT_ADDRESS, FIELD_GROUPS, afterSwitch, bindingsLine, checkpointOptions, comfyOf, connectionLine, connectionPill, fieldKey, fieldLabel, fieldNote, fileName, initialPicks, limitOptions, modelLine, picksToBindings, startLine, toggled } from '../components/comfy.js'
 
 const props = defineProps({
   settings: { type: Object, required: true },
@@ -27,7 +27,7 @@ const checking = ref(false)
 const starting = ref(false)
 const busy = ref(false)
 const gear = computed(() => comfyOf(props.settings))
-const pill = computed(() => connectionPill(status.value, checking.value))
+const pill = computed(() => connectionPill(status.value, checking.value, starting.value))
 
 /** Asks the saved address whether ComfyUI answers; never starts it. */
 async function check() {
@@ -44,6 +44,7 @@ async function check() {
   } finally {
     checking.value = false
   }
+  return status.value
 }
 
 /** Keeps one change (with everything else as it is); the page takes it only once Castle has kept it. */
@@ -61,9 +62,15 @@ async function save(row, patch, recheck = true) {
       emit('saved')
       if (recheck) await check()
     }
+    return ok
   } finally {
     busy.value = false
   }
+}
+
+/** Keeps the switch, then looks for ComfyUI and starts it when it was switched on and is not there. */
+async function setOn(on) {
+  if (await save('comfy-on', { on }, false)) await afterSwitch(on, gear.value.start, { check, start: startNow })
 }
 
 async function choose(kind, row, field) {
@@ -73,6 +80,7 @@ async function choose(kind, row, field) {
 
 /** Runs the start file if nothing answers, waits for ComfyUI to come up, then reads its state. */
 async function startNow() {
+  if (starting.value) return
   starting.value = true
   rows.clear('comfy-start-now')
   try {
@@ -126,15 +134,14 @@ async function useFields() {
   }
 }
 
-onMounted(() => {
-  if (gear.value.on) check()
-})
+// looked at on every visit, switched on or not, so a ComfyUI that is running never looks stopped
+onMounted(check)
 </script>
 
 <template>
   <SettingGroup id="comfy" title="Your ComfyUI" tip="ComfyUI is a free picture program you run yourself, on this computer or on another one. With this on, Castle sends the plain text pictures from STUDIO to it first. A picture that follows a reference picture, and APPEARANCE's looks, still go to Codex or your OpenAI key. Nothing leaves your own network unless you give the address of a computer elsewhere.">
-    <SettingRow id="comfy-on" label="Draw with ComfyUI" description="Plain text pictures go to your ComfyUI first.">
-      <SettingSwitch :model-value="gear.on" label="Draw with ComfyUI" :disabled="busy" @update:model-value="(on) => save('comfy-on', { on })" />
+    <SettingRow id="comfy-on" label="Draw with ComfyUI" description="Plain text pictures go to your ComfyUI first. Switching on starts it if needed.">
+      <SettingSwitch :model-value="gear.on" label="Draw with ComfyUI" :disabled="busy" @update:model-value="setOn" />
     </SettingRow>
     <SettingRow id="comfy-address" label="Address" description="Where ComfyUI listens. Empty means this computer.">
       <SettingText :model-value="gear.address" label="Address" :placeholder="DEFAULT_ADDRESS" :maxlength="200" :disabled="busy" @save="(address) => save('comfy-address', { address })" />
@@ -145,7 +152,7 @@ onMounted(() => {
     </SettingRow>
   </SettingGroup>
 
-  <SettingGroup id="comfy-starting" title="Starting ComfyUI" tip="Castle can start ComfyUI for you when it is not running, and closes it again only if Castle started it. Choose the file you start ComfyUI with (on Windows, the .bat in its folder); Castle runs it hidden, from its own folder. ComfyUI's usual start file opens a browser tab every time it starts: use a copy with --disable-auto-launch added to stop that. Other flags, such as --disable-smart-memory, depend on your graphics card and your model.">
+  <SettingGroup id="comfy-starting" title="Starting ComfyUI" tip="Castle can start ComfyUI for you when it is not running (when you switch drawing on, press Start, or draw), and closes it again only if Castle started it. Choose the file you start ComfyUI with (on Windows, the .bat in its folder); Castle runs it hidden, from its own folder. ComfyUI's usual start file opens a browser tab every time it starts: use a copy with --disable-auto-launch added to stop that. Other flags, such as --disable-smart-memory, depend on your graphics card and your model.">
     <SettingRow id="comfy-start" label="Start file" :description="startLine(gear)" tip="Castle runs this only when ComfyUI is not already running, and closes ComfyUI when Castle closes, but only if Castle started it. Without a start file, you start ComfyUI yourself before drawing.">
       <SettingText :model-value="gear.start" label="Start file" placeholder="Not set" :maxlength="1000" :disabled="busy" @save="(start) => save('comfy-start', { start })" />
       <button :disabled="busy" @click="choose('start', 'comfy-start', 'start')">Choose…</button>

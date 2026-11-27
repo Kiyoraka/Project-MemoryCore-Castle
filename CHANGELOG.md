@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Settings > ComfyUI: switching drawing on now starts your ComfyUI when it is not running and a start file is set, and the page checks the connection every time you open it.
+
 ## 0.8.3 - 2026-11-26
 
 - WORLDSMITH's helper is published: Get it downloads the small helper (checked against its pinned fingerprint before it is ever run), so your companion can now find and change the numbers in your own offline games.

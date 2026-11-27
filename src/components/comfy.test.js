@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY, FIELD_GROUPS, bindingsLine, checkpointOptions, comfyOf, connectionLine, connectionPill, fieldKey, fieldLabel, fieldNote, fileName, initialPicks, limitOptions, modelLine, picksToBindings, startLine, toggled } from './comfy.js'
+import { EMPTY, FIELD_GROUPS, afterSwitch, bindingsLine, checkpointOptions, comfyOf, connectionLine, connectionPill, fieldKey, fieldLabel, fieldNote, fileName, initialPicks, limitOptions, modelLine, picksToBindings, startLine, toggled } from './comfy.js'
 
 const field = (node, input, extra = {}) => ({ node, input, classType: 'X', title: 'Node', preview: 'p', role: '', suggested: false, ...extra })
 // what the core lists for a plain SDXL-style workflow
@@ -28,6 +28,23 @@ describe('Settings > ComfyUI, the pure parts', () => {
     const odd = limitOptions(45)
     expect(odd.find((o) => o.value === 45)).toEqual({ value: 45, label: '45 minutes' })
     expect(odd.map((o) => o.value)).toEqual([0, 5, 10, 30, 45, 60, 120, 240])
+  })
+
+  it('starts ComfyUI after the switch only when it was switched on, is not there and has a start file', async () => {
+    const follow = async (on, startFile, status) => {
+      const calls = []
+      await afterSwitch(on, startFile, { check: async () => (calls.push('check'), status), start: async () => calls.push('start') })
+      return calls
+    }
+    expect(await follow(true, 'start.bat', { up: false })).toEqual(['check', 'start'])
+    expect(await follow(true, 'start.bat', { up: true })).toEqual(['check'])
+    expect(await follow(true, '  ', { up: false })).toEqual(['check'])
+    expect(await follow(true, 'start.bat', null)).toEqual(['check'])
+    expect(await follow(false, 'start.bat', { up: false })).toEqual(['check'])
+  })
+
+  it('says it is starting while a start is under way', () => {
+    expect(connectionPill({ up: false }, false, true)).toEqual({ text: 'Starting…', tone: '' })
   })
 
   it('lists the checkpoints ComfyUI has and never loses a saved name', () => {

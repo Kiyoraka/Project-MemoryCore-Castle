@@ -40,8 +40,18 @@ export function checkpointOptions(status, saved = '') {
   return options
 }
 
+/**
+ * What follows the switch: look whether ComfyUI answers and, when it was switched on, nothing answers
+ * and a start file is set, start it. `check` gives the status, or nothing when it could not look.
+ */
+export async function afterSwitch(on, startFile, { check, start }) {
+  const status = await check()
+  if (on && status && !status.up && String(startFile ?? '').trim()) await start()
+}
+
 /** The small pill on the Connection row: { text, tone }. */
-export function connectionPill(status, checking = false) {
+export function connectionPill(status, checking = false, starting = false) {
+  if (starting) return { text: 'Starting…', tone: '' }
   if (checking) return { text: 'Checking…', tone: '' }
   if (!status) return { text: 'Not checked', tone: '' }
   return status.up ? { text: 'Answering', tone: 'good' } : { text: 'Not answering', tone: 'bad' }
