@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Sweep has a Developer section: build output and package caches in your DEV projects and their worktrees, with its own Scan, rebuildable things ticked, a merged worktree removed through git only when it is clean and idle, and installers always kept. DEV's Free disk space… opens it, and HOME's Sweep card warns at 90% full.
+
 ## 0.8.3 - 2026-11-26
 
 - WORLDSMITH's helper is published: Get it downloads the small helper (checked against its pinned fingerprint before it is ever run), so your companion can now find and change the numbers in your own offline games.

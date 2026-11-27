@@ -6,6 +6,7 @@ import FileView from './dev/FileView.vue'
 import NewProject from './dev/NewProject.vue'
 import LiveServers from './dev/LiveServers.vue'
 import { serversOf } from './dev/devprojects.js'
+import { useSweep } from '../composables/useSweep.js'
 import { chooseFolder, devNewSession, devOpen, devRemoveProject, devServers, devState } from '../api/castle.js'
 import { MAX_TABS, folderName, newSlot, nextActive, orderTabs, recentProjects, removeQuestion, samePath, tabForFolder, tabLabel } from './dev/devtabs.js'
 
@@ -109,6 +110,12 @@ async function startSession(folder) {
 function endSession(slot) {
   problem.value = ''
   tabViews[slot]?.endFromStrip()
+}
+
+// Free disk space…: Sweep's sheet, opened at its Developer section (build output and caches here)
+const sweep = useSweep()
+function freeDiskSpace() {
+  sweep.showSheet({ developer: true })
 }
 
 // the ⋯ menu of one project, and Remove project… with its question
@@ -273,6 +280,7 @@ onBeforeUnmount(() => {
       <button class="open-folder" :disabled="busy" :title="full ? `All ${MAX_TABS} tabs are in use - close a session to open another project` : ''" @click="openFolder">
         {{ busy ? 'Opening…' : 'Open a folder…' }}
       </button>
+      <button class="open-folder" title="Sweep's Developer section: build output, worktrees and package caches of these projects" @click="freeDiskSpace">Free disk space…</button>
       <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
       <p v-if="!projects.length" class="empty">The project folders you open are kept here.</p>
       <ul class="recent">

@@ -275,6 +275,8 @@ About the **USAGE** card's login: to show Claude Code's limits, Castle reads the
 
 Sweep only ever deletes inside these known folders. It never touches your documents, downloads, desktop, pictures, your memory or project folders, cookies or saved passwords, and it never follows a shortcut-like link out of a folder. A file in use is skipped and counted. Nothing is cleaned on a timer: only when you press the button. Every sweep is written to `sweep-log.jsonl` in Castle's settings folder.
 
+**Developer** (below the groups, folded to one line) is separate, with its own **Scan**: it looks only in the DEV room's projects and their git worktrees, and frees what can be rebuilt. Ticked at the start: Rust's `target/debug` and `target/release` (its `bundle` folder, every installer, always stays) and the npm, pnpm and cargo package caches, cleaned through their own tools. Picked by hand: a project's `node_modules`, `.next` and `bin`/`obj`, and each worktree's **Build output** or the **Whole worktree** (only when it is merged, has no changes and nothing runs in it; it goes through `git worktree remove`, and its branch stays). A worktree that is pushed but not merged offers its build output only. Never: Docker data, databases and their backups, anything git tracks, or anything a running program uses (shown greyed with the reason). Every check runs again when you confirm, and each item writes its own line to the same log. In DEV, **Free disk space…** opens Sweep right here, and HOME's Sweep card warns when the disk is 90% full.
+
 The gear on the card (hover it) chooses its look: **Ring**, **Bar** or **Broom**. A theme may bring its own look; the one you pick always wins. The same gear can start the sheet with the Recycle Bin ticked.
 
 ### Turning a room off

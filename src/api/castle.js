@@ -285,6 +285,12 @@ export const sweepMeasure = () => invoke('sweep_measure')
 export const sweepClean = (groups) => invoke('sweep_clean', { groups })
 export const sweepDeep = () => invoke('sweep_deep')
 export const sweepSettingsSave = (look, recycleBin) => invoke('sweep_settings_save', { look, recycleBin })
+// Sweep's Developer section (the DEV projects and their worktrees). sweepDevScan -> { items: [{ id, group,
+// kind, name, detail, path, bytes, bytesKnown, wholeBytes, on, choices, blocked, dirty, repo, branch, mergedInto,
+// pushed, lastCommit }], scanned, projects, worktrees }; sweepDevClean([{ id, how }]) -> [{ id, name, path, how,
+// freed, ok, note }] (every check runs again first).
+export const sweepDevScan = () => invoke('sweep_dev_scan')
+export const sweepDevClean = (picks) => invoke('sweep_dev_clean', { picks })
 
 // The Sentinel: the member's companion keeps watch over this computer.
 // -> { supported, on, installed, current, setupLine, patrol: { status, line, minutesAgo } | null,
@@ -311,6 +317,8 @@ export const sentinelPatternOff = (id) => invoke('sentinel_pattern_off', { id })
 export const sentinelSetup = () => invoke('sentinel_setup')
 // while a sweep runs: { group, freed } (bytes freed so far in all)
 export const onSweepProgress = (handler) => listen('castle://sweep', (event) => handler(event.payload))
+// while the Developer section cleans: { index, freed } (the item at work, bytes freed so far in all)
+export const onSweepDevProgress = (handler) => listen('castle://sweep-dev', (event) => handler(event.payload))
 export const systemMeters = () => invoke('system_meters')
 // The gauges' gear: watch CPU and RAM, tidy RAM, the last trips, close an ordinary app.
 export const meterWatchGet = () => invoke('meter_watch_get')

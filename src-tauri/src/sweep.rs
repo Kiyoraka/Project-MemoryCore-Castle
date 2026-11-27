@@ -7,6 +7,9 @@
 //! Castle's own folders. In Temp, the Claude Code sessions'
 //! `claude` scratchpads and anything changed in the last 24 hours stay.
 //!
+//! The sheet's Developer section is apart, with a Scan of its own (`sweep_dev.rs`): only the DEV
+//! projects' build output, their worktrees and the package caches. These groups never see it.
+//!
 //! The engine is the Alice Keep's (its Phase 97), ported: the same walk and rules, with the macOS
 //! folders added and Deep clean run through Castle itself, elevated, with this same safe walk.
 
@@ -78,7 +81,7 @@ pub struct GroupSize {
 // ---------- the rules (pure, tested) ----------
 
 /// A reparse point (a symlink or a junction) is never entered or deleted through.
-fn is_link(meta: &std::fs::Metadata) -> bool {
+pub(crate) fn is_link(meta: &std::fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -689,7 +692,7 @@ pub struct SweepStatus {
 }
 
 /// One sweep at a time (a click while one runs is told so).
-static RUNNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static RUNNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn status_of(store: &crate::settings::SettingsStore) -> SweepStatus {
     SweepStatus { settings: store.get().sweep, last_swept: last_swept(&store.folder()), deep: cfg!(windows) || test_root().is_some() }

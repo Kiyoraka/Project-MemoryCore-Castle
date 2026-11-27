@@ -8,7 +8,6 @@ import { GROUP_COLORS, LOOK_NAMES, LOOKS, barParts, resolveLook, sweptLine } fro
 import SweepBar from './SweepBar.vue'
 import SweepBroom from './SweepBroom.vue'
 import SweepRing from './SweepRing.vue'
-import SweepSheet from './SweepSheet.vue'
 import HelpTip from '../HelpTip.vue'
 
 const props = defineProps({
@@ -16,7 +15,7 @@ const props = defineProps({
 })
 
 const sweep = useSweep()
-const { groups, measuring, status, ticks, cleaning, freedSoFar, result, deepBusy, problem, total, tickedTotal } = sweep
+const { groups, measuring, status, cleaning, deepBusy, total, diskWarn } = sweep
 
 const look = computed(() => resolveLook(status.value.settings.look, props.themeLook))
 const parts = computed(() => barParts(groups.value))
@@ -27,13 +26,10 @@ const legend = computed(() => {
 // "Last swept" moves on by itself while the card is shown
 const now = ref(Date.now())
 const swept = computed(() => sweptLine(status.value.lastSwept, now.value))
-const sheetOpen = ref(false)
 
+// the sheet itself is SweepSheetHost.vue, one for the whole window
 function openSheet() {
-  sweep.openSheet()
-  sheetOpen.value = true
-  // the numbers may be half an hour old: measure again while the member reads the sheet
-  if (!measuring.value && !cleaning.value) sweep.measure()
+  sweep.showSheet()
 }
 
 // ---------- the gear ----------
@@ -109,29 +105,29 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
 
-    <SweepSheet
-      v-if="sheetOpen"
-      :look="look"
-      :groups="groups"
-      :ticks="ticks"
-      :ticked-total="tickedTotal"
-      :cleaning="cleaning"
-      :freed-so-far="freedSoFar"
-      :result="result"
-      :problem="problem"
-      :deep-offered="status.deep"
-      :deep-busy="deepBusy"
-      @toggle="sweep.toggle"
-      @clean="sweep.clean"
-      @deep="sweep.deep"
-      @close="sheetOpen = false"
-    />
+    <button v-if="diskWarn" class="disk-warn" type="button" title="Open Sweep at the Developer section: build output and caches in your DEV projects" @click="sweep.showSheet({ developer: true })">
+      {{ diskWarn.line }} · Free disk space…
+    </button>
   </div>
 </template>
 
 <style scoped>
 .sweep {
   position: relative;
+}
+.disk-warn {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px 10px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn, #f59e0b) 55%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn, #f59e0b) 14%, transparent);
+  color: var(--warn, #f59e0b);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
 .gear {
   position: absolute;
