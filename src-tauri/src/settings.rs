@@ -311,6 +311,9 @@ pub struct Settings {
     /// `--disable-gpu-compositing`, for the frozen mouse cursor some AMD cards show (issue #82);
     /// read once at start (apply_gpu_choice), so a change needs Quit and start again.
     pub gpu_compositing: bool,
+    /// An official build installs a newer Castle by itself (the diary saved first, as Update now
+    /// does), only while the companion is not working. Off (the default), the top bar offers it.
+    pub update_by_itself: bool,
     /// A sound, and a desktop notification, when a new line arrives in the chat room while the
     /// member is not looking at CHAT. The notification is on by default; the sound is off by default
     /// (it plays through Windows' quiet hours); each has its own switch in Settings > Rooms.
@@ -643,6 +646,7 @@ impl Default for Settings {
             start_session_on_launch: true,
             minimize_to_taskbar: false,
             gpu_compositing: true,
+            update_by_itself: false,
             alert_sound: false,
             alert_sound_name: "glass".into(),
             alert_notify: true,
@@ -1277,6 +1281,7 @@ mod tests {
             start_session_on_launch: false,
             minimize_to_taskbar: true,
             gpu_compositing: false,
+            update_by_itself: true,
             alert_sound: true,
             alert_sound_name: "koto".into(),
             alert_notify: false,

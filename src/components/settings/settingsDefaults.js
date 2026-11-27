@@ -10,6 +10,7 @@ export const SETTINGS_DEFAULTS = {
   startSessionOnLaunch: true,
   minimizeToTaskbar: false,
   gpuCompositing: true,
+  updateByItself: false,
   alertSound: false,
   alertSoundName: 'glass',
   alertNotify: true,

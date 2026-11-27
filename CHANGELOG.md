@@ -4,6 +4,8 @@ What changed in each MemoryCore Castle release, in plain words. The newest is fi
 
 ## Unreleased
 
+- Update by itself (Settings > About, off at first): a new version installs on its own once your companion has been quiet for two minutes, the diary saved first, the same as pressing Update now.
+
 ## 0.8.3 - 2026-11-26
 
 - WORLDSMITH's helper is published: Get it downloads the small helper (checked against its pinned fingerprint before it is ever run), so your companion can now find and change the numbers in your own offline games.
