@@ -55,6 +55,7 @@ import BrowserWindow from './browser/BrowserWindow.vue'
 import DevView from './views/DevView.vue'
 import SettingsView from './views/SettingsView.vue'
 import UpdateChip from './components/UpdateChip.vue'
+import { valueOf } from './components/settings/settingsDefaults.js'
 import QuotaGlow from './components/QuotaGlow.vue'
 import UsageReveal from './components/UsageReveal.vue'
 import ThemeMotion from './components/ThemeMotion.vue'
@@ -140,6 +141,9 @@ const settingsOpen = ref(false)
 const settingsSection = ref('companion')
 // the update line for Settings > About
 const updateInfo = ref(null)
+// Settings > About > Update by itself, and whether the companion is working (it waits for quiet)
+const updateByItself = ref(false)
+const companionBusy = ref(false)
 // Rooms that are built; any other room shows its name until its phase lands.
 const BUILT = new Set(['browser', 'launcher', 'home', 'theme', 'apps', 'myprofile', 'diary', 'projects', 'library', 'studio', 'appearance', 'story', 'world', 'chat', 'dev', 'market', 'messaging', 'automations', 'calendar', 'finance', 'worldsmith', 'scriptorium', 'photo', 'music'])
 // Tabs with something new waiting (the story speaking while the member is elsewhere).
@@ -430,6 +434,7 @@ async function loadSettingsAndTheme() {
     pins.value = cleanPins(view.settings.pinnedRooms ?? DEFAULT_PINS)
     browserOpens.value = view.settings.browserOpens === 'castle' ? 'castle' : 'window'
     scriptoriumLayout.value = view.settings.scriptoriumLayout === 'studio' ? 'studio' : 'classic'
+    updateByItself.value = valueOf(view.settings, 'updateByItself')
     // back to its own window: the room closes (its pages were closed by Settings)
     if (browserOpens.value !== 'castle') {
       browserOpened.value = false
@@ -780,6 +785,7 @@ watch(settingsStamp, () => {
           :cli="cli"
           @settings="openSettings"
           @setup="openSetup"
+          @busy="companionBusy = $event"
         >
           <template #header="{ running, busy }"><CompanionHeader :name="companion" :avatar="avatar" :running="running" :busy="busy" /></template>
         </TerminalPanel>
@@ -866,7 +872,7 @@ watch(settingsStamp, () => {
       <NoticeToasts @keys="openKeys" />
       <MeterAlert />
       <AmbientMusic />
-      <UpdateChip @status="updateInfo = $event" @about="openSettings('about')" />
+      <UpdateChip :auto="updateByItself" :busy="companionBusy" @status="updateInfo = $event" @about="openSettings('about')" />
       <LinkMenu />
       <SetupView v-if="setupOpen" :reopened="setupReopened" @done="setupDone" @close="setupOpen = false" />
     </main>

@@ -4,13 +4,22 @@
 // waits until the diary changes (three minutes at most, or Skip). Then the update downloads, its
 // signature is checked, it installs and Castle restarts. A member's own build: a quiet "X is out"
 // that opens Settings > About (it updates with git pull, never by itself).
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+// With "Update by itself" on (Settings > About), an official build presses Update now for the
+// member once the companion has been quiet for QUIET_MS (autoupdate.js).
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { diaryStamp, installCopies, terminalState, terminalWrite, updateCheck, updateInstall } from '../api/castle.js'
 import { copiesChip, copiesLine } from './copies.js'
+import { QUIET_MS, mayUpdateByItself } from './autoupdate.js'
 import MarkdownText from './MarkdownText.vue'
 import HelpTip from './HelpTip.vue'
 import { typeLine } from './typeline.js'
 
+const props = defineProps({
+  // Settings > About > Update by itself
+  auto: { type: Boolean, default: false },
+  // the companion is working (TerminalPanel's busy)
+  busy: { type: Boolean, default: false },
+})
 const emit = defineEmits(['status', 'about'])
 const status = ref(null)
 const step = ref('')
@@ -19,6 +28,7 @@ const notesOpen = ref(false)
 const copies = ref(null)
 let skip = false
 let timer
+let quietTimer
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -58,12 +68,28 @@ async function updateNow() {
   }
 }
 
+// Update by itself: any change (busy again, switched off, an update starting) restarts the quiet
+// wait, so the update only begins after QUIET_MS without the companion working.
+watch(
+  () => [status.value, props.auto, props.busy, step.value],
+  () => {
+    clearTimeout(quietTimer)
+    if (!mayUpdateByItself({ status: status.value, on: props.auto, busy: props.busy, step: step.value })) return
+    quietTimer = setTimeout(() => {
+      if (mayUpdateByItself({ status: status.value, on: props.auto, busy: props.busy, step: step.value })) updateNow()
+    }, QUIET_MS)
+  },
+)
+
 onMounted(() => {
   installCopies().then((c) => (copies.value = c)).catch(() => {})
   check()
   timer = setInterval(check, 6 * 60 * 60 * 1000)
 })
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => {
+  clearInterval(timer)
+  clearTimeout(quietTimer)
+})
 </script>
 
 <template>
