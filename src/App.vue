@@ -63,7 +63,8 @@ import ThemeSound from './components/ThemeSound.vue'
 import WhatsNew from './components/WhatsNew.vue'
 import { sectionFor, unseenSections } from './components/changelog.js'
 import { moveTab, orderTabs } from './components/taborder.js'
-import { WIDGETS, dragBegins, dropPlace, isOn, memberPlace, originOf, placeFor, placePatch, resetPatch, adoptPatch, unplaced, scaleOf, startsOnControl, hasItsKey, roomIsOn } from './components/widgets/widgetplaces.js'
+import { WIDGETS, dragBegins, isOn, memberPlace, resetPatch, scaleOf, startsOnControl, hasItsKey, roomIsOn } from './components/widgets/widgetplaces.js'
+import { boxOf, cellsOf, chosenSize, columnsFor, completeGrid, geometry, gridPatch, layoutFor, moveTo, resizeTo, sizeChoices, snapOf, snapPatch, tidy, COLS } from './components/widgets/widgetgrid.js'
 import { isCreditWidget } from './components/widgets/credits.js'
 import changelog from '../CHANGELOG.md?raw'
 import { version as appVersion } from '../package.json'
@@ -286,42 +287,75 @@ const shownWidgets = computed(() =>
   ),
 )
 
+// HOME's widgets on the grid (widgetgrid.js, W4): every widget keeps its cells, one arrangement for
+// every theme. The grid fills HOME beside the chat panel and scrolls when the cards are taller.
+const homeSize = ref({ width: 0, height: 0 })
+const gridArea = ref({ left: 0, top: 0, width: 0, height: 0 })
+function measureHome() {
+  const el = homeEl.value
+  if (!el) return
+  const home = el.getBoundingClientRect()
+  if (!home.width || !home.height) return // HOME is hidden behind another room
+  const panel = homePanel.value?.$el?.getBoundingClientRect?.()
+  // beside the chat panel; while the panel is widened over HOME, where it normally ends
+  const panelEnd = panel && panel.width && panel.width < home.width * 0.6 ? panel.right - home.left : home.width * 0.326
+  const left = Math.round(panelEnd + 16)
+  const top = Math.round(home.height * 0.03)
+  homeSize.value = { width: Math.round(home.width), height: Math.round(home.height) }
+  // room at the bottom for Manage widgets and the arrange bar
+  gridArea.value = { left, top, width: Math.max(0, Math.round(home.width * 0.98) - left), height: Math.max(0, Math.round(home.height) - top - 64) }
+}
+let homeWatch = null
+const gridReady = computed(() => gridArea.value.width > 0 && !!theme.value)
+const snapOn = computed(() => snapOf(widgetPrefs.value))
+// snap on: 6, 4 or 2 columns from the width; snap off: always the six columns, squeezed if narrow
+const gridCols = computed(() => (snapOn.value ? columnsFor(gridArea.value.width) : COLS))
+const gridGeo = computed(() => geometry(gridArea.value.width, gridCols.value))
+// a narrower HOME is worked out from the full layout and is not arranged by hand
+const gridNarrow = computed(() => snapOn.value && gridCols.value < COLS)
+function startsFrom(id) {
+  return { old: memberPlace(widgetPrefs.value, theme.value?.id, id), size: widgetPrefs.value.widgetSizes?.[id], theme: widgets.value[id] ?? FALLBACK_PLACES[id] }
+}
+// every shown widget with its cells (a widget without any gets them here, and they are kept below)
+const fullGrid = computed(() =>
+  completeGrid(widgetPrefs.value.widgetGrid ?? {}, shownWidgets.value, startsFrom, gridReady.value ? { home: homeSize.value, area: gridArea.value } : null),
+)
+// the six-column cells of the shown widgets: packed with no overlap when snapping, free otherwise
+const fullCells = computed(() => layoutFor(cellsOf(fullGrid.value, shownWidgets.value), { snap: snapOn.value, cols: COLS }))
+const drawnCells = computed(() => layoutFor(drag.value?.cells ?? fullCells.value, { snap: snapOn.value, cols: gridCols.value }))
+const cellOf = computed(() => Object.fromEntries(drawnCells.value.map((c) => [c.id, c])))
+const gridRows = computed(() => drawnCells.value.reduce((m, c) => Math.max(m, c.y + c.h), 0))
+const gridCanvasStyle = computed(() => ({
+  width: `${gridGeo.value.width}px`,
+  marginLeft: `${gridGeo.value.offset}px`,
+  height: `${Math.max(0, (gridRows.value + (arranging.value ? 1 : 0)) * gridGeo.value.rowPitch - gridGeo.value.gap)}px`,
+}))
+// arrange mode, snap on: the empty cells show
+const guideCells = computed(() => {
+  if (!arranging.value || !snapOn.value) return []
+  const out = []
+  for (let y = 0; y < gridRows.value + 1; y++) for (let x = 0; x < gridCols.value; x++) out.push({ key: `${x}-${y}`, ...boxOf({ x, y, w: 1, h: 1 }, gridGeo.value) })
+  return out
+})
+const px = (box) => ({ left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` })
+
 function slotStyle(id) {
-  const place = placeFor(widgets.value[id] ?? FALLBACK_PLACES[id], memberPlace(widgetPrefs.value, theme.value?.id, id))
-  const style = placeStyle(place)
-  // the member's size times the theme's starting scale, grown from the corner it is anchored to
-  const scale = scaleOf(id, widgetPrefs.value, theme.value)
-  const moving = drag.value?.id === id ? `translate(${drag.value.dx}px, ${drag.value.dy}px) ` : ''
-  if (moving || scale !== 1) style.transform = `${moving}scale(${scale})`
-  if (scale !== 1) style.transformOrigin = originOf(place)
-  return style
+  const cell = cellOf.value[id]
+  if (!cell) return { display: 'none' }
+  // the theme's text size inside the card (its widgetScale); it never changes the cells taken
+  return { ...px(boxOf(cell, gridGeo.value)), '--content-scale': scaleOf(id, {}, theme.value) }
 }
 
-// ONE arrangement for every theme: a widget that has no kept place yet (the first start, a new widget
-// after an update, a theme's first look) is kept where it stands now, once its card has settled, so a
-// theme change or a restart never moves it. The theme's own places only decide that first spot.
-let adoptTimer = null
-function keepPlacesSoon() {
-  clearTimeout(adoptTimer)
-  adoptTimer = setTimeout(keepPlaces, 2500)
-}
-async function keepPlaces() {
-  const el = homeEl.value
-  if (!el || active.value !== 'home' || arranging.value || drag.value || !theme.value) return
-  const home = el.getBoundingClientRect()
-  if (!home.width || !home.height) return
-  const found = {}
-  for (const id of unplaced(widgetPrefs.value, theme.value.id, shownWidgets.value)) {
-    const slot = el.querySelector(`[data-widget="${id}"]`)
-    if (!slot) continue
-    const r = slot.getBoundingClientRect()
-    if (!r.width || !r.height) continue
-    found[id] = dropPlace({ left: r.left - home.left, top: r.top - home.top, width: r.width, height: r.height }, { width: home.width, height: home.height })
-  }
-  const patch = adoptPatch(widgetPrefs.value, theme.value.id, found)
-  if (patch) await saveWidgets(patch)
-}
-watch([shownWidgets, theme, active, () => widgetPrefs.value.widgetPlaces], keepPlacesSoon)
+// A widget that gets its first cells (first start, a new widget, an older Castle's corners) keeps
+// them, so a theme change or a restart never moves it.
+let gridTimer = null
+watch(fullGrid, (grid) => {
+  clearTimeout(gridTimer)
+  if (!gridReady.value || grid === (widgetPrefs.value.widgetGrid ?? {})) return
+  gridTimer = setTimeout(() => {
+    if (!drag.value && gridReady.value && fullGrid.value === grid) saveWidgets({ widgetGrid: grid })
+  }, 400)
+})
 
 async function saveWidgets(patch) {
   widgetPrefs.value = { ...widgetPrefs.value, ...patch }
@@ -333,29 +367,34 @@ async function saveWidgets(patch) {
   }
 }
 
-// A widget follows the pointer and is put down where it is dropped, kept on HOME - in arrange mode
-// at once, and on HOME itself once the pointer has moved a few pixels (a still press stays a click,
-// and a press on a button, link or field never drags).
-let pressed = null // { id, x, y, box, pointerId, el } until the drag begins
-function startDrag(event, id) {
-  if (event.button !== 0) return
+// A widget moves (or, by its corner, resizes) by the pointer - in arrange mode at once, and on HOME
+// itself once the pointer has moved a few pixels (a still press stays a click, and a press on a
+// button, link or field never drags). Snap on, it goes by whole cells and the cards it meets move
+// aside as it goes; snap off, it goes anywhere.
+let pressed = null // { id, mode, x, y, pointerId, el } until the drag begins
+function startDrag(event, id, mode = 'move') {
+  if (event.button !== 0 || gridNarrow.value || !cellOf.value[id]) return
   const tags = event.composedPath().filter((n) => n instanceof Element && event.currentTarget.contains(n)).map((n) => n.tagName)
   if (!arranging.value && startsOnControl(tags)) return
-  const home = homeEl.value.getBoundingClientRect()
-  const rect = event.currentTarget.getBoundingClientRect()
-  pressed = { id, x: event.clientX, y: event.clientY, pointerId: event.pointerId, el: event.currentTarget, box: { left: rect.left - home.left, top: rect.top - home.top, width: rect.width, height: rect.height } }
-  if (arranging.value) beginDrag()
+  pressed = { id, mode, x: event.clientX, y: event.clientY, pointerId: event.pointerId, el: event.currentTarget }
+  if (arranging.value || mode === 'resize') beginDrag()
 }
 
 function beginDrag() {
-  pressed.el.setPointerCapture(pressed.pointerId)
-  drag.value = { id: pressed.id, x: pressed.x, y: pressed.y, dx: 0, dy: 0, box: pressed.box }
+  pressed.el.setPointerCapture?.(pressed.pointerId)
+  const start = fullCells.value.map((c) => ({ ...c }))
+  drag.value = { id: pressed.id, mode: pressed.mode, x: pressed.x, y: pressed.y, moved: false, start, from: start.find((c) => c.id === pressed.id), cells: start }
 }
 
 function moveDrag(event) {
   if (pressed && !drag.value && dragBegins(event.clientX - pressed.x, event.clientY - pressed.y)) beginDrag()
-  if (!drag.value) return
-  drag.value = { ...drag.value, dx: event.clientX - drag.value.x, dy: event.clientY - drag.value.y }
+  const d = drag.value
+  if (!d) return
+  const dx = (event.clientX - d.x) / gridGeo.value.colPitch
+  const dy = (event.clientY - d.y) / gridGeo.value.rowPitch
+  const snap = snapOn.value
+  const cells = d.mode === 'resize' ? resizeTo(d.start, d.id, d.from.w + dx, d.from.h + dy, { snap }) : moveTo(d.start, d.id, d.from.x + dx, d.from.y + dy, { snap })
+  drag.value = { ...d, moved: d.moved || event.clientX !== d.x || event.clientY !== d.y, cells }
 }
 
 async function endDrag() {
@@ -363,14 +402,26 @@ async function endDrag() {
   const d = drag.value
   if (!d) return
   drag.value = null
-  if (!d.dx && !d.dy) return
+  if (!d.moved) return
   // the release after a drag is not a click on whatever card row it ended over
   const swallow = (e) => { e.stopPropagation(); e.preventDefault() }
   window.addEventListener('click', swallow, { capture: true, once: true })
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
-  const home = homeEl.value.getBoundingClientRect()
-  const place = dropPlace({ ...d.box, left: d.box.left + d.dx, top: d.box.top + d.dy }, { width: home.width, height: home.height })
-  await saveWidgets(placePatch(widgetPrefs.value, theme.value?.id, d.id, place))
+  await saveWidgets(gridPatch(fullGrid.value, d.cells))
+}
+
+// arrange mode: a size chip under a card, Tidy up, and the Snap to grid switch
+function sizeWidget(id, w, h) {
+  return saveWidgets(gridPatch(fullGrid.value, resizeTo(fullCells.value, id, w, h, { snap: snapOn.value })))
+}
+function tidyWidgets() {
+  return saveWidgets(gridPatch(fullGrid.value, tidy(fullCells.value)))
+}
+function setSnap(on) {
+  return saveWidgets(snapPatch(fullGrid.value, on).patch)
+}
+function resetWidgets() {
+  return saveWidgets({ ...resetPatch(), widgetGrid: {} })
 }
 
 function arrange() {
@@ -425,7 +476,7 @@ async function loadSettingsAndTheme() {
     usageCard.value = view.settings.showUsageCard !== false
     wallpaperMotion.value = view.settings.livingWallpaper !== false
     wallpaperSound.value = view.settings.wallpaperSound !== false
-    widgetPrefs.value = { widgetsOff: view.settings.widgetsOff ?? [], widgetsOn: view.settings.widgetsOn ?? [], widgetSizes: view.settings.widgetSizes ?? {}, widgetPlaces: view.settings.widgetPlaces ?? {} }
+    widgetPrefs.value = { widgetsOff: view.settings.widgetsOff ?? [], widgetsOn: view.settings.widgetsOn ?? [], widgetSizes: view.settings.widgetSizes ?? {}, widgetPlaces: view.settings.widgetPlaces ?? {}, widgetGrid: view.settings.widgetGrid ?? {}, widgetSnap: view.settings.widgetSnap !== false }
     tabOrder.value = view.settings.tabOrder ?? []
     pins.value = cleanPins(view.settings.pinnedRooms ?? DEFAULT_PINS)
     browserOpens.value = view.settings.browserOpens === 'castle' ? 'castle' : 'window'
@@ -673,6 +724,12 @@ onMounted(async () => {
   }).catch(() => null)
   window.addEventListener('keydown', onArrangeKey)
   window.addEventListener('keydown', onLauncherKey)
+  // HOME's grid follows the window and the chat panel's width
+  homeWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(measureHome) : null
+  if (homeEl.value) homeWatch?.observe(homeEl.value)
+  if (homePanel.value?.$el instanceof Element) homeWatch?.observe(homePanel.value.$el)
+  window.addEventListener('resize', measureHome)
+  measureHome()
   stopProviderEvents = await onProviderChanged(async () => { await settingsSaved(); window.dispatchEvent(new Event('castle-provider-changed')) }).catch(() => null)
   stopOpenChat = await onOpenChat(() => {
     active.value = 'chat'
@@ -733,6 +790,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onArrangeKey)
   window.removeEventListener('keydown', onLauncherKey)
+  homeWatch?.disconnect()
+  window.removeEventListener('resize', measureHome)
   stopAutomations?.()
   stopCalendar?.()
   stopProviderEvents?.()
@@ -783,12 +842,15 @@ watch(settingsStamp, () => {
         >
           <template #header="{ running, busy }"><CompanionHeader :name="companion" :avatar="avatar" :running="running" :busy="busy" /></template>
         </TerminalPanel>
+        <div class="widget-grid" :class="{ snap: snapOn, free: !snapOn }" :style="px(gridArea)">
+        <div class="grid-canvas" :style="gridCanvasStyle">
+        <div v-for="g in guideCells" :key="g.key" class="grid-guide" :style="px(g)" aria-hidden="true"></div>
         <div
           v-for="id in shownWidgets"
           :key="id"
           class="widget-slot"
           :data-widget="id"
-          :class="{ movable: arranging, moving: drag?.id === id }"
+          :class="{ movable: arranging && !gridNarrow, moving: drag?.id === id }"
           :style="slotStyle(id)"
           @pointerdown="startDrag($event, id)"
           @pointermove="moveDrag"
@@ -806,11 +868,29 @@ watch(settingsStamp, () => {
           <UsageWidget v-else-if="id === 'usage'" :stamp="settingsStamp" />
           <CreditWidget v-else-if="isCreditWidget(id)" :widget="id" />
           <HomeCards v-else :kind="id" :data="home" :backup="backup" :database="database" @open="openMemoryFile" @changed="loadHome" @backup="onBackupCard" @database="onDatabaseCard" />
+          <div v-if="arranging && !gridNarrow && cellOf[id]" class="cell-tools" @pointerdown.stop>
+            <span class="cell-size">{{ +cellOf[id].w.toFixed(2) }}×{{ +cellOf[id].h.toFixed(2) }}</span>
+            <button
+              v-for="c in sizeChoices(id, snapOn)"
+              :key="c.key"
+              :disabled="!c.ok"
+              :aria-pressed="chosenSize(id, cellOf[id], snapOn) === c.key"
+              :title="c.ok ? `${c.label}` : `Too small for this widget`"
+              @click="sizeWidget(id, c.w, c.h)"
+            >{{ c.label }}</button>
+          </div>
+          <div v-if="arranging && !gridNarrow" class="cell-handle" title="Drag to resize" aria-hidden="true" @pointerdown.stop="startDrag($event, id, 'resize')"></div>
+        </div>
+        </div>
         </div>
         <button v-if="!arranging" class="manage-widgets" @click="openSettings('widgets')">Manage widgets</button>
         <div v-if="arranging" class="arrange-bar" role="toolbar" aria-label="Arrange HOME">
-          <span>Drag a widget to move it. It stays where you put it, whatever the theme.</span>
-          <button @click="saveWidgets(resetPatch()).then(keepPlacesSoon)">Reset the layout</button>
+          <span v-if="gridNarrow">HOME is narrower here, so your layout shows in {{ gridCols }} columns. Make Castle's window wider to arrange it.</span>
+          <span v-else-if="snapOn">Drag a widget or its corner. It goes by whole cells and never covers another.</span>
+          <span v-else>Drag a widget or its corner anywhere. Cards may overlap while Snap to grid is off.</span>
+          <label class="snap-switch"><input type="checkbox" :checked="snapOn" @change="setSnap($event.target.checked)" /> Snap to grid</label>
+          <button v-if="snapOn && !gridNarrow" title="Move cards up into the gaps above them" @click="tidyWidgets">Tidy up</button>
+          <button @click="resetWidgets">Reset the layout</button>
           <button class="primary" @click="arranging = false">Done</button>
         </div>
       </div>
@@ -949,7 +1029,130 @@ body {
 
 .widget-slot {
   position: absolute;
+  box-sizing: border-box;
+}
+
+/* HOME's grid beside the chat panel (W4): it scrolls when the cards are taller than HOME, and
+   lets every press on its empty part through to what is behind it. */
+.widget-grid {
+  position: absolute;
+  overflow-x: hidden;
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.widget-grid .grid-canvas {
+  position: relative;
+}
+
+.widget-grid .widget-slot {
+  pointer-events: auto;
+}
+
+/* A card fills its cells and scrolls inside; the theme's widgetScale sizes its text, not its cells. */
+.home .widget-grid .widget-slot > .widget {
+  --s: var(--content-scale, 1);
+  box-sizing: border-box;
+  width: calc(100% / var(--s));
+  height: calc(100% / var(--s));
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  transform: scale(var(--s));
   transform-origin: top left;
+}
+
+/* TODAY and PROJECTS: the list takes the card's height instead of its four-row cap */
+.home .widget-grid .widget-slot > .widget.card.today,
+.home .widget-grid .widget-slot > .widget.card.projects {
+  display: flex;
+  flex-direction: column;
+}
+.home .widget-grid .widget-slot > .widget.card ul.scroll {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.grid-guide {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.cell-tools {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 34px);
+  padding: 3px 4px;
+  border-radius: 8px;
+  background: var(--panel-background);
+  border: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(var(--glass-blur)); backdrop-filter: blur(var(--glass-blur));
+  font-size: 0.72rem;
+}
+
+.widget-slot.movable > .cell-tools,
+.widget-slot.movable > .cell-handle {
+  pointer-events: auto;
+}
+
+.cell-size {
+  color: var(--text-dim);
+  padding: 0 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-tools button {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.cell-tools button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #07142e;
+  border-color: transparent;
+}
+
+.cell-tools button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cell-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  border-right: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
+  border-radius: 0 0 8px 0;
+  touch-action: none;
+}
+
+.snap-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* Arrange mode: every widget shows its edge and follows the pointer; nothing inside is pressed. */
