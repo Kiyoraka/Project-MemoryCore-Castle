@@ -1,11 +1,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
-import { chatHistory, chatMediaOpen, chatPlanFile, chatPoll, chatPromptHolds, claudeVoice, getSettings, onPhoneReaction, phoneReactions, queuedMessageAction, queuedMessages, sendMessage } from '../api/castle.js'
+import { chatHistory, chatMediaOpen, devState, chatPlanFile, chatPoll, chatPromptHolds, claudeVoice, getSettings, onPhoneReaction, phoneReactions, queuedMessageAction, queuedMessages, sendMessage } from '../api/castle.js'
 import { clearNotSent, localSend, markNotSent, mergeEntries, resetEntries, stillSending } from './ticks.js'
 import { isMicShortcut, micOffer, voiceMic } from './voicehold.js'
 import { isMac } from '../platform.js'
 import { isOwnAnswer, readChoices, tellOf } from './choices.js'
 import { buildItems, isMarker, openPlanFile, placeReactions, withReaction } from './chatItems.js'
+import { badgeChips, withDevChips } from './devchips.js'
 import { MODES, readContext, readMode, SHIFT_TAB } from './modes.js'
 import { useChatMedia } from './useChatMedia.js'
 import { enterDelay, typeLine } from './typeline.js'
@@ -212,11 +213,40 @@ watch(
 // The member's hearts from the phone sit on the companion's bubbles (main room only; the phone
 // talks to the main session).
 const reactions = ref([])
+// HOME's lines about a DEV tab carry a chip naming it (devchips.js); every other room only hides
+// the marker.
+const devTabs = ref({ tabs: [], projects: [] })
 const items = computed(() => {
   const built = buildItems(entries.value, waitingPlan.value)
-  return props.room ? built : placeReactions(built, reactions.value)
+  if (props.room) return withDevChips(built, entries.value, null, { chips: false })
+  return withDevChips(placeReactions(built, reactions.value), entries.value, devTabs.value)
 })
 let stopReactions = null
+
+// ---------- DEV chips (main room) ----------
+
+// DEV's tabs, read again this often, so a chip knows which tab its name or session is
+const DEV_EVERY_MS = 4000
+let devTimer
+async function readDevTabs() {
+  if (props.room || document.visibilityState !== 'visible') return
+  try {
+    const state = await devState()
+    devTabs.value = { tabs: state?.tabs ?? [], projects: state?.projects ?? [] }
+  } catch {
+    // the last list stays
+  }
+}
+// Only what is said from now on counts on the DEV button: an old talk read again never does.
+const openedAt = Date.now()
+watch(
+  () => (props.room ? '[]' : JSON.stringify(badgeChips(items.value, openedAt))),
+  (chips) => window.dispatchEvent(new CustomEvent('castle-dev-chips', { detail: JSON.parse(chips) })),
+)
+// a chip clicked: App opens DEV on that tab (or the project, when its session is closed)
+function openDev(chip) {
+  window.dispatchEvent(new CustomEvent('castle-open-dev', { detail: { slot: chip.slot, folder: chip.folder, key: chip.key } }))
+}
 
 // The companion is typing while its newest entry is a tool step: it is working toward its next words.
 const typing = computed(() => {
@@ -519,6 +549,8 @@ onMounted(() => {
   clockTimer = setInterval(() => (now.value = Date.now()), 5000)
   document.addEventListener('visibilitychange', poll)
   if (!props.room) {
+    readDevTabs()
+    devTimer = setInterval(readDevTabs, DEV_EVERY_MS)
     phoneReactions().then((kept) => (reactions.value = kept ?? [])).catch(() => {})
     onPhoneReaction((reaction) => (reactions.value = withReaction(reactions.value, reaction))).then((stop) => (stopReactions = stop))
   }
@@ -526,6 +558,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearInterval(timer)
+  clearInterval(devTimer)
   clearInterval(voiceTimer)
   window.removeEventListener('keydown', micKeys, true)
   clearInterval(menuTimer)
@@ -581,6 +614,7 @@ defineExpose({ poll, addPaths, addText })
       @choose-designs="send"
       @open-media="openMedia"
       @media-play="stop"
+      @open-dev="openDev"
     />
 
     <ChatChoices v-if="menu" :menu="menu" :companion="companion" @choose="choose" @submit="submitChoices" @show-log="emit('show-log')" />

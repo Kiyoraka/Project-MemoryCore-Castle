@@ -65,6 +65,12 @@ describe('the markers', () => {
     expect(isMarker({ role: 'plan-end' })).toBe(true)
     expect(isMarker({ role: 'member' })).toBe(false)
   })
+
+  it('leave the trail to and from another session out of the conversation', () => {
+    expect(isMarker({ role: 'peer' })).toBe(true)
+    const entries = [{ id: 'p1', role: 'peer', state: 'to', text: 'shop' }, { id: 'c1', role: 'companion', text: 'Asked the shop tab.' }]
+    expect(buildItems(entries).map((item) => item.id)).toEqual(['c1'])
+  })
 })
 
 describe('films and songs in Chat', () => {

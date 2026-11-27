@@ -70,7 +70,7 @@ pub fn send_and_await(app: &AppHandle, store: &SettingsStore, text: &str, timeou
                 quiet_since = Instant::now();
             }
             if let Some(said) = entries.iter().rev().find(|e| e.role == "companion" && !e.text.trim().is_empty()) {
-                last_said = Some(said.text.trim().to_string());
+                last_said = Some(crate::transcript::plain_dev_markers(said.text.trim()));
             }
         }
         if last_said.is_some() {
@@ -80,7 +80,7 @@ pub fn send_and_await(app: &AppHandle, store: &SettingsStore, text: &str, timeou
                     // anything written between the last read and the end-of-turn line
                     if let Ok(entries) = follower.read_new() {
                         if let Some(said) = entries.iter().rev().find(|e| e.role == "companion" && !e.text.trim().is_empty()) {
-                            last_said = Some(said.text.trim().to_string());
+                            last_said = Some(crate::transcript::plain_dev_markers(said.text.trim()));
                         }
                     }
                 }

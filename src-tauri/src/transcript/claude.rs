@@ -214,6 +214,36 @@ fn pick_record(candidates: Vec<Candidate>, since: SystemTime) -> Option<PathBuf>
         .map(|(_, _, _, path)| path.clone())
 }
 
+/// Who a message from another Claude Code session came from: its `from-name` and its `from`
+/// address, one per line, read from the `<cross-session-message>` tag in the isMeta user record
+/// Claude Code writes for it ("Another Claude session sent a message: <cross-session-message ...>";
+/// the tag may be left open). None for anything else.
+fn peer_in(text: &str) -> Option<String> {
+    const TAG: &str = "<cross-session-message";
+    let start = text.find(TAG).filter(|at| *at <= 200)?;
+    let rest = &text[start + TAG.len()..];
+    if !rest.starts_with([' ', '>', '\n']) {
+        return None;
+    }
+    let head = &rest[..rest.find('>')?];
+    let attribute = |name: &str| {
+        let key = format!(" {name}=\"");
+        let at = head.find(&key)? + key.len();
+        head[at..].find('"').map(|end| head[at..at + end].trim().to_string())
+    };
+    let (name, from) = (attribute("from-name").unwrap_or_default(), attribute("from").unwrap_or_default());
+    (!name.is_empty() || !from.is_empty()).then(|| format!("{name}\n{from}"))
+}
+
+/// A user record's words, as a string or as its text blocks joined.
+fn meta_text(record: &Value) -> Option<String> {
+    match record.get("message").and_then(|m| m.get("content")) {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Array(blocks)) => Some(blocks.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")),
+        _ => None,
+    }
+}
+
 /// Turns one record line into the chat entries it holds (often none).
 pub fn parse_line(line: &str) -> Vec<ChatEntry> {
     let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -223,6 +253,27 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
     // isCompactSummary / isVisibleInTranscriptOnly: the summary a /compact writes as a user record,
     // which is not the member's words.
     let flag = |name: &str| record.get(name).and_then(Value::as_bool) == Some(true);
+    // A message heard from another Claude Code session (a DEV tab reporting back) is written as an
+    // isMeta user record: never the member's words or a bubble, only the trail that says which tab
+    // HOME heard from. Read from this record alone (its queue-operation twin is left out), so one
+    // message is one trail entry. An agent's hand-back (<agent-message>) is no DEV tab.
+    if kind == "user" && flag("isMeta") && !flag("isSidechain") {
+        let heard = meta_text(&record).as_deref().and_then(peer_in);
+        return heard
+            .map(|heard| {
+                let id = record.get("uuid").and_then(Value::as_str).unwrap_or("");
+                vec![ChatEntry {
+                    id: format!("{id}-peer"),
+                    role: "peer".into(),
+                    text: heard,
+                    at: record.get("timestamp").and_then(Value::as_str).map(str::to_string),
+                    path: None,
+                    pictures: Vec::new(),
+                    state: Some("from".into()),
+                }]
+            })
+            .unwrap_or_default();
+    }
     if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") || flag("isVisibleInTranscriptOnly") {
         return Vec::new();
     }
@@ -243,6 +294,8 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
         pictures: Vec::new(),
         state: None,
     };
+    // the other session's name and address, one per line (devchips.js reads them back)
+    let peer = |n: usize, way: &str, text: String| ChatEntry { state: Some(way.to_string()), ..entry(n, "peer", text) };
     let marker = |role: &str, path: &str| {
         let stamp = at.clone().unwrap_or_default();
         vec![ChatEntry {
@@ -327,7 +380,7 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
             let Some(Value::Array(blocks)) = content else {
                 return Vec::new();
             };
-            blocks
+            let mut out: Vec<ChatEntry> = blocks
                 .iter()
                 .enumerate()
                 .filter_map(|(n, block)| match block.get("type").and_then(Value::as_str) {
@@ -356,7 +409,16 @@ pub fn parse_line(line: &str) -> Vec<ChatEntry> {
                     }
                     _ => None,
                 })
-                .collect()
+                .collect();
+            // A message the companion sent to another session (briefing a DEV tab): the trail that
+            // says which tab her words are about.
+            for (n, block) in blocks.iter().enumerate() {
+                let sent = block.get("type").and_then(Value::as_str) == Some("tool_use") && block.get("name").and_then(Value::as_str) == Some("SendMessage");
+                if let Some(to) = block.get("input").and_then(|i| i.get("to")).and_then(Value::as_str).filter(|to| sent && !to.trim().is_empty()) {
+                    out.push(ChatEntry { id: format!("{id}-{n}-peer"), ..peer(n, "to", to.trim().to_string()) });
+                }
+            }
+            out
         }
         _ => Vec::new(),
     }
@@ -415,6 +477,47 @@ mod tests {
         assert!(parse_line(too_long).is_empty());
         let limit = r#"{"type":"assistant","uuid":"u8","isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"You've hit your limit"}]}}"#;
         assert_eq!(parse_line(limit).len(), 1);
+    }
+
+    #[test]
+    fn the_trail_to_and_from_another_session_becomes_peer_entries() {
+        // HOME briefs a DEV tab: the work step stays, and a peer entry names who it went to
+        let sent = r#"{"type":"assistant","uuid":"a9","message":{"content":[{"type":"text","text":"I asked the shop tab."},{"type":"tool_use","name":"SendMessage","input":{"to":"shop [k3]","message":"run the tests"}}]}}"#;
+        let entries = parse_line(sent);
+        assert_eq!(entries.iter().map(|e| e.role.as_str()).collect::<Vec<_>>(), ["companion", "work", "peer"]);
+        assert_eq!((entries[2].text.as_str(), entries[2].state.as_deref()), ("shop [k3]", Some("to")));
+        assert_eq!(entries[2].id, "a9-1-peer");
+        // a SendMessage with no `to` leaves no trail
+        let nowhere = r#"{"type":"assistant","uuid":"a8","message":{"content":[{"type":"tool_use","name":"SendMessage","input":{"message":"x"}}]}}"#;
+        assert!(parse_line(nowhere).iter().all(|e| e.role != "peer"));
+        // a DEV tab reports back, as Claude Code writes it: an isMeta user record. Never a bubble,
+        // only who it came from
+        let heard = r#"{"type":"user","uuid":"u9","isMeta":true,"timestamp":"t9","message":{"role":"user","content":"Another Claude session sent a message: <cross-session-message from=\"uds:/tmp/cc-socks/35791.sock\" from-name=\"memorycore-jerry-12\" from-mode=\"prompting\">\nall green\n</cross-session-message>"}}"#;
+        let entries = parse_line(heard);
+        assert_eq!(entries.len(), 1);
+        assert_eq!((entries[0].role.as_str(), entries[0].text.as_str(), entries[0].state.as_deref()), ("peer", "memorycore-jerry-12\nuds:/tmp/cc-socks/35791.sock", Some("from")));
+        assert_eq!((entries[0].id.as_str(), entries[0].at.as_deref()), ("u9-peer", Some("t9")));
+        // the same with text blocks, and with the tag left open
+        let blocks = r#"{"type":"user","uuid":"u11","isMeta":true,"message":{"content":[{"type":"text","text":"Another Claude session sent a message: <cross-session-message from=\"uds:/tmp/cc-socks/7.sock\">\nhi"}]}}"#;
+        assert_eq!(parse_line(blocks)[0].text, "\nuds:/tmp/cc-socks/7.sock");
+        // its queue-operation twin is not counted again, and its removal is no receipt
+        let queued = r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t1","content":"<cross-session-message from=\"uds:/tmp/cc-socks/35791.sock\" from-name=\"memorycore-jerry-12\">\nall green\n</cross-session-message>"}"#;
+        assert!(parse_line(queued).is_empty());
+        let removed = queued.replace("enqueue", "remove");
+        assert!(parse_line(&removed).is_empty());
+        // an agent's hand-back, and any other meta record, stays out
+        let agent = r#"{"type":"user","uuid":"u12","isMeta":true,"message":{"content":"<agent-message from=\"a1\">done</agent-message>"}}"#;
+        assert!(parse_line(agent).is_empty());
+        assert!(parse_line(r#"{"type":"user","uuid":"u13","isMeta":true,"message":{"content":"caveat"}}"#).is_empty());
+        // the plain user record, should one ever carry it, is not the member's words either
+        let plain = r#"{"type":"user","uuid":"u14","message":{"content":"<cross-session-message from-name=\"shop\">\nx\n</cross-session-message>"}}"#;
+        assert!(parse_line(plain).is_empty());
+        // other tags stay out as before
+        assert!(parse_line(r#"{"type":"user","uuid":"u10","message":{"content":"<cross-session-messages>x"}}"#).is_empty());
+        assert_eq!(peer_in("<cross-session-message>no one</cross-session-message>"), None);
+        assert_eq!(peer_in("<cross-session-messages from-name=\"x\">"), None);
+        assert_eq!(peer_in("Note: <cross-session-message from-name=\"a b\">x</cross-session-message>").as_deref(), Some("a b\n"));
+        assert_eq!(peer_in(&format!("{}<cross-session-message from-name=\"x\">y</cross-session-message>", "a".repeat(300))), None);
     }
 
     #[test]

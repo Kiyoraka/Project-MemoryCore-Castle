@@ -21,7 +21,9 @@ pub const WORK_DETAIL_LIMIT: usize = 70;
 pub struct ChatEntry {
     pub id: String,
     /// "member", "companion", "work" (a tool the companion ran), "plan", "receipt", "plan-file" / "plan-end"
-    /// (where a plan is written, never drawn), "picture", "voice" or "video" (a file the companion made)
+    /// (where a plan is written, never drawn), "picture", "voice" or "video" (a file the companion made),
+    /// "peer" (a message sent to another session, state "to", or heard from one, state "from"; never
+    /// drawn, it only says which DEV tab the companion's words are about)
     pub role: String,
     pub text: String,
     pub at: Option<String>,
@@ -174,6 +176,28 @@ pub fn relative_media_paths(text: &str) -> Vec<String> {
                 && media_kind(token).is_some()
         })
         .map(|token| native(token.trim_start_matches(".\\").trim_start_matches("./")))
+        .collect()
+}
+
+/// The companion's words for the phone: each DEV-tab marker (`[dev:shop|done]`, see
+/// mirror::DEV_MARKER_RULE) becomes the tab's name in brackets, "(shop)". Inside a fenced code block
+/// nothing changes; a marker that is not one of the three states stays as written.
+pub fn plain_dev_markers(text: &str) -> String {
+    static MARKER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let marker = MARKER.get_or_init(|| regex::Regex::new(r"\[dev:\s*([^\[\]|\n`]{1,80}?)\s*(?:\|\s*(?i:go|done|fyi)\s*)?\]").unwrap());
+    let mut fenced = false;
+    text.split_inclusive('\n')
+        .map(|line| {
+            if line.trim_start().starts_with("```") {
+                fenced = !fenced;
+                return line.to_string();
+            }
+            if fenced {
+                line.to_string()
+            } else {
+                marker.replace_all(line, "($1)").to_string()
+            }
+        })
         .collect()
 }
 
@@ -373,5 +397,20 @@ impl Follower {
         // Files that finished after their lines were read.
         entries.extend(self.settle_pending());
         Ok(entries)
+    }
+}
+
+#[cfg(test)]
+mod dev_marker_tests {
+    use super::plain_dev_markers;
+
+    #[test]
+    fn the_phone_reads_a_dev_marker_as_the_tabs_name() {
+        assert_eq!(plain_dev_markers("Montee finished #1276. [dev:montee · 1|done]"), "Montee finished #1276. (montee · 1)");
+        assert_eq!(plain_dev_markers("It waits for you [dev:sales-engineering|GO]\nand more"), "It waits for you (sales-engineering)\nand more");
+        // a marker in a code block, or one that is not a marker, stays as written
+        let code = "```\n[dev:shop|go]\n```\n";
+        assert_eq!(plain_dev_markers(code), code);
+        assert_eq!(plain_dev_markers("[dev:shop|maybe] [dev:|go] [dev:shop"), "[dev:shop|maybe] [dev:|go] [dev:shop");
     }
 }

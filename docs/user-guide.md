@@ -770,6 +770,15 @@ A **Flutter** project (a `pubspec.yaml` with a `flutter:` section) or an **Andro
 
 ---
 
+### DEV tabs in HOME's chat
+
+When your companion in HOME talks about one of the DEV tabs (she briefed it, it reported back to her, or she is passing on how it is doing), her line carries a small chip naming that tab and what it wants from you:
+- **needs your go** (yellow): the tab waits for you, for a send, a push or a yes.
+- **finished** (green): the tab finished a piece of work and reported back.
+- **FYI** (blue): how it is doing, nothing for you to do.
+
+Click the chip and DEV opens on that tab. A chip whose session has since ended says **closed** and opens the project with a new session. A project with several sessions names its number (*montee · 2*). Even when she writes no chip herself, a line right after she messaged a DEV tab, or heard from one, gets an **FYI** chip for it. The **DEV** button in the top bar counts the *needs your go* and *finished* chips you have not seen yet; the count goes as you open each tab. On the phone, the same line ends with the tab's name in brackets.
+
 ### When you push
 
 Push from a DEV tab (or from your own terminal while the tab is open) and your companion hears it within a minute: Castle sees the push land and, once the tab is quiet, says *"My push landed."* in it for you, so she reports it without you writing a thing: one line saying how many commits went where, said once. A fetch of someone else's commits never wakes her. If your project names its live address (in its CLAUDE.md, or the plan), she opens it once and tells you whether it answers. She never pushes or deploys herself. Castle keeps the last push it saw inside the project's `.git` folder, so nothing new appears in your project. It works with Claude Code, whose sessions read Castle's own settings; Codex sessions do not hear it.
